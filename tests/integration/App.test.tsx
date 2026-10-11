@@ -6,6 +6,7 @@ import {
   waitFor,
   fireEvent,
   within,
+  act,
 } from "@testing-library/react";
 import { http, HttpResponse } from "msw";
 import { describe, it, expect, beforeEach, vi } from "vitest";
@@ -24,7 +25,11 @@ import {
 import { emitTauriEvent } from "../msw/tauriMocks";
 import { server } from "../msw/server";
 import i18n from "@/i18n";
-import { UpdateProvider, UPDATE_STORAGE_KEYS } from "@/contexts/UpdateContext";
+import {
+  UpdateProvider,
+  UPDATE_STORAGE_KEYS,
+  useUpdate,
+} from "@/contexts/UpdateContext";
 import { UpdatePrompt } from "@/components/UpdatePrompt";
 
 // Successful setup fixtures must include the group catalog required by live
@@ -141,12 +146,6 @@ vi.mock("@/components/AppSwitcher", () => ({
   ),
 }));
 
-vi.mock("@/components/UpdateBadge", () => ({
-  UpdateBadge: ({ onClick }: any) => (
-    <button onClick={onClick}>update-badge</button>
-  ),
-}));
-
 vi.mock("@tauri-apps/api/app", () => ({ getVersion: async () => "0.1.69" }));
 
 vi.mock("@/components/mcp/McpPanel", () => ({
@@ -160,6 +159,12 @@ vi.mock("@/components/mcp/McpPanel", () => ({
     ),
 }));
 
+let appUpdate: ReturnType<typeof useUpdate>;
+function UpdateProbe() {
+  appUpdate = useUpdate();
+  return null;
+}
+
 const renderApp = (
   AppComponent: ComponentType,
   includeUpdatePrompt = false,
@@ -168,6 +173,7 @@ const renderApp = (
   return render(
     <QueryClientProvider client={client}>
       <UpdateProvider>
+        <UpdateProbe />
         <Suspense fallback={<div data-testid="loading">loading</div>}>
           <AppComponent />
         </Suspense>
@@ -194,6 +200,81 @@ const dismissOnboarding = async () => {
 };
 
 describe("App integration with MSW", { timeout: 15_000 }, () => {
+  it.each([false, true])(
+    "登录状态为 %s 时更新入口都在全局第一行，忽略后仍可打开，无更新时消失",
+    async (connected) => {
+      setSettings({ firstRunNoticeConfirmed: true });
+      setYuanhengConnection({ connected });
+      localStorage.setItem(UPDATE_STORAGE_KEYS.autoCheck, "false");
+      server.use(
+        http.post("http://tauri.local/check_desktop_update", () =>
+          HttpResponse.json({
+            currentVersion: "0.1.71",
+            availableVersion: "0.1.72",
+            notes: "顶部更新入口",
+          }),
+        ),
+        http.post("http://tauri.local/get_desktop_release_notes", () =>
+          HttpResponse.json(null),
+        ),
+      );
+      const { default: App } = await import("@/App");
+      renderApp(App, true);
+      if (connected) {
+        await screen.findByRole("heading", { name: "快捷控制台" });
+      } else {
+        await screen.findByLabelText("用户名");
+      }
+      expect(
+        screen.queryByTestId("update-notification-dot"),
+      ).not.toBeInTheDocument();
+      await act(async () => {
+        await appUpdate.checkUpdate({ showPrompt: false });
+      });
+      const topBar = screen.getByTestId("app-top-bar");
+      expect(topBar).toHaveStyle({ height: "36px" });
+      expect(
+        within(topBar).getByTestId("update-notification-dot"),
+      ).toBeVisible();
+      fireEvent.click(
+        within(topBar).getByRole("button", {
+          name: i18n.t("settings.updateTo", { version: "0.1.72" }),
+        }),
+      );
+      expect(
+        screen.getByRole("dialog", {
+          name: i18n.t("settings.updatePromptTitle"),
+        }),
+      ).toBeVisible();
+      fireEvent.click(
+        screen.getByRole("button", {
+          name: i18n.t("settings.ignoreThisVersion"),
+        }),
+      );
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+      fireEvent.click(
+        within(topBar).getByRole("button", {
+          name: i18n.t("settings.updateTo", { version: "0.1.72" }),
+        }),
+      );
+      expect(screen.getByRole("dialog")).toBeVisible();
+      server.use(
+        http.post("http://tauri.local/check_desktop_update", () =>
+          HttpResponse.json(null),
+        ),
+      );
+      await act(async () => {
+        await appUpdate.checkUpdate({ showPrompt: false });
+      });
+      expect(
+        screen.queryByTestId("update-notification-dot"),
+      ).not.toBeInTheDocument();
+      expect(screen.queryByTestId("app-top-bar")).not.toHaveStyle({
+        height: "36px",
+      });
+    },
+  );
+
   it.each([false, true])(
     "旧凭据拒绝且两步验证为 %s 时可更新，不读取恢复凭据",
     async (twoFactor) => {

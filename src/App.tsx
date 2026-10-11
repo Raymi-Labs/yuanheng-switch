@@ -53,6 +53,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { UpdateBadge } from "@/components/UpdateBadge";
+import { useUpdate } from "@/contexts/UpdateContext";
 import { ClaudeWorkspacePreparation } from "@/components/desktop/ClaudeWorkspacePreparation";
 import { ModeToggle } from "@/components/mode-toggle";
 import { LanguageSwitcher } from "@/components/desktop/LanguageSwitcher";
@@ -268,7 +269,13 @@ function App() {
   };
   const useAppWindowControls =
     isLinux() && (settingsData?.useAppWindowControls ?? false);
-  const dragBarHeight = useAppWindowControls ? 32 : DEFAULT_DRAG_BAR_HEIGHT;
+  const { hasUpdate, updateInfo } = useUpdate();
+  const showUpdateEntry = hasUpdate && Boolean(updateInfo);
+  const dragBarHeight = showUpdateEntry
+    ? 36
+    : useAppWindowControls
+      ? 32
+      : DEFAULT_DRAG_BAR_HEIGHT;
 
   const persistActiveApp = (app: YuanhengToolId) => {
     setActiveTool(app);
@@ -715,17 +722,27 @@ function App() {
       {(dragBarHeight > 0 || useAppWindowControls) && (
         <div
           className={cn(
-            "fixed left-0 right-0 top-0 z-[80] flex items-center justify-end px-2",
+            "fixed left-0 right-0 top-0 z-[80] flex items-center justify-end gap-3 px-3",
+            showUpdateEntry && "border-b bg-background",
             useAppWindowControls && "bg-[#11191b]",
           )}
-          data-tauri-drag-region
+          data-testid="app-top-bar"
+          {...DRAG_REGION_ATTR}
           style={
             {
-              WebkitAppRegion: "drag",
+              ...DRAG_REGION_STYLE,
               height: dragBarHeight,
             } as React.CSSProperties
           }
         >
+          {showUpdateEntry && (
+            <div
+              className="shrink-0"
+              style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
+            >
+              <UpdateBadge />
+            </div>
+          )}
           {useAppWindowControls && (
             <div
               className="flex items-center gap-1"
@@ -885,7 +902,6 @@ function App() {
                 >
                   <Settings className="h-4 w-4" />
                 </Button>
-                <UpdateBadge />
               </div>
             </header>
 

@@ -10,6 +10,7 @@ import { YuanhengAccessScreen } from "@/components/desktop/YuanhengAccessScreen"
 import { YUANHENG_WEBSITE_URL } from "@/config/yuanhengBrand";
 import { UpdateProvider, UPDATE_STORAGE_KEYS } from "@/contexts/UpdateContext";
 import { UpdatePrompt } from "@/components/UpdatePrompt";
+import { UpdateBadge } from "@/components/UpdateBadge";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { createTestQueryClient } from "../utils/testQueryClient";
 
@@ -59,6 +60,7 @@ function renderAccess(loading = false) {
   return render(
     <QueryClientProvider client={createTestQueryClient()}>
       <UpdateProvider>
+        <UpdateBadge />
         <YuanhengAccessScreen loading={loading} />
         <UpdatePrompt />
       </UpdateProvider>
@@ -110,6 +112,9 @@ describe("YuanhengAccessScreen", () => {
       fireEvent.click(
         screen.getByRole("button", { name: "settings.remindLater" }),
       );
+      expect(
+        screen.getAllByRole("button", { name: "settings.updateTo" }),
+      ).toHaveLength(1);
       fireEvent.click(
         screen.getByRole("button", { name: "settings.updateTo" }),
       );

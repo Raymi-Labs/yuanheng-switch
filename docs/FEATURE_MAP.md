@@ -25,7 +25,7 @@ pnpm remains the application package manager. Existing Tauri/Rust checks and sig
 
 回归：DSH Rust 测试、两入口安装/配置/启动与失败测试、真实 shell 校验失败拒绝测试，以及 `scripts/test-dsh-web.mjs` 对官方包和本机模拟模型服务的浏览器验收。使用步骤见 [DSH 首次使用](guides/dsh-first-run.md)。自动化结果不代表 Windows 真机或真实上游推理验收。
 
-Unauthenticated recovery: [YuanhengAccessScreen](../src/components/desktop/YuanhengAccessScreen.tsx) always exposes [AccessUpdateControl](../src/components/desktop/AccessUpdateControl.tsx), including login loading, credential errors, registration and two-factor challenges. It reuses the global [UpdateProvider](../src/contexts/UpdateContext.tsx) / [UpdatePrompt](../src/components/UpdatePrompt.tsx) and existing native updater; manual checks bypass automatic-check preferences and dismissed prompts. Check failures keep retry and the existing official download page reachable. Installing is exclusive with checks and duplicate installs; no authentication or credential-recovery command is required. Older binaries without this entry can use [manual recovery](release-announcements.md).
+Unauthenticated recovery: [YuanhengAccessScreen](../src/components/desktop/YuanhengAccessScreen.tsx) exposes [AccessUpdateControl](../src/components/desktop/AccessUpdateControl.tsx) for manual checks while no update is known, including login loading, credential errors, registration and two-factor challenges. Known updates use the shared top-row entry without duplicating the login button. It reuses the global [UpdateProvider](../src/contexts/UpdateContext.tsx) / [UpdatePrompt](../src/components/UpdatePrompt.tsx) and existing native updater; manual checks bypass automatic-check preferences and dismissed prompts. Check failures keep retry and the existing official download page reachable. Installing is exclusive with checks and duplicate installs; no authentication or credential-recovery command is required. Older binaries without this entry can use [manual recovery](release-announcements.md).
 
 Before adding a feature, inspect adjacent flows and the current source of truth; shared filters, data definitions and access rules must not diverge across entry points.
 
@@ -77,3 +77,7 @@ Claude diagnostic persistence uses a bounded background writer, not disk I/O on 
 [本地收藏存储](../src/components/desktop/useModelFavorites.ts) 使用固定 `yuanheng:group-favorites:v1` / `yuanheng:model-favorites:v1` key，只存分组名、模型 ID、厂商 ID，不含 API 密钥、账号或地址。偏好在同一客户端本地存储范围内跨入口共享（不按账号隔离），退出/切换账号不会清除偏好，但展示严格受新目录限制。不与 newapi 网页或其他设备同步；清理本地存储会丢失收藏。损坏数据回退空值，不可写提示失败且不影响正常选择。
 
 回归：`GroupPicker.favorites.test.tsx`、`ModelPicker.favorites.test.tsx`、既有分组/刷新测试及 `tests/integration/App.test.tsx` 三入口配置边界。决定与已验证范围见[本地收藏笔记](../.agents/notes/implemented/feature/2026-10-04-model-picker-favorites.md)。
+
+## 顶部更新提醒（2026-10-12）
+
+[App](../src/App.tsx) 在登录与工作台分支外的第一行挂载 [UpdateBadge](../src/components/UpdateBadge.tsx)。现有 UpdateProvider 确认可用新版后显示文字、目标版本与红点，无新版则移除并恢复原平台行高；忽略/延后仅控制自动弹窗，被动入口仍保留，主动点击重置偏好并打开 UpdatePrompt。检查、下载和安装期间禁用重复操作；顶栏遵循平台拖动规则，更新按钮与窗口控制隔开。更新端点、签名、检查频率及安装流程不变。

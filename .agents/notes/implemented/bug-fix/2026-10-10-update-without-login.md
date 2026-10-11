@@ -8,13 +8,13 @@ Status: implemented
 
 ## Existing capabilities and impact
 
-[UpdateProvider](../../../../src/contexts/UpdateContext.tsx) 和 [UpdatePrompt](../../../../src/components/UpdatePrompt.tsx) 已在 main.tsx 全局挂载；检查、签名下载和安装重启使用现有后端命令，不依赖元衡账号认证。工作台 UpdateBadge 只在有未忽略更新时出现，关于页可主动检查。[YuanhengAccessScreen](../../../../src/components/desktop/YuanhengAccessScreen.tsx) 覆盖未登录、认证错误、注册、两步验证和加载态，是入口归属。
+[UpdateProvider](../../../../src/contexts/UpdateContext.tsx) 和 [UpdatePrompt](../../../../src/components/UpdatePrompt.tsx) 已在 main.tsx 全局挂载；检查、签名下载和安装重启使用现有后端命令，不依赖元衡账号认证。全局顶部 UpdateBadge 展示可用版本，关于页可主动检查。[YuanhengAccessScreen](../../../../src/components/desktop/YuanhengAccessScreen.tsx) 覆盖未登录、认证错误、注册、两步验证和加载态，是入口归属。
 
 活跃笔记审计：[旧钥匙串交互](2026-10-10-macos-keychain-interaction.md)与[账号密码会话](2026-10-10-password-login-keychain-independence.md)两篇仅部分相关，此篇负责认证之外的更新入口并互链；[签名发布](../process/2026-10-09-macos-developer-id-release.md)继续负责构建身份；其他工具安装、模型选择、诊断笔记无关。
 
 ## Decision
 
-访问页通过 [AccessUpdateControl](../../../../src/components/desktop/AccessUpdateControl.tsx) 固定展示当前版本和手动更新入口，复用全局更新状态与弹窗。主动检查不受自动检查关闭、忽略和稍后提醒限制；已发现版本可重新打开。检查失败显示可重试状态和既有官方下载安装页入口。下载、安装沿用签名验证及重启；全局同步锁阻止自动检查中断已开始的安装和重复提交，失败释放锁以便重试，成功保持锁直到重启。复查版本时更新弹窗的安装按钮禁用并显示检查状态。入口在登录状态加载和两步验证时保留，不调用登录、恢复凭据或退出账号。
+访问页通过 [AccessUpdateControl](../../../../src/components/desktop/AccessUpdateControl.tsx) 展示当前版本，在尚未发现新版时保留手动检查，已发现新版统一使用[全局顶部更新入口](../feature/2026-10-12-top-row-update-entry.md)，复用全局更新状态与弹窗。主动检查不受自动检查关闭、忽略和稍后提醒限制；已发现版本可重新打开。检查失败显示可重试状态和既有官方下载安装页入口。下载、安装沿用签名验证及重启；全局同步锁阻止自动检查中断已开始的安装和重复提交，失败释放锁以便重试，成功保持锁直到重启。复查版本时更新弹窗的安装按钮禁用并显示检查状态。入口在登录状态加载和两步验证时保留，不调用登录、恢复凭据或退出账号。
 
 ## Alternatives considered
 
