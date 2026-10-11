@@ -26,14 +26,7 @@ struct Record {
 }
 
 fn home() -> PathBuf {
-    #[cfg(test)]
-    if std::env::var_os("YUANHENG_SWITCH_TEST_HOME").is_some() {
-        return crate::config::get_home_dir().join(".dsh");
-    }
-    std::env::var_os("DSH_HOME")
-        .filter(|s| !s.is_empty())
-        .map(PathBuf::from)
-        .unwrap_or_else(|| crate::config::get_home_dir().join(".dsh"))
+    crate::commands::dsh_install::home()
 }
 
 fn paths(home: &Path) -> Vec<PathBuf> {

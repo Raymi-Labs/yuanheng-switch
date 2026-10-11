@@ -349,12 +349,42 @@ pub async fn get_installed_tool_versions(
 
 #[tauri::command]
 pub async fn run_tool_lifecycle_action(
+    app: AppHandle,
     tools: Vec<String>,
     action: String,
     wsl_shell_by_tool: Option<HashMap<String, WslShellPreferenceInput>>,
     operation_id: Option<String>,
 ) -> Result<(), String> {
     let action = ToolLifecycleAction::from_str(&action)?;
+    if tools.iter().any(|tool| tool == "dsh") {
+        if tools != ["dsh"] || !matches!(action, ToolLifecycleAction::Install) {
+            return Err("DSH 请单独安装；当前不支持通过通用工具更新入口升级".into());
+        }
+        let guard = ToolLifecycleGuard::acquire(&["dsh"])?;
+        let operation = super::tool_install_process::Operation::register(
+            operation_id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string()),
+        )?;
+        let original_path = crate::app_store::get_desktop_app_path_from_store(&app, "dsh");
+        let result = super::dsh_install::install(operation.cancelled.clone()).await;
+        if result
+            .as_ref()
+            .err()
+            .is_some_and(|e| e.contains("[INSTALL_CLEANUP_FAILED]"))
+        {
+            std::mem::forget(guard);
+        }
+        if result.is_ok() {
+            if crate::app_store::get_desktop_app_path_from_store(&app, "dsh") != original_path {
+                return Err(
+                    "DSH 已安装，但安装期间自选路径已变化，已保留新选择；请重新检测后启动".into(),
+                );
+            }
+            // Explicit installation selects the managed runtime. Keep the old files.
+            crate::app_store::set_desktop_app_path_to_store(&app, "dsh", None)
+                .map_err(|_| "DSH 已安装，但自动路径选择未保存，请清除自选路径后重试")?;
+        }
+        return result;
+    }
     let requested = normalize_requested_tools(&tools);
     if requested.is_empty() {
         return Err("No supported tools selected".to_string());
@@ -416,6 +446,9 @@ fn native_install_supported(_tool: &str) -> bool {
 
 #[tauri::command]
 pub fn native_tool_install_supported(tools: Vec<String>) -> bool {
+    if tools == ["dsh"] {
+        return true;
+    }
     let requested = normalize_requested_tools(&tools);
     !requested.is_empty()
         && requested.len() == tools.len()
@@ -796,7 +829,7 @@ const CLAUDE_INSTALL_WINDOWS_SCRIPT: &str =
     include_str!("../../scripts/install-claude-windows.ps1");
 
 #[cfg(target_os = "windows")]
-fn powershell_encoded_command(script: &str) -> String {
+pub(super) fn powershell_encoded_command(script: &str) -> String {
     use base64::{engine::general_purpose::STANDARD, Engine as _};
 
     let mut bytes = Vec::with_capacity(script.len() * 2);
@@ -1161,9 +1194,32 @@ fn get_single_local_tool_version_impl(
         tool,
         "claude-desktop" | "chatgpt-desktop" | "workbuddy" | "dsh"
     ) {
+        if tool == "dsh" && custom_path.is_none() {
+            if let Some(dir) = super::dsh_install::installed() {
+                let mut result = desktop_app_version(tool, None);
+                let runnable = super::dsh_install::verify(&dir);
+                result.version = runnable.then(|| super::dsh_install::VERSION.into());
+                result.install_path = Some(dir.to_string_lossy().into_owned());
+                result.detection_source = Some("automatic".into());
+                result.error = (!runnable).then(|| "DSH 独立运行环境已损坏，请重新安装".into());
+                result.installed_but_broken = !runnable;
+                return result;
+            }
+            if resolve_path_launch_command("dsh").is_some() {
+                // A CLI installation is not a desktop bundle; use the ordinary CLI probe.
+                return cli_local_tool_version(tool, wsl_shell, wsl_shell_flag);
+            }
+        }
         return desktop_app_version(tool, custom_path);
     }
+    cli_local_tool_version(tool, wsl_shell, wsl_shell_flag)
+}
 
+fn cli_local_tool_version(
+    tool: &str,
+    wsl_shell: Option<&str>,
+    wsl_shell_flag: Option<&str>,
+) -> ToolVersion {
     // 判断该工具的运行环境 & WSL distro（如有）
     let (env_type, wsl_distro) = tool_env_type_and_wsl_distro(tool);
 
@@ -3439,6 +3495,11 @@ pub async fn pick_desktop_app_path(app: AppHandle, tool: String) -> Result<Optio
         selected.to_string_lossy().as_ref(),
     )?;
     let path = resolved.to_string_lossy().to_string();
+    let _dsh_guard = if tool == "dsh" {
+        Some(ToolLifecycleGuard::acquire(&["dsh"])?)
+    } else {
+        None
+    };
     crate::app_store::set_desktop_app_path_to_store(&app, &tool, Some(&path))
         .map_err(|e| e.to_string())?;
     Ok(Some(path))
@@ -3452,6 +3513,11 @@ pub async fn set_desktop_app_path(
     path: Option<String>,
 ) -> Result<bool, String> {
     ensure_desktop_path_tool(&tool)?;
+    let _dsh_guard = if tool == "dsh" {
+        Some(ToolLifecycleGuard::acquire(&["dsh"])?)
+    } else {
+        None
+    };
     let resolved = match path
         .as_deref()
         .map(str::trim)
@@ -3527,37 +3593,72 @@ pub async fn launch_tool(
 ) -> Result<bool, String> {
     if tool == "dsh" || tool == "dsh-web" {
         let custom = crate::app_store::get_desktop_app_path_from_store(&app, "dsh");
+        if custom.is_none() {
+            if let Some(dir) = super::dsh_install::installed() {
+                let check_dir = dir.clone();
+                if !tokio::task::spawn_blocking(move || super::dsh_install::verify(&check_dir))
+                    .await
+                    .unwrap_or(false)
+                {
+                    return Err("DSH 独立运行环境无法启动，请重新安装".into());
+                }
+                let command = super::dsh_install::managed_command(&dir);
+                tokio::task::spawn_blocking(move || {
+                    launch_terminal_running(&command, "tool_dsh", None)
+                })
+                .await
+                .map_err(|_| "DSH 启动任务失败")??;
+                return Ok(true);
+            }
+        }
         let source = custom
             .as_ref()
             .map(std::path::PathBuf::from)
             .filter(|p| crate::desktop_app_detection::is_dsh_source(p));
         if let Some(source) = source {
-            let command = if tool == "dsh-web" {
-                "pnpm dsh --profile web"
+            if !source.join("node_modules").is_dir() {
+                return Err(
+                    "所选 DSH 源码缺少依赖。可清除自选路径后使用元衡一键安装，原源码不会删除。"
+                        .into(),
+                );
+            }
+            let pnpm = resolve_path_launch_command("pnpm")
+                .ok_or("所选 DSH 源码需要 pnpm；可清除自选路径后使用一键安装")?;
+            let command = if tool == "dsh" && source.join("apps/desktop/package.json").is_file() {
+                "pnpm run start:desktop".to_string()
             } else {
-                "pnpm run start:desktop"
+                if !source.join("apps/cli/lib/bin.js").is_file()
+                    || !source.join("apps/web/dist/index.html").is_file()
+                {
+                    return Err("所选 DSH 源码尚未构建 Web。可清除自选路径后使用元衡一键安装，原源码不会删除。".into());
+                }
+                super::dsh_install::web_command(&pnpm, &["dsh".into()], None)
             };
             // cwd is handed to the terminal launcher as a path, never interpolated into shell code.
             tokio::task::spawn_blocking(move || {
-                launch_terminal_running(command, "tool_dsh", Some(&source))
+                launch_terminal_running(&command, "tool_dsh", Some(&source))
             })
             .await
             .map_err(|e| format!("DSH 启动失败: {e}"))??;
             return Ok(true);
         }
-        if tool == "dsh-web" {
-            if resolve_path_launch_command("dsh").is_none() {
+        if tool == "dsh-web" || custom.is_none() {
+            let executable = resolve_path_launch_command("dsh");
+            if executable.is_none() && tool == "dsh-web" {
                 return Err(
                     "请先安装 DSH 命令行，或为 DSH 选择 deepseek-harness 源码目录，再启动本机 Web"
                         .into(),
                 );
             }
-            tokio::task::spawn_blocking(move || {
-                launch_terminal_running("dsh --profile web", "tool_dsh_web", None)
-            })
-            .await
-            .map_err(|e| format!("DSH Web 启动失败: {e}"))??;
-            return Ok(true);
+            if let Some(executable) = executable {
+                let command = super::dsh_install::web_command(&executable, &[], None);
+                tokio::task::spawn_blocking(move || {
+                    launch_terminal_running(&command, "tool_dsh_web", None)
+                })
+                .await
+                .map_err(|e| format!("DSH Web 启动失败: {e}"))??;
+                return Ok(true);
+            }
         }
     }
     if matches!(tool.as_str(), "codex" | "chatgpt-desktop") {

@@ -9,6 +9,7 @@ mod coding_plan;
 mod config;
 mod copilot;
 mod deeplink;
+pub(crate) mod dsh_install;
 mod env;
 mod failover;
 mod global_proxy;
