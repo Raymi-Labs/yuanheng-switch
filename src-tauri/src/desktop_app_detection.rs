@@ -38,7 +38,7 @@ impl DesktopAppResolution {
 }
 
 pub(crate) fn is_dsh_source(path: &Path) -> bool {
-    path.join("apps/desktop/package.json").is_file()
+    (path.join("apps/desktop/package.json").is_file() || path.join("apps/cli/src/bin.ts").is_file())
         && std::fs::read_to_string(path.join("package.json"))
             .ok()
             .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
@@ -885,6 +885,26 @@ mod tests {
         assert!(
             validate_custom_desktop_app_path("workbuddy", dir.path().to_str().unwrap()).is_err()
         );
+    }
+
+    #[test]
+    fn dsh_cli_web_source_does_not_require_a_removed_desktop_directory() {
+        let dir = tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("apps/cli/src")).unwrap();
+        std::fs::write(
+            dir.path().join("apps/cli/src/bin.ts"),
+            "throw new Error('must not execute')",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.path().join("package.json"),
+            r#"{"name":"@deepseek-ai/dsh-root"}"#,
+        )
+        .unwrap();
+        assert!(is_dsh_source(dir.path()));
+        assert!(validate_custom_desktop_app_path("dsh", dir.path().to_str().unwrap()).is_ok());
+        std::fs::write(dir.path().join("package.json"), r#"{"name":"unrelated"}"#).unwrap();
+        assert!(!is_dsh_source(dir.path()));
     }
 
     #[test]

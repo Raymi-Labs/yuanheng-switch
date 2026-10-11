@@ -17,6 +17,14 @@ Fresh macOS password, registration and two-factor sign-ins use [credential sessi
 
 pnpm remains the application package manager. Existing Tauri/Rust checks and signed release workflows remain unchanged.
 
+## DSH 安装与本机 Web（2026-10-11，本地）
+
+工作台 `ModelSwitchCenter/useModelSwitchCenter` 和工具管理 `ToolSetupGrid` 共用显式安装能力，检测目标不再等于安装能力。`settingsApi.runToolLifecycleAction` → `misc.rs` 的 DSH 专用分支 → `dsh_install.rs`，复用任务 ID、锁、取消与进程组/Windows Job 监督。Node 24.14.0 按平台固定 SHA256，官方 npm DSH 固定 0.2.0-rc.2，独立目录安装、不执行 npm lifecycle scripts、不改全局 Node。成功验证后原子发布安装标记，取消/失败不替换旧安装；安装后配置成功才请求启动。
+
+识别及启动复用 `desktop_app_detection` 与 `launch_tool`：优先明确选择的应用/源码，否则使用托管运行时或已有 CLI。CLI/Web 源码不要求 `apps/desktop`；源码缺依赖/构建明确报错，不自动更新工作树。托管运行时检测执行有界版本检查，启动 Web 固定 loopback、随机空闲端口、明确 DSH_HOME，并关闭会话遥测。配置仍归 `yuanheng/dsh.rs` 的事务与拥有权逻辑。`useInstallContinuation` 阻止安装完成后跨页面卸载/账号切换继续应用旧意图。
+
+回归：DSH Rust 测试、两入口安装/配置/启动与失败测试、真实 shell 校验失败拒绝测试，以及 `scripts/test-dsh-web.mjs` 对官方包和本机模拟模型服务的浏览器验收。使用步骤见 [DSH 首次使用](guides/dsh-first-run.md)。自动化结果不代表 Windows 真机或真实上游推理验收。
+
 Unauthenticated recovery: [YuanhengAccessScreen](../src/components/desktop/YuanhengAccessScreen.tsx) always exposes [AccessUpdateControl](../src/components/desktop/AccessUpdateControl.tsx), including login loading, credential errors, registration and two-factor challenges. It reuses the global [UpdateProvider](../src/contexts/UpdateContext.tsx) / [UpdatePrompt](../src/components/UpdatePrompt.tsx) and existing native updater; manual checks bypass automatic-check preferences and dismissed prompts. Check failures keep retry and the existing official download page reachable. Installing is exclusive with checks and duplicate installs; no authentication or credential-recovery command is required. Older binaries without this entry can use [manual recovery](release-announcements.md).
 
 Before adding a feature, inspect adjacent flows and the current source of truth; shared filters, data definitions and access rules must not diverge across entry points.

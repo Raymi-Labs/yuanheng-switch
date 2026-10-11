@@ -16,6 +16,7 @@ vi.mock("sonner", () => ({
   toast: {
     success: vi.fn(),
     error: vi.fn(),
+    info: vi.fn(),
   },
 }));
 
@@ -199,6 +200,89 @@ describe("useModelSwitchCenter", () => {
         return Promise.resolve(true);
       },
     );
+  });
+
+  it("installs DSH, verifies detection, configures the selected model and only then launches", async () => {
+    statuses = [{ ...toolStatus("dsh", "model-a"), configured: false }];
+    const { wrapper } = createWrapper();
+    const { result } = renderHook(() => useModelSwitchCenter(), { wrapper });
+    await waitFor(() => expect(result.current.bootstrapPhase).toBe("ready"));
+    let install!: Promise<void>;
+    act(() => {
+      install = result.current.install("dsh");
+    });
+    await waitFor(() => expect(configureResolvers.has("dsh")).toBe(true));
+    expect(
+      invokeMock.mock.calls.some(([command]) => command === "launch_tool"),
+    ).toBe(false);
+    await act(async () => {
+      configureResolvers.get("dsh")!([
+        {
+          app: "dsh",
+          configured: true,
+          model: "model-a",
+        } as YuanhengToolConfigureResult,
+      ]);
+      await install;
+    });
+    const calls = invokeMock.mock.calls.map(([command]) => command);
+    expect(calls.indexOf("run_tool_lifecycle_action")).toBeLessThan(
+      calls.indexOf("configure_yuanheng_tools"),
+    );
+    expect(calls.indexOf("configure_yuanheng_tools")).toBeLessThan(
+      calls.indexOf("launch_tool"),
+    );
+    expect(invokeMock).toHaveBeenCalledWith(
+      "run_tool_lifecycle_action",
+      expect.objectContaining({ tools: ["dsh"], action: "install" }),
+    );
+  });
+
+  it("keeps an installed DSH available but never launches after configuration fails", async () => {
+    statuses = [{ ...toolStatus("dsh", "model-a"), configured: false }];
+    const { wrapper } = createWrapper();
+    const { result } = renderHook(() => useModelSwitchCenter(), { wrapper });
+    await waitFor(() => expect(result.current.bootstrapPhase).toBe("ready"));
+    let install!: Promise<void>;
+    act(() => {
+      install = result.current.install("dsh");
+    });
+    await waitFor(() => expect(configureResolvers.has("dsh")).toBe(true));
+    await act(async () => {
+      configureResolvers.get("dsh")!([
+        {
+          app: "dsh",
+          configured: false,
+          error: "synthetic configuration failure",
+        } as YuanhengToolConfigureResult,
+      ]);
+      await install;
+    });
+    expect(
+      invokeMock.mock.calls.some(([command]) => command === "launch_tool"),
+    ).toBe(false);
+  });
+
+  it("does not configure or launch when the DSH installation is cancelled", async () => {
+    statuses = [{ ...toolStatus("dsh", "model-a"), configured: false }];
+    const base = invokeMock.getMockImplementation()!;
+    invokeMock.mockImplementation((command, payload) =>
+      command === "run_tool_lifecycle_action"
+        ? Promise.reject(
+            new Error("[INSTALL_CANCELLED] synthetic cancellation"),
+          )
+        : base(command, payload),
+    );
+    const { wrapper } = createWrapper();
+    const { result } = renderHook(() => useModelSwitchCenter(), { wrapper });
+    await waitFor(() => expect(result.current.bootstrapPhase).toBe("ready"));
+    await act(async () => {
+      await result.current.install("dsh");
+    });
+    expect(configureResolvers.size).toBe(0);
+    expect(
+      invokeMock.mock.calls.some(([command]) => command === "launch_tool"),
+    ).toBe(false);
   });
 
   it("keeps the dashboard in loading state until local inventory resolves", async () => {

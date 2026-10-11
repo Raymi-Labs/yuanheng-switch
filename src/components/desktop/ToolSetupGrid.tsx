@@ -83,6 +83,7 @@ import {
   pickPreferredGroup,
   resolveToolSetupSelection,
 } from "./toolSetupSelection";
+import { useInstallContinuation } from "./useInstallContinuation";
 export { pickPreferredGroup } from "./toolSetupSelection";
 
 export const TOOL_COMMANDS: Partial<Record<YuanhengToolId, string>> = {
@@ -95,6 +96,7 @@ export const TOOL_COMMANDS: Partial<Record<YuanhengToolId, string>> = {
   opencode: "opencode",
   openclaw: "openclaw",
   hermes: "hermes",
+  dsh: "dsh",
 };
 
 export const TOOL_VERSION_TARGETS: Partial<Record<YuanhengToolId, string>> = {
@@ -108,6 +110,10 @@ export const DESKTOP_DOWNLOAD_URLS: Partial<Record<YuanhengToolId, string>> = {
   "chatgpt-desktop": "https://openai.com/codex/",
   workbuddy: "https://www.codebuddy.cn/work/",
 };
+
+/** Detection alone never grants installation capability. Shared by both surfaces. */
+export const canInstallTool = (app: YuanhengToolId) =>
+  Boolean(TOOL_COMMANDS[app] || DESKTOP_DOWNLOAD_URLS[app]);
 
 export const REASONING_LABELS: Record<YuanhengReasoningLevel, string> = {
   auto: "自动",
@@ -158,6 +164,7 @@ function ToolSetupGridContent({
   onConfigured,
   connection,
 }: ToolSetupGridProps & { connection?: YuanhengConnectionStatus }) {
+  const installContinuation = useInstallContinuation(connection);
   const refreshConnection = useRefreshYuanheng();
   const statuses = useYuanhengToolStatuses();
   const configure = useConfigureYuanhengTools();
@@ -322,10 +329,14 @@ function ToolSetupGridContent({
     return requiresConfiguration;
   };
 
-  const configureApps = async (apps: YuanhengToolId[]) => {
+  const configureApps = async (
+    apps: YuanhengToolId[],
+    canContinue = () => true,
+  ) => {
     if (!beginAction()) return false;
     try {
       await preflightApps(apps);
+      if (!canContinue()) return false;
       const selectedModels = Object.fromEntries(
         apps
           .map((app) => [app, models[app]])
@@ -455,6 +466,7 @@ function ToolSetupGridContent({
   };
 
   const installTool = async (app: YuanhengToolId) => {
+    const canContinue = installContinuation();
     const command = TOOL_COMMANDS[app];
     const downloadUrl = DESKTOP_DOWNLOAD_URLS[app];
     if (!command && !downloadUrl) return;
@@ -513,6 +525,16 @@ function ToolSetupGridContent({
       );
       clearToolInventoryCache();
       await versions.refetch();
+      if (app === "dsh" && connection?.connected && canContinue()) {
+        const configured = await configureApps([app], canContinue);
+        if (!configured) {
+          toast.info(dt("DSH 已安装，但配置未完成，请重试配置后启动"));
+          return;
+        }
+        if (!canContinue()) return;
+        await yuanhengApi.launchTool(app);
+        toast.success(dt("DSH 已配置，正在打开本机 Web 界面"));
+      }
     } catch (error) {
       showToolInstallError(error);
     }
@@ -771,12 +793,11 @@ function ToolSetupGridContent({
         )}
       >
         {tools.map((app, index) => {
-          const command = TOOL_COMMANDS[app];
           const versionTarget = TOOL_VERSION_TARGETS[app];
           const version = versionTarget
             ? versionMap.get(versionTarget)
             : undefined;
-          const canInstall = Boolean(command || DESKTOP_DOWNLOAD_URLS[app]);
+          const canInstall = canInstallTool(app);
           const installed = isInstalled(app);
           const cliPhase = cliLifecycle.get(TOOL_VERSION_TARGETS[app] ?? "");
           const installing =
@@ -950,7 +971,7 @@ function ToolSetupGridContent({
                   {app === "dsh" && (
                     <p className="mt-1 text-muted-foreground">
                       {dt(
-                        "可选择 DeepSeek Harness 应用，或 deepseek-harness 源码目录。源码启动需要已完成 DSH 构建并安装 pnpm。",
+                        "可选择 DeepSeek Harness 应用或源码目录；源码需要依赖及构建。一键安装会独立准备运行环境并打开本机 Web，不修改旧目录。",
                       )}
                     </p>
                   )}

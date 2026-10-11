@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useInstallContinuation } from "./useInstallContinuation";
 import { ClaudeWorkspaceDeferredError } from "@/lib/claudeWorkspaceSetup";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -32,6 +33,7 @@ import {
   DESKTOP_TOOLS,
   DESKTOP_DOWNLOAD_URLS,
   TOOL_VERSION_TARGETS,
+  TOOL_COMMANDS,
   isDesktopApp,
   pickPreferredGroup,
   toolLabel,
@@ -62,6 +64,7 @@ export type ModelSwitchBootstrapPhase = "loading" | "ready" | "error";
 export function useModelSwitchCenter() {
   const queryClient = useQueryClient();
   const { data: connection } = useYuanhengConnection();
+  const installContinuation = useInstallContinuation(connection);
   const refreshConnection = useRefreshYuanheng();
   const statuses = useYuanhengToolStatuses();
   const configure = useConfigureYuanhengTools();
@@ -311,16 +314,18 @@ export function useModelSwitchCenter() {
   };
 
   const install = async (app: YuanhengToolId) => {
-    const command = TOOL_VERSION_TARGETS[app];
+    const canContinue = installContinuation();
+    const command = TOOL_COMMANDS[app];
     const downloadUrl = DESKTOP_DOWNLOAD_URLS[app];
     if (!command && !downloadUrl) return;
     if (command && isToolLifecycleBusy(command)) return;
     try {
       if (downloadUrl) {
-        if (!command) return;
+        const versionTarget = TOOL_VERSION_TARGETS[app];
+        if (!versionTarget) return;
         const monitor = desktopInstall.openAndMonitor(
           app,
-          command,
+          versionTarget,
           downloadUrl,
         );
         toast.info(
@@ -390,6 +395,9 @@ export function useModelSwitchCenter() {
       );
       clearToolInventoryCache();
       await inventory.refetch();
+      if (app === "dsh" && connection?.connected && canContinue()) {
+        await launch(app, canContinue);
+      }
     } catch (error) {
       showToolInstallError(error);
     }
@@ -666,7 +674,7 @@ export function useModelSwitchCenter() {
     }
   };
 
-  const launch = async (app: YuanhengToolId) => {
+  const launch = async (app: YuanhengToolId, canContinue = () => true) => {
     const operationId = beginOperation(app);
     try {
       const status = statusMap.get(app);
@@ -705,7 +713,7 @@ export function useModelSwitchCenter() {
         !usesOfficialCodexAccount && model
           ? await runPreflight(app, model, group, normalizedReasoning)
           : undefined;
-      if (!isCurrentOperation(app, operationId)) return;
+      if (!isCurrentOperation(app, operationId) || !canContinue()) return;
       const needsApply =
         dirty || Boolean(credentialCheck?.requiresConfiguration);
       if (needsApply && model) {
@@ -724,7 +732,7 @@ export function useModelSwitchCenter() {
           setModels((current) => ({ ...current, [app]: configuredModel }));
         }
       }
-      if (!isCurrentOperation(app, operationId)) return;
+      if (!isCurrentOperation(app, operationId) || !canContinue()) return;
       const shouldRestart = isDesktopApp(app) && (needsApply || restartPending);
       await yuanhengApi.launchTool(
         app,

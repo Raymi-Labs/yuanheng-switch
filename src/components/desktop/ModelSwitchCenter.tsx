@@ -18,6 +18,7 @@ import { CompactSelectPicker } from "./CompactSelectPicker";
 import { GroupPicker } from "./GroupPicker";
 import {
   DESKTOP_DOWNLOAD_URLS,
+  canInstallTool,
   isDesktopApp,
   pickPreferredGroup,
   reasoningLabel,
@@ -351,31 +352,33 @@ export function ModelSwitchCenter({
                           {dt("选择路径")}
                         </Button>
                       )}
-                      {!installed && !detectionFailed && (
-                        <Button
-                          size="sm"
-                          className="h-8 px-2.5 text-[10px]"
-                          disabled={installing}
-                          onClick={() => void install(app)}
-                        >
-                          {installing ? (
-                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                          ) : (
-                            <Download className="h-3.5 w-3.5" />
-                          )}
-                          {installing
-                            ? DESKTOP_DOWNLOAD_URLS[app]
-                              ? dt("等待安装")
-                              : toolInstallLabel(
-                                  cliLifecycle.get(
-                                    TOOL_VERSION_TARGETS[app] ?? "",
-                                  ),
-                                )
-                            : DESKTOP_DOWNLOAD_URLS[app]
-                              ? dt("官方下载")
-                              : dt("一键安装")}
-                        </Button>
-                      )}
+                      {!installed &&
+                        !detectionFailed &&
+                        canInstallTool(app) && (
+                          <Button
+                            size="sm"
+                            className="h-8 px-2.5 text-[10px]"
+                            disabled={installing}
+                            onClick={() => void install(app)}
+                          >
+                            {installing ? (
+                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            ) : (
+                              <Download className="h-3.5 w-3.5" />
+                            )}
+                            {installing
+                              ? DESKTOP_DOWNLOAD_URLS[app]
+                                ? dt("等待安装")
+                                : toolInstallLabel(
+                                    cliLifecycle.get(
+                                      TOOL_VERSION_TARGETS[app] ?? "",
+                                    ),
+                                  )
+                              : DESKTOP_DOWNLOAD_URLS[app]
+                                ? dt("官方下载")
+                                : dt("一键安装")}
+                          </Button>
+                        )}
                     </div>
                   )}
                 </div>
