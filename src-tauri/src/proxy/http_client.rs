@@ -3,7 +3,7 @@
 //! 提供支持全局代理配置的 HTTP 客户端。
 //! 所有需要发送 HTTP 请求的模块都应使用此模块提供的客户端。
 
-use once_cell::sync::OnceCell;
+use once_cell::sync::{Lazy, OnceCell};
 use reqwest::Client;
 use std::env;
 use std::net::IpAddr;
@@ -11,10 +11,70 @@ use std::sync::RwLock;
 use std::time::Duration;
 
 /// 全局 HTTP 客户端实例
-static GLOBAL_CLIENT: OnceCell<RwLock<Client>> = OnceCell::new();
+static GLOBAL_CLIENT: Lazy<RwLock<ClientState>> = Lazy::new(|| RwLock::new(ClientState::default()));
 
-/// 当前代理 URL（用于日志和状态查询）
-static CURRENT_PROXY_URL: OnceCell<RwLock<Option<String>>> = OnceCell::new();
+// No Debug implementation: snapshots can contain proxy credentials. Never log them.
+#[derive(PartialEq, Eq)]
+struct ClientConfig {
+    proxy_url: Option<String>,
+    system: Option<SystemProxySnapshot>,
+}
+
+#[derive(PartialEq, Eq)]
+struct SystemProxySnapshot {
+    environment: Vec<Option<std::ffi::OsString>>,
+    platform: Vec<Option<String>>,
+    local_port: u16,
+}
+
+impl ClientConfig {
+    fn capture(proxy_url: Option<&str>) -> Self {
+        let proxy_url = proxy_url
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_owned);
+        let system = proxy_url.is_none().then(|| SystemProxySnapshot {
+            environment: [
+                "HTTP_PROXY",
+                "http_proxy",
+                "HTTPS_PROXY",
+                "https_proxy",
+                "ALL_PROXY",
+                "all_proxy",
+                "NO_PROXY",
+                "no_proxy",
+                "REQUEST_METHOD",
+            ]
+            .iter()
+            .map(env::var_os)
+            .collect(),
+            platform: super::system_proxy::snapshot(),
+            local_port: get_proxy_port(),
+        });
+        Self { proxy_url, system }
+    }
+}
+
+#[derive(Default)]
+struct ClientState {
+    configured: Option<(ClientConfig, Client)>,
+}
+
+impl ClientState {
+    fn apply(&mut self, config: ClientConfig) -> Result<bool, String> {
+        if self
+            .configured
+            .as_ref()
+            .is_some_and(|(current, _)| *current == config)
+        {
+            return Ok(false);
+        }
+        // Build before replacing either field; failure leaves the working client intact.
+        let client = build_client(config.proxy_url.as_deref())?;
+        self.configured = Some((config, client));
+        Ok(true)
+    }
+}
 
 /// YuanHeng Switch 代理服务器当前监听的端口
 static CC_SWITCH_PROXY_PORT: OnceCell<RwLock<u16>> = OnceCell::new();
@@ -49,34 +109,9 @@ fn get_proxy_port() -> u16 {
 ///
 /// # Arguments
 /// * `proxy_url` - 代理 URL，如 `http://127.0.0.1:7890` 或 `socks5://127.0.0.1:1080`
-///   传入 None 或空字符串表示直连
+///   传入 None 或空字符串表示跟随系统代理
 pub fn init(proxy_url: Option<&str>) -> Result<(), String> {
-    let effective_url = proxy_url.filter(|s| !s.trim().is_empty());
-    let client = build_client(effective_url)?;
-
-    // 尝试初始化全局客户端，如果已存在则记录警告并使用 apply_proxy 更新
-    if GLOBAL_CLIENT.set(RwLock::new(client.clone())).is_err() {
-        log::warn!(
-            "[GlobalProxy] [GP-003] Already initialized, updating instead: {}",
-            effective_url
-                .map(mask_url)
-                .unwrap_or_else(|| "direct connection".to_string())
-        );
-        // 已初始化，改用 apply_proxy 更新
-        return apply_proxy(proxy_url);
-    }
-
-    // 初始化代理 URL 记录
-    let _ = CURRENT_PROXY_URL.set(RwLock::new(effective_url.map(|s| s.to_string())));
-
-    log::info!(
-        "[GlobalProxy] Initialized: {}",
-        effective_url
-            .map(mask_url)
-            .unwrap_or_else(|| "direct connection".to_string())
-    );
-
-    Ok(())
+    apply_proxy(proxy_url)
 }
 
 /// 验证代理配置（不应用）
@@ -85,12 +120,12 @@ pub fn init(proxy_url: Option<&str>) -> Result<(), String> {
 /// 用于在持久化之前验证配置的有效性。
 ///
 /// # Arguments
-/// * `proxy_url` - 代理 URL，None 或空字符串表示直连
+/// * `proxy_url` - 代理 URL，None 或空字符串表示跟随系统代理
 ///
 /// # Returns
 /// 验证成功返回 Ok(())，失败返回错误信息
 pub fn validate_proxy(proxy_url: Option<&str>) -> Result<(), String> {
-    let effective_url = proxy_url.filter(|s| !s.trim().is_empty());
+    let effective_url = proxy_url.map(str::trim).filter(|s| !s.is_empty());
     // 只调用 build_client 来验证，但不应用
     build_client(effective_url)?;
     Ok(())
@@ -102,39 +137,21 @@ pub fn validate_proxy(proxy_url: Option<&str>) -> Result<(), String> {
 /// 应在 validate_proxy 成功后调用。
 ///
 /// # Arguments
-/// * `proxy_url` - 代理 URL，None 或空字符串表示直连
+/// * `proxy_url` - 代理 URL，None 或空字符串表示跟随系统代理
 pub fn apply_proxy(proxy_url: Option<&str>) -> Result<(), String> {
-    let effective_url = proxy_url.filter(|s| !s.trim().is_empty());
-    let new_client = build_client(effective_url)?;
-
-    // 更新客户端
-    if let Some(lock) = GLOBAL_CLIENT.get() {
-        let mut client = lock.write().map_err(|e| {
-            log::error!("[GlobalProxy] [GP-001] Failed to acquire write lock: {e}");
-            "Failed to update proxy: lock poisoned".to_string()
-        })?;
-        *client = new_client;
-    } else {
-        // 如果还没初始化，则初始化
-        return init(proxy_url);
-    }
-
-    // 更新代理 URL 记录
-    if let Some(lock) = CURRENT_PROXY_URL.get() {
-        let mut url = lock.write().map_err(|e| {
-            log::error!("[GlobalProxy] [GP-002] Failed to acquire URL write lock: {e}");
-            "Failed to update proxy URL record: lock poisoned".to_string()
-        })?;
-        *url = effective_url.map(|s| s.to_string());
-    }
-
-    log::info!(
-        "[GlobalProxy] Applied: {}",
-        effective_url
+    let mut state = GLOBAL_CLIENT
+        .write()
+        .map_err(|_| "Failed to update proxy: lock poisoned".to_string())?;
+    let config = ClientConfig::capture(proxy_url);
+    if state.apply(config)? {
+        let mode = state
+            .configured
+            .as_ref()
+            .and_then(|(config, _)| config.proxy_url.as_deref())
             .map(mask_url)
-            .unwrap_or_else(|| "direct connection".to_string())
-    );
-
+            .unwrap_or_else(|| "system proxy (or direct when unavailable)".to_string());
+        log::info!("[GlobalProxy] Applied: {mode}");
+    }
     Ok(())
 }
 
@@ -145,41 +162,10 @@ pub fn apply_proxy(proxy_url: Option<&str>) -> Result<(), String> {
 /// 请使用 validate_proxy + apply_proxy 组合。
 ///
 /// # Arguments
-/// * `proxy_url` - 新的代理 URL，None 或空字符串表示直连
+/// * `proxy_url` - 新的代理 URL，None 或空字符串表示跟随系统代理
 #[allow(dead_code)]
 pub fn update_proxy(proxy_url: Option<&str>) -> Result<(), String> {
-    let effective_url = proxy_url.filter(|s| !s.trim().is_empty());
-    let new_client = build_client(effective_url)?;
-
-    // 更新客户端
-    if let Some(lock) = GLOBAL_CLIENT.get() {
-        let mut client = lock.write().map_err(|e| {
-            log::error!("[GlobalProxy] [GP-001] Failed to acquire write lock: {e}");
-            "Failed to update proxy: lock poisoned".to_string()
-        })?;
-        *client = new_client;
-    } else {
-        // 如果还没初始化，则初始化
-        return init(proxy_url);
-    }
-
-    // 更新代理 URL 记录
-    if let Some(lock) = CURRENT_PROXY_URL.get() {
-        let mut url = lock.write().map_err(|e| {
-            log::error!("[GlobalProxy] [GP-002] Failed to acquire URL write lock: {e}");
-            "Failed to update proxy URL record: lock poisoned".to_string()
-        })?;
-        *url = effective_url.map(|s| s.to_string());
-    }
-
-    log::info!(
-        "[GlobalProxy] Updated: {}",
-        effective_url
-            .map(mask_url)
-            .unwrap_or_else(|| "direct connection".to_string())
-    );
-
-    Ok(())
+    apply_proxy(proxy_url)
 }
 
 /// 获取全局 HTTP 客户端
@@ -187,9 +173,9 @@ pub fn update_proxy(proxy_url: Option<&str>) -> Result<(), String> {
 /// 返回配置了代理的客户端（如果已配置代理），否则返回跟随系统代理的客户端。
 pub fn get() -> Client {
     GLOBAL_CLIENT
-        .get()
-        .and_then(|lock| lock.read().ok())
-        .map(|c| c.clone())
+        .read()
+        .ok()
+        .and_then(|state| state.configured.as_ref().map(|(_, client)| client.clone()))
         .unwrap_or_else(|| {
             log::warn!("[GlobalProxy] [GP-004] Client not initialized, using fallback");
             build_client(None).unwrap_or_default()
@@ -198,12 +184,14 @@ pub fn get() -> Client {
 
 /// 获取当前代理 URL
 ///
-/// 返回当前配置的代理 URL，None 表示直连。
+/// 返回当前配置的代理 URL，None 表示跟随系统代理。
 pub fn get_current_proxy_url() -> Option<String> {
-    CURRENT_PROXY_URL
-        .get()
-        .and_then(|lock| lock.read().ok())
-        .and_then(|url| url.clone())
+    GLOBAL_CLIENT.read().ok().and_then(|state| {
+        state
+            .configured
+            .as_ref()
+            .and_then(|(config, _)| config.proxy_url.clone())
+    })
 }
 
 /// 检查是否正在使用代理
@@ -362,6 +350,182 @@ mod tests {
     fn env_lock() -> &'static Mutex<()> {
         static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
         LOCK.get_or_init(|| Mutex::new(()))
+    }
+
+    struct TestProxy {
+        url: String,
+        accepts: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+        slow_started: std::sync::Arc<tokio::sync::Notify>,
+        slow_release: std::sync::Arc<tokio::sync::Notify>,
+        task: tokio::task::JoinHandle<()>,
+    }
+
+    impl Drop for TestProxy {
+        fn drop(&mut self) {
+            self.task.abort();
+        }
+    }
+
+    async fn test_proxy(label: &'static str) -> TestProxy {
+        use std::sync::{
+            atomic::{AtomicUsize, Ordering},
+            Arc,
+        };
+        use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}", listener.local_addr().unwrap());
+        let accepts = Arc::new(AtomicUsize::new(0));
+        let slow_started = Arc::new(tokio::sync::Notify::new());
+        let slow_release = Arc::new(tokio::sync::Notify::new());
+        let (count, started, release) =
+            (accepts.clone(), slow_started.clone(), slow_release.clone());
+        let task = tokio::spawn(async move {
+            while let Ok((socket, _)) = listener.accept().await {
+                count.fetch_add(1, Ordering::SeqCst);
+                let (started, release) = (started.clone(), release.clone());
+                tokio::spawn(async move {
+                    let mut stream = BufReader::new(socket);
+                    loop {
+                        let mut first = String::new();
+                        if stream.read_line(&mut first).await.unwrap_or(0) == 0 {
+                            break;
+                        }
+                        loop {
+                            let mut line = String::new();
+                            if stream.read_line(&mut line).await.unwrap_or(0) == 0 {
+                                return;
+                            }
+                            if line == "\r\n" {
+                                break;
+                            }
+                        }
+                        if first.contains("/slow") {
+                            started.notify_one();
+                            release.notified().await;
+                        }
+                        let response = format!(
+                            "HTTP/1.1 200 OK\r\nContent-Length: {}\r\n\r\n{label}",
+                            label.len()
+                        );
+                        if stream.write_all(response.as_bytes()).await.is_err() {
+                            break;
+                        }
+                    }
+                });
+            }
+        });
+        TestProxy {
+            url,
+            accepts,
+            slow_started,
+            slow_release,
+            task,
+        }
+    }
+
+    async fn read_proxy(state: &ClientState) -> String {
+        state
+            .configured
+            .as_ref()
+            .unwrap()
+            .1
+            .get("http://upstream.invalid/test")
+            .send()
+            .await
+            .unwrap()
+            .text()
+            .await
+            .unwrap()
+    }
+
+    #[tokio::test]
+    async fn unchanged_refresh_reuses_tcp_and_failed_update_keeps_working_pool() {
+        use std::sync::atomic::Ordering;
+        let proxy = test_proxy("first").await;
+        let mut state = ClientState::default();
+        assert!(state
+            .apply(ClientConfig::capture(Some(&proxy.url)))
+            .unwrap());
+        assert_eq!(read_proxy(&state).await, "first");
+        for _ in 0..20 {
+            assert!(!state
+                .apply(ClientConfig::capture(Some(&format!(" {} ", proxy.url))))
+                .unwrap());
+        }
+        assert_eq!(read_proxy(&state).await, "first");
+        assert!(state
+            .apply(ClientConfig::capture(Some("invalid-scheme://localhost:1")))
+            .is_err());
+        assert_eq!(read_proxy(&state).await, "first");
+        assert_eq!(
+            proxy.accepts.load(Ordering::SeqCst),
+            1,
+            "refresh or failed update discarded the TCP pool"
+        );
+    }
+
+    #[tokio::test]
+    async fn proxy_change_routes_new_requests_without_interrupting_in_flight_response() {
+        let first = test_proxy("first").await;
+        let second = test_proxy("second").await;
+        let mut state = ClientState::default();
+        state
+            .apply(ClientConfig::capture(Some(&first.url)))
+            .unwrap();
+        let old_client = state.configured.as_ref().unwrap().1.clone();
+        let pending = tokio::spawn(async move {
+            old_client
+                .get("http://upstream.invalid/slow")
+                .send()
+                .await
+                .unwrap()
+                .text()
+                .await
+                .unwrap()
+        });
+        tokio::time::timeout(Duration::from_secs(5), first.slow_started.notified())
+            .await
+            .unwrap();
+        assert!(state
+            .apply(ClientConfig::capture(Some(&second.url)))
+            .unwrap());
+        assert_eq!(read_proxy(&state).await, "second");
+        first.slow_release.notify_one();
+        assert_eq!(pending.await.unwrap(), "first");
+    }
+
+    #[test]
+    fn system_configuration_changes_refresh_but_identical_snapshot_does_not() {
+        let mut state = ClientState::default();
+        let config = |port: &str, bypass: &str, local_port| ClientConfig {
+            proxy_url: None,
+            system: Some(SystemProxySnapshot {
+                platform: vec![Some(port.to_owned())],
+                environment: vec![Some(bypass.into())],
+                local_port,
+            }),
+        };
+        assert!(state.apply(config("1082", "localhost", 15721)).unwrap());
+        assert!(!state.apply(config("1082", "localhost", 15721)).unwrap());
+        assert!(state.apply(config("7890", "localhost", 15721)).unwrap());
+        assert!(state.apply(config("7890", "*", 15721)).unwrap());
+        assert!(state.apply(config("7890", "*", 15722)).unwrap());
+        assert!(state
+            .apply(ClientConfig::capture(Some("http://127.0.0.1:1082")))
+            .unwrap());
+    }
+
+    #[test]
+    fn explicit_proxy_snapshot_includes_auth_but_does_not_depend_on_system() {
+        let first = ClientConfig::capture(Some("http://user:first@localhost:1082"));
+        let second = ClientConfig::capture(Some("http://user:second@localhost:1082"));
+        assert!(first.system.is_none());
+        assert!(
+            first != second,
+            "credential rotation must refresh the client"
+        );
+        assert!(ClientConfig::capture(None).system.is_some());
+        assert!(ClientConfig::capture(Some("   ")).proxy_url.is_none());
     }
 
     #[test]

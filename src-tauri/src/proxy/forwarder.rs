@@ -3439,13 +3439,7 @@ fn should_force_identity_encoding(
 }
 
 fn map_reqwest_send_error(error: reqwest::Error) -> ProxyError {
-    if error.is_timeout() {
-        ProxyError::Timeout(format!("上游请求超时: {}", error.without_url()))
-    } else if error.is_connect() {
-        ProxyError::ForwardFailed(format!("上游连接失败: {}", error.without_url()))
-    } else {
-        ProxyError::ForwardFailed(format!("上游请求发送失败: {}", error.without_url()))
-    }
+    super::transport_error::map_send_error(error)
 }
 
 fn summarize_text_for_log(text: &str, max_chars: usize) -> String {
