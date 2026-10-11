@@ -228,6 +228,8 @@ describe("App integration with MSW", { timeout: 15_000 }, () => {
       expect(
         screen.queryByTestId("update-notification-dot"),
       ).not.toBeInTheDocument();
+      const initialTopBarHeight =
+        screen.queryByTestId("app-top-bar")?.style.height;
       await act(async () => {
         await appUpdate.checkUpdate({ showPrompt: false });
       });
@@ -269,9 +271,9 @@ describe("App integration with MSW", { timeout: 15_000 }, () => {
       expect(
         screen.queryByTestId("update-notification-dot"),
       ).not.toBeInTheDocument();
-      expect(screen.queryByTestId("app-top-bar")).not.toHaveStyle({
-        height: "36px",
-      });
+      expect(screen.queryByTestId("app-top-bar")?.style.height).toBe(
+        initialTopBarHeight,
+      );
     },
   );
 
