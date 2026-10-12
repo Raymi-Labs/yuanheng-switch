@@ -65,3 +65,5 @@
 恢复执行当前分支修正后的发布脚本，但安装包、声明版本和公告仍绑定原构建提交；不会移动版本标签，也不会把另一次构建的文件混入发布。原始构建未通过时不能使用此入口，artifact 过期时需要重新构建。
 
 GitHub REST 的 `GET /releases/tags/:tag` 不返回草稿。发布脚本先使用 `gh release view --json databaseId` 查找已发布版本或待发布草稿，再按 Release ID 读取完整附件摘要，避免创建草稿后因按标签查询得到 404 而中断。
+
+正式标签已存在并通过远程 SHA 校验时，创建 Release 只传 `--verify-tag`，不再冗余指定 `--target`。GitHub 会对显式 `target_commitish` 与当前默认分支的工作流差异做额外权限检查；标签构建期间 main 新增工作流时，旧 SHA 可能使只有 Contents:write 的 Actions 令牌收到 403。省略该参数不移动已有标签，构建来源仍由标签 SHA、原 run 和产物 receipt 验证。手动分支预发布创建新标签时仍指定构建 SHA。见[GitHub 创建 Release 文档](https://docs.github.com/en/rest/releases/releases#create-a-release)和[决策笔记](../.agents/notes/implemented/bug-fix/2026-10-13-release-existing-tag-target.md)。

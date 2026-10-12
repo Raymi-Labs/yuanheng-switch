@@ -259,6 +259,29 @@ describe("parallel desktop release assembly", () => {
 });
 
 describe("single release publisher", () => {
+  it("publishes a verified stable tag when default-branch workflows advanced", () => {
+    const f = fixture();
+    const plan = assembleRelease(f);
+    const fake = fakeGithub(plan, f.outputDir);
+    const gh = (args: string[]) => {
+      if (
+        args[0] === "release" &&
+        args[1] === "create" &&
+        args.includes("--target")
+      ) {
+        throw new Error("HTTP 403: Resource not accessible by integration");
+      }
+      return fake.gh(args);
+    };
+    expect(publishRelease({ ...f, gh }).draft).toBe(false);
+    const create = fake.calls.find((c) => c[1] === "create")!;
+    expect(create).toContain("--verify-tag");
+    expect(create).not.toContain("--target");
+    const tagCheck = fake.calls.findIndex((c) => c[1]?.includes("/git/tags/"));
+    expect(tagCheck).toBeGreaterThanOrEqual(0);
+    expect(tagCheck).toBeLessThan(fake.calls.indexOf(create));
+  });
+
   it("uploads one manifest last and only publishes after GitHub digest verification", () => {
     const f = fixture();
     const plan = assembleRelease(f);
@@ -323,6 +346,9 @@ describe("single release publisher", () => {
     const fake = fakeGithub(plan, f.outputDir);
     const result = publishRelease({ ...f, gh: fake.gh });
     expect(ctx.tag).toBe("v0.1.53-build.8");
+    const create = fake.calls.find((c) => c[1] === "create")!;
+    expect(create[create.indexOf("--target") + 1]).toBe(ctx.sha);
+    expect(create).not.toContain("--verify-tag");
     expect(result.draft && result.prerelease).toBe(true);
     expect(fake.current().assets).toHaveLength(9);
     expect(fake.calls.some((c) => c.includes("--draft=false"))).toBe(false);

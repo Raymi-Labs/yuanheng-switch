@@ -488,16 +488,16 @@ export function publishRelease({
       context.tag,
       "--repo",
       context.repo,
-      "--target",
-      context.sha,
       "--draft",
       "--title",
       `YuanHeng Desktop ${context.tag}`,
       "--notes-file",
       notesFile,
     ];
+    // Stable tags are already verified against the build SHA. A redundant old
+    // target can require Workflows:write when main advances during the build.
     if (context.stable) args.push("--verify-tag");
-    else args.push("--prerelease");
+    else args.push("--target", context.sha, "--prerelease");
     gh(args);
   }
   const binaries = plan.assets
