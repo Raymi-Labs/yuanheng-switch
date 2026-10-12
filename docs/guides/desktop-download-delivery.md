@@ -112,3 +112,13 @@ v0.1.77 的 [收尾恢复 run 38289621669](https://github.com/nanashiwang/yuanhe
 可选 `live_signed_release_download` 使用正式 `YuanHeng-Desktop-Updater` User-Agent、相同 reqwest 下载核心和原更新公钥。设置 `YUANHENG_SMOKE_SOURCE=r2` 可隔离 R2；设置为 `legacy-mirror` 可复现旧版原链接跳转；不设置则验证正常择源。前两种分别完整下载并验签 v0.1.77 的 22,994,265 字节包，耗时 7.25 秒、9.12 秒，均未安装。这样避免双源 smoke 由 GitHub 成功而掩盖 R2 自身问题。
 
 独立 Python urllib/3.9 的 HEAD 曾被 Cloudflare 返回 1010；curl、官网浏览器、无 UA reqwest，以及正式客户端 UA 的上述两条完整下载链均通过。该观测没有作为修改 WAF 的理由，也不能从检测脚本的 HEAD 失败推断客户端受阻。
+
+### v0.1.78 自动发布闭环
+
+[正式发布 run 38290472809](https://github.com/nanashiwang/yuanheng-switch/actions/runs/38290472809) 已全部成功：三平台构建、签名检查、集中发布九个 GitHub 资产，以及 R2 校验后发布平台镜像/latest。版本标签保持在 `2c829a0f23a4ee63925463ab4a38f9ca4cfea94e`；后续原生 smoke 与验收记录的补充不改写标签。
+
+北京时间 03:20 后独立公网验收：八个旧链接均为 `302 → R2 200`，完整大小及 SHA-256 与 GitHub 一致；五个二进制文件的精确 Range、ARM 包 `origin=1` 本地读取均通过。新对象统一返回一年 immutable；404、latest/downloads JSON 和 API 状态仍禁止缓存。官网与两份清单均为 0.1.78；六个平台别名、签名、两种公告字段，以及三个安装包的文件名、大小与路径均对应正式 Release。
+
+本机当前网络的五个整包下载为 2.39–4.05 秒（两路并行验收）；R2 单源原生 smoke 使用正式 UA 完整下载 22,995,885 字节并通过原公钥验签，用时 2.39 秒，未安装。首次 smoke 在获取原域名 latest 清单时出现一次 10 秒连接超时，重试原命令通过；大文件已绕过慢速入口，小清单与正常 API 仍使用原有链路，这次迁移不证明全站连接波动已解决。上述测试仍不是国内三网直连结果。
+
+浏览器实际点击官网 Apple 芯片下载按钮，得到 23,200,777 字节 DMG，SHA-256 与 GitHub 资产一致，未安装；Cloudflare 控制台同时确认 v0.1.78 的八个对象已自动同步。
