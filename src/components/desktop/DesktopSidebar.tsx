@@ -5,10 +5,9 @@ import {
   Boxes,
   ChevronRight,
   CreditCard,
-  ExternalLink,
   Gauge,
   Globe,
-  BookOpen,
+  HelpCircle,
   Network,
   LoaderCircle,
   Mic2,
@@ -27,12 +26,15 @@ import { toast } from "sonner";
 import type { DesktopView } from "./types";
 import { desktopSection } from "./types";
 import { dt } from "./desktopI18n";
+import { HelpDrawer } from "./HelpDrawer";
 
 interface DesktopSidebarProps {
   view: DesktopView;
   onNavigate: (view: DesktopView) => void;
   connection?: YuanhengConnectionStatus;
   proxyRunning: boolean;
+  helpOpen: boolean;
+  onHelpOpenChange: (open: boolean) => void;
 }
 
 const dailyItems = [
@@ -44,7 +46,6 @@ const dailyItems = [
 ];
 
 const professionalItems = [
-  { id: "guide" as const, label: "使用说明", icon: BookOpen },
   { id: "network" as const, label: "连接与路由", icon: Network },
   { id: "settings" as const, label: "设置", icon: Settings },
 ];
@@ -54,6 +55,8 @@ export function DesktopSidebar({
   onNavigate,
   connection,
   proxyRunning,
+  helpOpen,
+  onHelpOpenChange,
 }: DesktopSidebarProps) {
   const active = desktopSection(view);
   const accountName =
@@ -84,7 +87,7 @@ export function DesktopSidebar({
         type="button"
         onClick={() => onNavigate(id)}
         className={cn(
-          "group relative flex h-9 w-full items-center gap-2.5 rounded-lg px-3 text-left text-[13px] font-medium transition-colors",
+          "group relative flex h-9 [@media(max-height:680px)]:h-8 w-full items-center gap-2.5 rounded-lg px-3 text-left text-[13px] font-medium transition-colors",
           selected
             ? "bg-white/[0.095] text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.035)]"
             : "text-slate-400 hover:bg-white/[0.07] hover:text-white",
@@ -105,7 +108,7 @@ export function DesktopSidebar({
 
   return (
     <aside className="flex h-full w-[212px] shrink-0 flex-col border-r border-white/[0.06] bg-[#11191b] px-3 pb-3 pt-4 text-white">
-      <div className="flex items-center gap-2.5 px-2 pb-5">
+      <div className="flex shrink-0 items-center gap-2.5 px-2 pb-5 [@media(max-height:680px)]:pb-3">
         <div className="relative h-9 w-9 shrink-0">
           <img src={appIcon} alt="" className="h-9 w-9 object-contain" />
           <span className="absolute bottom-0 right-0 h-2 w-2 rounded-full border-2 border-[#11191b] bg-[#d69554]" />
@@ -120,26 +123,28 @@ export function DesktopSidebar({
         </div>
       </div>
 
-      <nav className="space-y-1">
-        <p className="px-3 pb-1.5 pt-1 text-[10px] font-medium uppercase tracking-[0.18em] text-slate-600">
-          {dt("日常使用")}
-        </p>
-        {dailyItems.map(renderItem)}
-      </nav>
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        <nav className="space-y-1 [@media(max-height:680px)]:space-y-0.5">
+          <p className="px-3 pb-1.5 pt-1 text-[10px] font-medium uppercase tracking-[0.18em] text-slate-600">
+            {dt("日常使用")}
+          </p>
+          {dailyItems.map(renderItem)}
+        </nav>
 
-      <nav className="mt-5 space-y-1">
-        <p className="px-3 pb-1.5 text-[10px] font-medium uppercase tracking-[0.18em] text-slate-600">
-          {dt("专业控制")}
-        </p>
-        {professionalItems.map(renderItem)}
-      </nav>
+        <nav className="mt-5 space-y-1 [@media(max-height:680px)]:mt-3 [@media(max-height:680px)]:space-y-0.5">
+          <p className="px-3 pb-1.5 text-[10px] font-medium uppercase tracking-[0.18em] text-slate-600">
+            {dt("专业控制")}
+          </p>
+          {professionalItems.map(renderItem)}
+        </nav>
+      </div>
 
-      <div className="mt-auto space-y-2">
+      <div className="shrink-0 space-y-2 pt-3 [@media(max-height:680px)]:pt-2">
         <div className="relative w-full rounded-xl border border-white/[0.09] bg-white/[0.055] text-left transition-colors hover:bg-white/[0.075]">
           <button
             type="button"
             onClick={() => onNavigate("network")}
-            className="group w-full p-3 text-left"
+            className="group w-full p-3 text-left [@media(max-height:680px)]:p-2"
             aria-label={dt("账号与余额")}
           >
             <span className="flex items-center gap-2.5">
@@ -157,8 +162,8 @@ export function DesktopSidebar({
               </span>
               <ChevronRight className="h-3.5 w-3.5 text-slate-600 transition-colors group-hover:text-slate-300" />
             </span>
-            <span className="mt-3 block border-t border-white/[0.07] pt-2.5">
-              <span className="flex items-center gap-1.5 text-[9px] text-slate-500">
+            <span className="mt-3 block border-t border-white/[0.07] pt-2.5 [@media(max-height:680px)]:mt-1 [@media(max-height:680px)]:pt-2">
+              <span className="flex items-center gap-1.5 text-[9px] text-slate-500 [@media(max-height:680px)]:hidden">
                 <WalletCards className="h-3 w-3" /> {dt("可用余额")}
               </span>
               <strong className="mt-0.5 block pr-16 font-display text-[17px] font-semibold tracking-[-0.02em] text-white">
@@ -182,16 +187,26 @@ export function DesktopSidebar({
           </button>
         </div>
 
-        <button
-          type="button"
-          onClick={handleOpenWebsite}
-          className="group flex h-9 w-full items-center gap-2.5 rounded-lg px-3 text-left text-[11px] font-medium text-slate-500 transition-colors hover:bg-white/[0.07] hover:text-slate-200"
-          aria-label={dt("访问元衡官网")}
-        >
-          <Globe className="h-3.5 w-3.5 shrink-0" strokeWidth={1.8} />
-          <span className="flex-1">{dt("访问官网")}</span>
-          <ExternalLink className="h-3 w-3 text-slate-700 transition-colors group-hover:text-slate-400" />
-        </button>
+        <div className="grid grid-cols-2 gap-1">
+          <HelpDrawer open={helpOpen} onOpenChange={onHelpOpenChange}>
+            <button
+              type="button"
+              className="flex h-9 min-w-0 items-center justify-center gap-2 rounded-lg px-2 text-[11px] font-medium text-slate-400 transition-colors hover:bg-white/[0.07] hover:text-slate-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#d69554]"
+            >
+              <HelpCircle className="h-3.5 w-3.5 shrink-0" strokeWidth={1.8} />
+              <span className="truncate">{dt("帮助")}</span>
+            </button>
+          </HelpDrawer>
+          <button
+            type="button"
+            onClick={handleOpenWebsite}
+            className="flex h-9 min-w-0 items-center justify-center gap-2 rounded-lg px-2 text-[11px] font-medium text-slate-400 transition-colors hover:bg-white/[0.07] hover:text-slate-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#d69554]"
+            aria-label={dt("访问元衡官网")}
+          >
+            <Globe className="h-3.5 w-3.5 shrink-0" strokeWidth={1.8} />
+            <span className="truncate">{dt("官网")}</span>
+          </button>
+        </div>
 
         <div className="flex items-center gap-2 px-2 text-[10px] text-slate-600">
           {proxyRunning ? (

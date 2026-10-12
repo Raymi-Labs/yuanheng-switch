@@ -41,6 +41,7 @@ interface GlobalCommandPaletteProps {
   activeApp: YuanhengToolId;
   visibleApps: VisibleApps;
   onNavigate: (view: DesktopView) => void;
+  onOpenHelp: () => void;
   onSetActiveApp: (app: YuanhengToolId) => void;
 }
 
@@ -70,12 +71,6 @@ const pages: Array<{
     icon: Activity,
   },
   {
-    view: "guide",
-    label: "使用说明",
-    description: "查看安装、配置与常见问题",
-    icon: BookOpen,
-  },
-  {
     view: "network",
     label: "连接与路由",
     description: "账号连接与本地代理",
@@ -90,6 +85,7 @@ export function GlobalCommandPalette({
   activeApp,
   visibleApps,
   onNavigate,
+  onOpenHelp,
   onSetActiveApp,
 }: GlobalCommandPaletteProps) {
   const { openTopup } = useYuanhengTopup();
@@ -106,6 +102,7 @@ export function GlobalCommandPalette({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
         zIndex="top"
+        aria-describedby={undefined}
         closeOnInteractOutside
         className="max-w-[620px] overflow-hidden rounded-2xl p-0"
       >
@@ -165,6 +162,21 @@ export function GlobalCommandPalette({
               ))}
             </CommandGroup>
             <CommandGroup heading={dt("快捷操作")}>
+              <CommandItem
+                value={`${dt("使用说明")} ${dt("帮助")} help guide`}
+                onSelect={() => run(onOpenHelp)}
+                className="rounded-lg px-3 py-2.5"
+              >
+                <BookOpen />
+                <span className="flex-1">
+                  <span className="block text-xs font-medium">
+                    {dt("使用说明")}
+                  </span>
+                  <span className="block text-[10px] text-muted-foreground">
+                    {dt("查看安装、配置与常见问题")}
+                  </span>
+                </span>
+              </CommandItem>
               <CommandItem
                 value={dt("充值 余额 topup")}
                 onSelect={() => run(openTopup)}

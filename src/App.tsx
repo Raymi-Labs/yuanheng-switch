@@ -85,7 +85,6 @@ import { CapabilityCenter } from "@/components/desktop/CapabilityCenter";
 import { UsageCenter } from "@/components/desktop/UsageCenter";
 import { VoiceClonePage } from "@/components/desktop/VoiceClonePage";
 import { ConnectionCenter } from "@/components/desktop/ConnectionCenter";
-import { GuidePage } from "@/components/desktop/GuidePage";
 import { OnboardingWizard } from "@/components/desktop/OnboardingWizard";
 import { YuanhengAccessScreen } from "@/components/desktop/YuanhengAccessScreen";
 import type { DesktopView } from "@/components/desktop/types";
@@ -130,7 +129,6 @@ const TOP_LEVEL_VIEWS: DesktopView[] = [
   "capabilities",
   "usage",
   "voiceClone",
-  "guide",
   "network",
   "settings",
 ];
@@ -146,7 +144,6 @@ const VIEW_LABEL_KEYS: Record<DesktopView, string> = {
   agents: "desktop.views.agents",
   usage: "desktop.views.usage",
   voiceClone: "desktop.views.voiceClone",
-  guide: "desktop.views.guide",
   network: "desktop.views.network",
   settings: "desktop.views.settings",
   workspace: "desktop.views.workspace",
@@ -241,6 +238,7 @@ function App() {
   const [isWindowMaximized, setIsWindowMaximized] = useState(false);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [contextPanelOpen, setContextPanelOpen] = useState(false);
+  const [helpOpen, setHelpOpen] = useState(false);
 
   const promptPanelRef = useRef<any>(null);
   const mcpPanelRef = useRef<any>(null);
@@ -250,6 +248,9 @@ function App() {
   const { data: settingsData } = useSettingsQuery();
   const { data: yuanhengConnection, isLoading: isYuanhengConnectionLoading } =
     useYuanhengConnection();
+  useEffect(() => {
+    if (!yuanhengConnection?.connected) setHelpOpen(false);
+  }, [yuanhengConnection?.connected]);
   const { data: unmanagedSkills } = useScanUnmanagedSkills();
   const hasUnmanagedSkills = (unmanagedSkills?.length ?? 0) > 0;
   const { isRunning: isProxyRunning } = useProxyStatus();
@@ -384,6 +385,7 @@ function App() {
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
+      if (helpOpen) return;
       if (event.key.toLowerCase() === "k" && (event.metaKey || event.ctrlKey)) {
         event.preventDefault();
         setCommandPaletteOpen((current) => !current);
@@ -406,7 +408,7 @@ function App() {
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [view]);
+  }, [view, helpOpen]);
 
   useEffect(() => {
     if (!IS_TAURI_RUNTIME) return;
@@ -486,8 +488,6 @@ function App() {
         );
       case "voiceClone":
         return <VoiceClonePage />;
-      case "guide":
-        return <GuidePage />;
       case "network":
         return <ConnectionCenter />;
       case "settings":
@@ -797,6 +797,8 @@ function App() {
             onNavigate={navigate}
             connection={yuanhengConnection}
             proxyRunning={isProxyRunning}
+            helpOpen={helpOpen}
+            onHelpOpenChange={setHelpOpen}
           />
           <section className="flex min-w-0 flex-1 flex-col overflow-hidden bg-[radial-gradient(circle_at_92%_5%,hsl(var(--primary)/0.055),transparent_34%)]">
             <header
@@ -941,6 +943,11 @@ function App() {
         visibleApps={visibleApps}
         onNavigate={navigate}
         onSetActiveApp={persistActiveApp}
+        onOpenHelp={() => {
+          if (!yuanhengConnection?.connected) return;
+          setContextPanelOpen(false);
+          setHelpOpen(true);
+        }}
       />
       <ContextPanelDialog
         open={contextPanelOpen}

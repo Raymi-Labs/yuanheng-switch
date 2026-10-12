@@ -150,6 +150,11 @@ export const DESKTOP_EN: Record<string, string> = {
   等待请求记录: "Waiting for a request record",
   等待调用验证: "Waiting for call verification",
   "调用失败（HTTP {{code}}）": "Call failed (HTTP {{code}})",
+  帮助: "Help",
+  官网: "Website",
+  关闭帮助: "Close help",
+  "使用说明随客户端更新，可离线查看。":
+    "The guide updates with the app and is available offline.",
   使用说明: "User Guide",
   元衡使用说明: "YuanHeng User Guide",
   "安装、配置、模型切换和常见问题都可以在这里快速查看。":

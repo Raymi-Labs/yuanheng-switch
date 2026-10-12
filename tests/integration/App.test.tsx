@@ -1,4 +1,5 @@
 import { Suspense, type ComponentType } from "react";
+import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   render,
@@ -460,6 +461,69 @@ describe("App integration with MSW", { timeout: 15_000 }, () => {
     localStorage.clear();
     toastSuccessMock.mockReset();
     toastErrorMock.mockReset();
+  });
+
+  it("帮助关闭保留子页面，Escape 不触发后台返回", async () => {
+    setSettings({ firstRunNoticeConfirmed: true });
+    const user = userEvent.setup();
+    const { default: App } = await import("@/App");
+    renderApp(App);
+    await screen.findByRole("heading", { name: "工作台" });
+    await user.click(screen.getByRole("button", { name: "能力中心" }));
+    await user.click(
+      screen.getByText("连接文件、数据库和外部服务").closest("button")!,
+    );
+    const heading = await screen.findByRole("heading", {
+      name: i18n.t("desktop.views.mcp"),
+    });
+    await user.click(screen.getByRole("button", { name: "帮助" }));
+    expect(screen.getByRole("dialog", { name: "使用说明" })).toBeVisible();
+    fireEvent.keyDown(window, { key: ",", metaKey: true });
+    await user.keyboard("{Escape}");
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("dialog", { name: "使用说明" }),
+      ).not.toBeInTheDocument(),
+    );
+    expect(
+      screen.getByRole("heading", { name: i18n.t("desktop.views.mcp") }),
+    ).toBe(heading);
+    expect(screen.getByRole("button", { name: "帮助" })).toHaveFocus();
+  });
+
+  it("旧说明页面回退工作台，快捷搜索打开帮助而不持久化新页面", async () => {
+    setSettings({ firstRunNoticeConfirmed: true });
+    localStorage.setItem("yuanheng-desktop-last-view", "guide");
+    const user = userEvent.setup();
+    const { default: App } = await import("@/App");
+    renderApp(App);
+    await screen.findByRole("heading", { name: "工作台" });
+    await user.click(screen.getByRole("button", { name: "工具管理" }));
+    expect(localStorage.getItem("yuanheng-desktop-last-view")).toBe("tools");
+    fireEvent.keyDown(window, { key: "k", ctrlKey: true });
+    await user.type(
+      screen.getByPlaceholderText("搜索页面、工具或操作..."),
+      "help",
+    );
+    await user.click(screen.getByRole("option", { name: /使用说明/ }));
+    expect(
+      await screen.findByRole("dialog", { name: "使用说明" }),
+    ).toBeVisible();
+    expect(
+      screen.queryByRole("dialog", { name: "快捷操作" }),
+    ).not.toBeInTheDocument();
+    await user.keyboard("{Escape}");
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("dialog", { name: "使用说明" }),
+      ).not.toBeInTheDocument(),
+    );
+    expect(localStorage.getItem("yuanheng-desktop-last-view")).toBe("tools");
+    expect(screen.getByRole("button", { name: "工具管理" })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
+    expect(screen.getByRole("button", { name: "帮助" })).toHaveFocus();
   });
 
   it("renders the access screen in English", async () => {

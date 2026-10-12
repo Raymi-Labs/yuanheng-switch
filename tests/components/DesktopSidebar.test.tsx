@@ -1,3 +1,5 @@
+import { useState } from "react";
+import userEvent from "@testing-library/user-event";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { DesktopSidebar } from "@/components/desktop/DesktopSidebar";
@@ -25,7 +27,13 @@ describe("DesktopSidebar", () => {
 
   it("在侧边栏底部提供官网入口", async () => {
     render(
-      <DesktopSidebar view="home" onNavigate={vi.fn()} proxyRunning={false} />,
+      <DesktopSidebar
+        view="home"
+        onNavigate={vi.fn()}
+        proxyRunning={false}
+        helpOpen={false}
+        onHelpOpenChange={vi.fn()}
+      />,
     );
 
     fireEvent.click(screen.getByRole("button", { name: "访问元衡官网" }));
@@ -41,6 +49,8 @@ describe("DesktopSidebar", () => {
         view="home"
         onNavigate={vi.fn()}
         proxyRunning={false}
+        helpOpen={false}
+        onHelpOpenChange={vi.fn()}
         connection={{
           connected: true,
           baseUrl: "https://cn.meta-api.vip",
@@ -76,6 +86,8 @@ describe("DesktopSidebar", () => {
         view="home"
         onNavigate={onNavigate}
         proxyRunning={false}
+        helpOpen={false}
+        onHelpOpenChange={vi.fn()}
       />,
     );
 
@@ -83,17 +95,35 @@ describe("DesktopSidebar", () => {
     expect(onNavigate).toHaveBeenCalledWith("voiceClone");
   });
 
-  it("提供使用说明入口并支持导航", () => {
+  it("帮助位于主导航外，打开说明不导航，关闭后恢复入口焦点", async () => {
     const onNavigate = vi.fn();
-    render(
-      <DesktopSidebar
-        view="home"
-        onNavigate={onNavigate}
-        proxyRunning={false}
-      />,
-    );
-
-    fireEvent.click(screen.getByRole("button", { name: "使用说明" }));
-    expect(onNavigate).toHaveBeenCalledWith("guide");
+    const user = userEvent.setup();
+    function Sidebar() {
+      const [open, setOpen] = useState(false);
+      return (
+        <DesktopSidebar
+          view="tools"
+          onNavigate={onNavigate}
+          proxyRunning={false}
+          helpOpen={open}
+          onHelpOpenChange={setOpen}
+        />
+      );
+    }
+    render(<Sidebar />);
+    const help = screen.getByRole("button", { name: "帮助" });
+    expect(help.closest("nav")).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: "使用说明" }),
+    ).not.toBeInTheDocument();
+    await user.click(help);
+    expect(screen.getByRole("dialog", { name: "使用说明" })).toBeVisible();
+    expect(
+      screen.getByText("使用说明随客户端更新，可离线查看。"),
+    ).toBeVisible();
+    expect(onNavigate).not.toHaveBeenCalled();
+    await user.click(screen.getByRole("button", { name: "关闭帮助" }));
+    await waitFor(() => expect(help).toHaveFocus());
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 });
