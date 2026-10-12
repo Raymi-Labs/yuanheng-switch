@@ -1,0 +1,56 @@
+name: Desktop download delivery
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "已发布的正式版本，例如 v0.1.78；可重试，不会降低当前版本"
+        required: true
+        type: string
+  workflow_call:
+    inputs:
+      version:
+        required: true
+        type: string
+    secrets:
+      R2_ACCESS_KEY_ID:
+        required: true
+      R2_SECRET_ACCESS_KEY:
+        required: true
+      DESKTOP_UPDATE_PUBLISH_URL:
+        required: true
+      DESKTOP_UPDATE_PUBLISH_TOKEN:
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: desktop-update-mirror
+  cancel-in-progress: false
+
+jobs:
+  deliver:
+    name: Verify R2 assets before publishing the platform manifest
+    runs-on: ubuntu-22.04
+    timeout-minutes: 120
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      RELEASE_VERSION: ${{ inputs.version }}
+      R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+      R2_BUCKET: yuanheng-desktop-downloads
+      R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+      R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+      DESKTOP_UPDATE_PUBLISH_URL: ${{ secrets.DESKTOP_UPDATE_PUBLISH_URL }}
+      DESKTOP_UPDATE_PUBLISH_TOKEN: ${{ secrets.DESKTOP_UPDATE_PUBLISH_TOKEN }}
+    steps:
+      - name: Checkout this workflow's delivery code
+        uses: actions/checkout@v7
+      - name: Install isolated R2 upload dependencies
+        run: |
+          python3 -m venv "$RUNNER_TEMP/desktop-r2"
+          "$RUNNER_TEMP/desktop-r2/bin/pip" install -r scripts/r2-requirements.txt
+      - name: Verify and sync all installers and signatures to R2
+        run: '"$RUNNER_TEMP/desktop-r2/bin/python" scripts/sync-desktop-r2.py "$RELEASE_VERSION"'
+      - name: Publish platform mirror and latest only after R2 succeeds
+        run: bash scripts/mirror-desktop-update.sh "${RELEASE_VERSION#v}"

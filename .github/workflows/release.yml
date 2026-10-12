@@ -44,6 +44,8 @@ jobs:
           pnpm test:unit
           python3 scripts/test_apple_release_tools.py
           python3 scripts/test_verify_macos_release.py
+          python3 scripts/test_sync_desktop_r2.py
+          python3 scripts/test_mirror_desktop_update.py
 
   build:
     name: Build ${{ matrix.target }}
@@ -241,29 +243,14 @@ jobs:
         run: node scripts/desktop-release.mjs publish release/final
 
   mirror-desktop-update:
-    name: Mirror release to YuanHeng platform
+    name: Deliver release through R2 and YuanHeng platform
     needs: finalize-updater-manifest
     if: startsWith(github.ref, 'refs/tags/')
-    runs-on: ubuntu-22.04
-    timeout-minutes: 120
-    concurrency:
-      group: desktop-update-mirror
-      cancel-in-progress: false
-    env:
-      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    uses: ./.github/workflows/desktop-delivery.yml
+    with:
+      version: ${{ github.ref_name }}
+    secrets:
+      R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+      R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
       DESKTOP_UPDATE_PUBLISH_URL: ${{ secrets.DESKTOP_UPDATE_PUBLISH_URL }}
       DESKTOP_UPDATE_PUBLISH_TOKEN: ${{ secrets.DESKTOP_UPDATE_PUBLISH_TOKEN }}
-    steps:
-      - name: Checkout mirror script
-        uses: actions/checkout@v7
-        with:
-          ref: ${{ github.sha }}
-      - name: Mirror signed updater assets
-        shell: bash
-        run: |
-          set -euo pipefail
-          if [[ -z "$DESKTOP_UPDATE_PUBLISH_URL" || -z "$DESKTOP_UPDATE_PUBLISH_TOKEN" ]]; then
-            echo "Desktop update mirror secrets are not configured; keeping GitHub-only updates."
-            exit 0
-          fi
-          bash scripts/mirror-desktop-update.sh "${GITHUB_REF_NAME#v}"

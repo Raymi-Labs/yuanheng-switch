@@ -95,3 +95,7 @@ Claude diagnostic persistence uses a bounded background writer, not disk I/O on 
 ## 全局帮助抽屉（2026-10-13）
 
 [DesktopSidebar](../src/components/desktop/DesktopSidebar.tsx) 底部并排提供帮助与官网，主导航不再占用说明页。[HelpDrawer](../src/components/desktop/HelpDrawer.tsx) 复用 Dialog 展示内置快速开始、日常使用、排错与 FAQ；支持关闭按钮、Escape、遮罩关闭和入口焦点恢复，正文可滚动且可离线查看。命令面板通过“帮助 / 使用说明 / help / guide”打开同一抽屉；后台页面与输入保持挂载，模态期间不执行后台跳转快捷键。旧 guide 页面恢复时回退工作台，退出登录关闭抽屉。短窗口侧栏收紧间距并保留导航滚动，底部辅助入口始终可见。决定见[帮助抽屉笔记](../.agents/notes/implemented/feature/2026-10-13-help-drawer.md)。
+
+## R2 分发接入代码（2026-10-13，生产迁移验收中）
+
+现有 Desktop Release → [下载分发工作流](../.github/workflows/desktop-delivery.yml) → [R2 同步和公开摘要校验](../scripts/sync-desktop-r2.py) → 原平台镜像及 latest 发布；缺少凭据或任一验证失败时停止。新下载器精确识别 R2/原镜像/GitHub 官方更新包，候选改为 R2/GitHub；未知地址、续传和原公钥签名协议保持不变。旧下载 URL 的兼容由[源站临时跳转片段](../deploy/nginx/desktop-r2-download-location.conf)承接，镜像探测用 `origin=1` 核对平台本地包。代码及隔离检查通过不代表凭据已配置、历史包已回填或生产入口已切换，实际状态见[分发说明](guides/desktop-download-delivery.md#r2-正式接入代码与上线步骤)。

@@ -1,4 +1,4 @@
-//! Bounded, resumable downloads of the same signed release from our two origins.
+//! Bounded, resumable downloads of the same signed release from R2 and GitHub.
 //! The Tauri installer is only called after verification with its configured key.
 use base64::{engine::general_purpose::STANDARD, Engine};
 use futures::{stream::FuturesUnordered, StreamExt};
@@ -35,7 +35,7 @@ impl Default for Policy {
 }
 
 /// Derive an alternative only for an exact, versioned asset belonging to us.
-/// Unknown/CDN URLs keep the standard updater behavior and are never rewritten.
+/// Unknown URLs keep the standard updater behavior and are never rewritten.
 fn official_sources(url: &Url, version: &str) -> Option<Vec<Url>> {
     let parts: Vec<_> = version.split('.').collect();
     if parts.len() != 3
@@ -55,11 +55,12 @@ fn official_sources(url: &Url, version: &str) -> Option<Vec<Url>> {
             "https://github.com/nanashiwang/yuanheng-switch/releases/download/v{version}/{name}"
         ))
         .ok()?;
-        if *url == mirror {
-            return Some(vec![mirror, github]);
-        }
-        if *url == github {
-            return Some(vec![github, mirror]);
+        let cdn = Url::parse(&format!(
+            "https://download.meta-api.vip/desktop/update/releases/{version}/{name}"
+        ))
+        .ok()?;
+        if *url == mirror || *url == github || *url == cdn {
+            return Some(vec![cdn, github]);
         }
     }
     None

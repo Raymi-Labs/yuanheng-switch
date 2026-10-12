@@ -25,6 +25,7 @@ else:
  name=urllib.parse.unquote(urllib.parse.urlparse(url).path.rsplit('/',1)[-1])
  output=pathlib.Path(arg('--output'))
  if '--head' in args:
+  if urllib.parse.parse_qs(urllib.parse.urlparse(url).query).get('origin') != ['1']: sys.exit(99)
   if name not in state['mirrored']: sys.exit(22)
   output.write_text('HTTP/2 200\r\nContent-Length: '+str(state['mirrored'][name])+'\r\n\r\n')
  elif '--request' in args:

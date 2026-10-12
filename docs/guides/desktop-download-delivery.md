@@ -72,3 +72,21 @@ Mac 的“未显式使用 HTTP 代理”测试不排除系统隧道接管，不�
 8 次 R2 整包下载均为 HTTP 200、完整字节数及 SHA-256 一致；四轮 `Range: bytes=100000-199999` 均为 HTTP 206、长度 100,000、总长正确，分段摘要也与原文件对应字节一致。成功包实际返回 `Cache-Control: max-age=14400`，已观测 MISS → HIT 和递增 Age；缺失文件为 404 / DYNAMIC。此次没有安装客户端，也没有创建新的 API 密钥或购买套餐。
 
 此结果支持把 R2/CDN 作为正式下载源的候选，同时保留 GitHub；不证明 R2 在所有地区都比 GitHub 快。切换前仍需补齐国内直连、高峰期验证和所有平台安装包/签名的自动同步，并核对版本包长期缓存、清单不缓存及 404 策略。当前客户端只识别原官方镜像/GitHub 地址；直接将清单改成新主机会回到 Tauri 单源下载，必须先保留原路径的兼容跳转或明确扩展官方地址识别，验证切源和签名流程后再上线。不能修改全站 ServerAddress 来替代独立下载域名配置。
+
+## R2 正式接入代码与上线步骤
+
+2026-10-13：接入代码已实现并完成本地验证，长期桶级凭据已保存到 GitHub Actions Secrets，历史回填正在进行；真实自动同步与生产入口切换仍待验收。
+
+[下载分发工作流](../../.github/workflows/desktop-delivery.yml) 可由 Desktop Release 复用，也可手动指定已发布的正式版本重试。它与原镜像共用 `desktop-update-mirror` 并发组，先执行 [R2 同步](../../scripts/sync-desktop-r2.py)，成功后才执行原平台镜像及 latest 发布。代码从工作流对应 ref 读取；重试现有版本时选择包含新流程的 `main`，不能改写旧标签。R2 缺少凭据或上传失败时停止，不悄悄退回旧发布顺序。
+
+仓库需要 `R2_ACCOUNT_ID` Actions Variable，以及 `R2_ACCESS_KEY_ID`、`R2_SECRET_ACCESS_KEY` Actions Secrets。凭据仅授予 `yuanheng-desktop-downloads` 的对象读写权限，不能复用生产备份桶凭据。既有 `DESKTOP_UPDATE_PUBLISH_URL`、`DESKTOP_UPDATE_PUBLISH_TOKEN` 继续用于平台发布。同步使用固定版本的 boto3，在隔离环境安装，不修改客户端依赖。
+
+同步前核对 GitHub Release 的正式状态、九个完整资产、大小、SHA-256、三个平台的清单地址及签名文件一致性；任何一项失败都不写入 R2。八个版本文件以条件写入发布，已有对象必须先逐字节摘要核对，仅允许内容相同的缓存元数据更新。每个对象都通过自定义域整包下载并再次核对 SHA-256。R2 只存版本文件并设置一年 immutable 缓存，`latest.json` 仍由平台发布并禁止缓存。签名真伪最终继续由原客户端公钥验证。
+
+新下载器仅对精确匹配的 R2、旧镜像、GitHub 官方更新地址构造 R2/GitHub 两个候选；未知地址继续使用 Tauri 原行为。不携带额外认证头跨源请求，切源、Range、整体时间限制和完整签名检查保持原协议。择源结果取决于用户线路，并非强制每次都走 R2。
+
+[R2 跳转 location](../../deploy/nginx/desktop-r2-download-location.conf) 是原下载 location 的替代项，不能同时加载。启用前必须确认其覆盖的源站版本文件都已在 R2 校验，且新发布流程已具备自动上传权限。只对实际存在的标准版本安装包/签名的 GET、HEAD 返回 `302` 和 `Cache-Control: no-store`，正文由 R2 传输。未知/缺失文件及其他方法仍交给应用处理。`?origin=1` 是公开只读诊断入口，用于平台镜像核对本地文件；它不改变上传认证。清单、下载目录 JSON、API/SSE 与 ServerAddress 不变。
+
+上线时备份原 Nginx 文件，核对准备配置时记录的 SHA-256、`nginx -t` 后平滑重载。验证旧链接跳转、R2 整包及 206、`origin=1` 本地文件、缺失文件 404、清单/目录不缓存和正常 API。回滚恢复原 [下载 location](../../deploy/nginx/desktop-download-location.conf) 并重新校验/重载；本地安装包保留，不在这次迁移中清理。
+
+准备阶段已验证：10 项 R2 离线测试、6 项镜像测试、11 项下载器测试、actionlint；真实 v0.1.76 九个资产和三平台清单/签名匹配；新下载器完整下载及签名校验 4.39 秒（未安装）；源站隔离 Nginx 实例的 8 项路由检查与完整候选配置 `nginx -t`。隔离路由测试的 origin 由固定响应模拟，不代表正式 API 的线上验收。

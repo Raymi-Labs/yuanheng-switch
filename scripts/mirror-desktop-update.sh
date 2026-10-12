@@ -73,7 +73,9 @@ upload() {
 
 while IFS=$'\t' read -r filename expected_size; do
   encoded="$(python3 -c 'import sys,urllib.parse; print(urllib.parse.quote(sys.argv[1],safe=""))' "$filename")"
-  public_asset="${public_url%/}/releases/${version}/${encoded}"
+  # A public download may redirect to R2. Inspect the platform's local copy so
+  # a successful CDN response cannot hide a missing origin publication asset.
+  public_asset="${public_url%/}/releases/${version}/${encoded}?origin=1"
   if mirror_has_asset "$public_asset" "$expected_size"; then
     echo "Already mirrored: $filename ($expected_size bytes)"
     continue

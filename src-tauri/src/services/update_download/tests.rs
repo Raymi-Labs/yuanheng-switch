@@ -133,10 +133,11 @@ fn only_exact_project_assets_have_an_alternative() {
     let known = "https://meta-api.vip/desktop/update/releases/0.1.76/YuanHeng.Desktop_0.1.76_aarch64.app.tar.gz";
     let sources = official_sources(&Url::parse(known).unwrap(), "0.1.76").unwrap();
     assert_eq!(sources.len(), 2);
-    assert_eq!(
-        official_sources(&sources[1], "0.1.76").unwrap()[1],
-        sources[0]
-    );
+    assert_eq!(sources[0].host_str(), Some("download.meta-api.vip"));
+    assert_eq!(sources[1].host_str(), Some("github.com"));
+    for source in &sources {
+        assert_eq!(official_sources(source, "0.1.76").unwrap(), sources);
+    }
     for raw in [
         format!("{known}?token=private"),
         known.replace("https:", "http:"),
@@ -144,6 +145,9 @@ fn only_exact_project_assets_have_an_alternative() {
         known.replace("meta-api.vip", "user@meta-api.vip"),
         known.replace("aarch64", "other"),
         known.replace("meta-api.vip", "meta-api.vip:444"),
+        known.replace("meta-api.vip", "download.meta-api.vip.evil.test"),
+        format!("{}?token=private", sources[0]),
+        format!("{}#fragment", sources[0]),
     ] {
         assert!(official_sources(&Url::parse(&raw).unwrap(), "0.1.76").is_none());
     }

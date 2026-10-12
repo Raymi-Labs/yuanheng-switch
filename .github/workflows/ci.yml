@@ -54,7 +54,9 @@ jobs:
         run: pnpm test:unit
 
       - name: Test desktop mirror resume
-        run: python3 scripts/test_mirror_desktop_update.py
+        run: |
+          python3 scripts/test_mirror_desktop_update.py
+          python3 scripts/test_sync_desktop_r2.py
 
       - name: Test macOS release verification
         run: |
