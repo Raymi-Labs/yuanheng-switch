@@ -92,7 +92,7 @@ def run(command, timeout):
 
 def public_verify(version, name, expected, directory):
     target = directory / "public-verify.tmp"
-    run(["curl", "--fail", "--silent", "--show-error", "--location",
+    run(["curl", "--http1.1", "--fail", "--silent", "--show-error", "--location",
          "--proto", "=https", "--proto-redir", "=https", "--connect-timeout", "15",
          "--max-time", "180", "--retry", "2", "--retry-all-errors", "--retry-max-time", "540",
          "--output", str(target), f"{PUBLIC_BASE}/{version}/{name}"], 570)

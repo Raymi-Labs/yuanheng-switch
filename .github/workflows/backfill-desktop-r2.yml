@@ -1,0 +1,65 @@
+name: Backfill R2 desktop assets
+
+on:
+  workflow_dispatch:
+    inputs:
+      versions:
+        description: '已发布版本的 JSON 数组，例如 ["0.1.76", "0.1.77"]；只回填 R2，不修改平台清单'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-22.04
+    outputs:
+      versions: ${{ steps.versions.outputs.versions }}
+    steps:
+      - uses: actions/checkout@v7
+      - id: versions
+        env:
+          VERSIONS: ${{ inputs.versions }}
+        run: |
+          python3 - <<'PY'
+          import importlib.util, json, os
+          spec = importlib.util.spec_from_file_location("delivery", "scripts/sync-desktop-r2.py")
+          delivery = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(delivery)
+          versions = json.loads(os.environ["VERSIONS"])
+          assert isinstance(versions, list) and 1 <= len(versions) <= 30
+          assert all(isinstance(v, str) for v in versions)
+          versions = [delivery.version_number(v) for v in versions]
+          assert len(set(versions)) == len(versions)
+          with open(os.environ["GITHUB_OUTPUT"], "a") as output:
+              output.write("versions=" + json.dumps(versions) + "\n")
+          PY
+
+  sync:
+    needs: validate
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        version: ${{ fromJSON(needs.validate.outputs.versions) }}
+    runs-on: ubuntu-22.04
+    timeout-minutes: 45
+    concurrency:
+      group: desktop-r2-backfill-${{ matrix.version }}
+      cancel-in-progress: false
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      RELEASE_VERSION: ${{ matrix.version }}
+      R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+      R2_BUCKET: yuanheng-desktop-downloads
+      R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+      R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install isolated R2 upload dependencies
+        run: |
+          python3 -m venv "$RUNNER_TEMP/desktop-r2"
+          "$RUNNER_TEMP/desktop-r2/bin/pip" install -r scripts/r2-requirements.txt
+      - name: Verify immutable release assets through the public download domain
+        run: '"$RUNNER_TEMP/desktop-r2/bin/python" scripts/sync-desktop-r2.py "$RELEASE_VERSION"'

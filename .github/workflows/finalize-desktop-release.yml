@@ -53,21 +53,13 @@ jobs:
       - run: node scripts/desktop-release.mjs publish release/final
 
   mirror:
-    name: Mirror recovered release
+    name: Deliver recovered release through R2 and platform
     needs: finalize
-    runs-on: ubuntu-22.04
-    timeout-minutes: 120
-    concurrency:
-      group: desktop-update-mirror
-      cancel-in-progress: false
-    env:
-      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    uses: ./.github/workflows/desktop-delivery.yml
+    with:
+      version: ${{ needs.finalize.outputs.version }}
+    secrets:
+      R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+      R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
       DESKTOP_UPDATE_PUBLISH_URL: ${{ secrets.DESKTOP_UPDATE_PUBLISH_URL }}
       DESKTOP_UPDATE_PUBLISH_TOKEN: ${{ secrets.DESKTOP_UPDATE_PUBLISH_TOKEN }}
-      RELEASE_VERSION: ${{ needs.finalize.outputs.version }}
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          ref: ${{ github.sha }}
-      - name: Resume signed updater mirror
-        run: bash scripts/mirror-desktop-update.sh "$RELEASE_VERSION"

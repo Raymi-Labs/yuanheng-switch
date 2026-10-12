@@ -11,22 +11,14 @@ on:
 permissions:
   contents: read
 
-concurrency:
-  group: desktop-update-mirror
-  cancel-in-progress: false
-
 jobs:
   mirror:
-    name: Resume signed updater mirror
-    runs-on: ubuntu-22.04
-    timeout-minutes: 120
-    env:
-      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    name: Resume R2 and platform delivery
+    uses: ./.github/workflows/desktop-delivery.yml
+    with:
+      version: ${{ inputs.version }}
+    secrets:
+      R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+      R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
       DESKTOP_UPDATE_PUBLISH_URL: ${{ secrets.DESKTOP_UPDATE_PUBLISH_URL }}
       DESKTOP_UPDATE_PUBLISH_TOKEN: ${{ secrets.DESKTOP_UPDATE_PUBLISH_TOKEN }}
-      RELEASE_VERSION: ${{ inputs.version }}
-    steps:
-      - name: Checkout mirror script
-        uses: actions/checkout@v7
-      - name: Resume verified release assets
-        run: bash scripts/mirror-desktop-update.sh "$RELEASE_VERSION"

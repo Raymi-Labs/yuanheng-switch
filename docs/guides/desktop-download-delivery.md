@@ -90,3 +90,5 @@ Mac 的“未显式使用 HTTP 代理”测试不排除系统隧道接管，不�
 上线时备份原 Nginx 文件，核对准备配置时记录的 SHA-256、`nginx -t` 后平滑重载。验证旧链接跳转、R2 整包及 206、`origin=1` 本地文件、缺失文件 404、清单/目录不缓存和正常 API。回滚恢复原 [下载 location](../../deploy/nginx/desktop-download-location.conf) 并重新校验/重载；本地安装包保留，不在这次迁移中清理。
 
 准备阶段已验证：10 项 R2 离线测试、6 项镜像测试、11 项下载器测试、actionlint；真实 v0.1.76 九个资产和三平台清单/签名匹配；新下载器完整下载及签名校验 4.39 秒（未安装）；源站隔离 Nginx 实例的 8 项路由检查与完整候选配置 `nginx -t`。隔离路由测试的 origin 由固定响应模拟，不代表正式 API 的线上验收。
+
+历史回填使用 [Backfill R2 desktop assets](../../.github/workflows/backfill-desktop-r2.yml)，输入正式版本 JSON 数组；最多两个版本并行，各自复用相同完整性校验，只写 R2，不更新平台或 latest。已有对象按条件写入并验证摘要，失败 job 可以单独重试。本机初次回填遇到 GitHub/TLS 和 HTTP/2 网络错误，迁移改由 GitHub Runner 执行；公网校验使用 HTTP/1.1 并对只读请求进行有上限的重试。
