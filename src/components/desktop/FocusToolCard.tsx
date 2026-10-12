@@ -9,12 +9,16 @@ import {
   RefreshCw,
   Wrench,
 } from "lucide-react";
-import { isYuanhengCliTool, type YuanhengToolId } from "@/lib/api";
+import {
+  isYuanhengCliTool,
+  type YuanhengReasoningLevel,
+  type YuanhengToolId,
+} from "@/lib/api";
 import { ProviderIcon } from "@/components/ProviderIcon";
 import { ModelPicker } from "./ModelPicker";
 import { CompactSelectPicker } from "./CompactSelectPicker";
 import { GroupPicker } from "./GroupPicker";
-import { pickPreferredGroup, toolLabel } from "./ToolSetupGrid";
+import { pickPreferredGroup, reasoningLabel, toolLabel } from "./ToolSetupGrid";
 import {
   providerIconOf,
   type ModelSwitchCenterState,
@@ -91,11 +95,13 @@ function FocusToolStateCard({
   selectedTool,
   onOpenTools,
   onRetry,
+  refreshing,
 }: {
   error?: boolean;
   selectedTool?: YuanhengToolId;
   onOpenTools: () => void;
   onRetry: () => Promise<void>;
+  refreshing: boolean;
 }) {
   const Icon = error ? AlertTriangle : Wrench;
   return (
@@ -118,16 +124,17 @@ function FocusToolStateCard({
             : dt("安装或配置工具后，这里会显示当前工具、模型和令牌分组。")}
         </p>
         <div className="mt-4 flex items-center gap-2">
-          {error && (
-            <button
-              type="button"
-              onClick={() => void onRetry()}
-              className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-white/15 bg-white/[0.08] px-3 text-[11px] font-semibold transition-colors hover:bg-white/[0.13]"
-            >
-              <RefreshCw className="h-3.5 w-3.5" />
-              {dt("重新检测")}
-            </button>
-          )}
+          <button
+            type="button"
+            disabled={refreshing}
+            onClick={() => void onRetry()}
+            className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-white/15 bg-white/[0.08] px-3 text-[11px] font-semibold transition-colors hover:bg-white/[0.13] disabled:opacity-50"
+          >
+            <RefreshCw
+              className={`h-3.5 w-3.5 ${refreshing ? "animate-spin" : ""}`}
+            />
+            {dt("重新检测")}
+          </button>
           <button
             type="button"
             onClick={onOpenTools}
@@ -144,7 +151,7 @@ function FocusToolStateCard({
 
 /**
  * 首页焦点工具卡：当前工具的大字模型展示 + 供应商 / 模型 / 分组切换。
- * 切换逻辑与下方「全部工具」列表共享同一份状态。
+ * 复用工作台状态处理配置、推理等级、检测与启动。
  */
 export function FocusToolCard({
   switcher,
@@ -156,6 +163,8 @@ export function FocusToolCard({
     terminalModels,
     modelMeta,
     bootstrapPhase,
+    bootstrapRefreshing,
+    inventoryRefreshFailed,
     retryBootstrap,
     runnableRows,
     models,
@@ -168,11 +177,13 @@ export function FocusToolCard({
     statusMap,
     activationMap,
     preflightResults,
+    codexBridge,
     codexAccountMode,
     codexModePending,
     refreshModels,
     applyModel,
     applyGroup,
+    applyReasoning,
     switchCodexMode,
     chooseLaunchDirectory,
     launch,
@@ -206,6 +217,7 @@ export function FocusToolCard({
         error
         onOpenTools={onOpenTools}
         onRetry={retryBootstrap}
+        refreshing={bootstrapRefreshing}
       />
     );
   }
@@ -215,6 +227,7 @@ export function FocusToolCard({
         selectedTool={app}
         onOpenTools={onOpenTools}
         onRetry={retryBootstrap}
+        refreshing={bootstrapRefreshing}
       />
     );
   }
@@ -223,6 +236,37 @@ export function FocusToolCard({
   const isCodexSurface = app === "codex" || app === "chatgpt-desktop";
   const usesOfficialCodexAccount =
     isCodexSurface && codexAccountMode.data?.mode === "official";
+  const supportedReasoning = current
+    ? (connection?.reasoningLevels[current] ?? [])
+    : [];
+  const defaultReasoning = current
+    ? connection?.reasoningDefaults?.[current]
+    : undefined;
+  const showReasoning =
+    (app === "claude-desktop" || isCodexSurface) &&
+    supportedReasoning.length > 0;
+  const selectedReasoning =
+    currentReasoning === "auto" || supportedReasoning.includes(currentReasoning)
+      ? currentReasoning
+      : "auto";
+  const reasoningOptions: YuanhengReasoningLevel[] = [
+    "auto",
+    ...supportedReasoning.filter((level) => level !== "auto"),
+  ];
+  const codexStatus =
+    app === "codex" &&
+    !usesOfficialCodexAccount &&
+    codexBridge.data?.connectedTerminals
+      ? codexBridge.data.pendingTerminals > 0
+        ? dt("待 {{v0}} 个终端下一条消息应用", {
+            v0: codexBridge.data.pendingTerminals,
+          })
+        : codexBridge.data.appliedTerminals > 0
+          ? dt("已应用 {{v0}}", { v0: codexBridge.data.model ?? current })
+          : dt("已连接 {{v0}} 个终端", {
+              v0: codexBridge.data.connectedTerminals,
+            })
+      : null;
   const launchDirectory = launchDirectories[app];
   const launchDirectoryPending = launchDirectoryPendingApps.has(app);
   const configured = usesOfficialCodexAccount || Boolean(status?.configured);
@@ -296,6 +340,18 @@ export function FocusToolCard({
         </div>
         <button
           type="button"
+          disabled={bootstrapRefreshing}
+          aria-label={dt("重新检测")}
+          title={dt("重新检测")}
+          onClick={() => void retryBootstrap()}
+          className="ml-auto inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-white/60 transition-colors hover:bg-white/10 hover:text-white disabled:opacity-50"
+        >
+          <RefreshCw
+            className={`h-3.5 w-3.5 ${bootstrapRefreshing ? "animate-spin" : ""}`}
+          />
+        </button>
+        <button
+          type="button"
           disabled={pending}
           aria-label={
             restartRequired
@@ -303,7 +359,7 @@ export function FocusToolCard({
               : dt("启动 {{v0}}", { v0: toolLabel(app) })
           }
           onClick={() => void launch(app)}
-          className="ml-auto inline-flex h-[34px] items-center gap-1.5 rounded-[10px] bg-[#e9b67c] px-4 text-[12px] font-semibold text-[#163a36] transition-colors hover:bg-[#f3c995] disabled:opacity-60"
+          className="inline-flex h-[34px] shrink-0 items-center gap-1.5 rounded-[10px] bg-[#e9b67c] px-4 text-[12px] font-semibold text-[#163a36] transition-colors hover:bg-[#f3c995] disabled:opacity-60"
         >
           {pending ? (
             <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -354,6 +410,23 @@ export function FocusToolCard({
           </button>
         )}
       </div>
+
+      {codexStatus && (
+        <p
+          role="status"
+          className="relative mt-2 text-[10px] text-emerald-200/80"
+        >
+          {codexStatus}
+        </p>
+      )}
+      {inventoryRefreshFailed && (
+        <p
+          role="status"
+          className="relative mt-2 rounded-lg bg-amber-300/10 px-3 py-2 text-[10px] text-amber-100/80"
+        >
+          {dt("本次检测暂未完成，仍显示上次本机快照；启动前会重新验证。")}
+        </p>
+      )}
 
       {isCodexSurface && (
         <div className="relative mt-3 flex items-center justify-between gap-3 rounded-xl border border-white/10 bg-white/[0.05] px-3 py-2">
@@ -422,7 +495,9 @@ export function FocusToolCard({
             )}
           </div>
         ) : (
-          <div className="grid gap-2 sm:grid-cols-[minmax(116px,.8fr)_minmax(0,1.35fr)_minmax(108px,.8fr)]">
+          <div
+            className={`grid gap-2 ${showReasoning ? "sm:grid-cols-2" : "sm:grid-cols-[minmax(116px,.8fr)_minmax(0,1.35fr)_minmax(108px,.8fr)]"}`}
+          >
             <label className="min-w-0">
               <span className="mb-1 block text-[9px] font-medium text-white/50">
                 {dt("1 · 模型供应商")}
@@ -483,6 +558,26 @@ export function FocusToolCard({
                 onChange={(group) => void applyGroup(app, group)}
               />
             </label>
+            {showReasoning && (
+              <label className="min-w-0">
+                <span className="mb-1 block text-[9px] font-medium text-white/50">
+                  {dt("推理等级")}
+                </span>
+                <CompactSelectPicker
+                  label={dt("{{v0}} 推理等级", { v0: toolLabel(app) })}
+                  value={selectedReasoning}
+                  options={reasoningOptions.map((level) => ({
+                    value: level,
+                    label: reasoningLabel(level, defaultReasoning),
+                  }))}
+                  disabled={pending}
+                  triggerClassName="border-white/15 bg-white/[0.08] px-2.5 text-[10.5px] text-white transition-colors hover:bg-white/[0.12] focus:border-[#e9b67c]/70"
+                  onChange={(level) =>
+                    void applyReasoning(app, level as YuanhengReasoningLevel)
+                  }
+                />
+              </label>
+            )}
           </div>
         )}
       </div>

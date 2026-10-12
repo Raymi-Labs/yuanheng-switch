@@ -221,7 +221,7 @@ describe("App integration with MSW", { timeout: 15_000 }, () => {
       const { default: App } = await import("@/App");
       renderApp(App, true);
       if (connected) {
-        await screen.findByRole("heading", { name: "快捷控制台" });
+        await screen.findByRole("heading", { name: "工作台" });
       } else {
         await screen.findByLabelText("用户名");
       }
@@ -768,6 +768,7 @@ describe("App integration with MSW", { timeout: 15_000 }, () => {
 
   it("shows when connected Codex terminals are waiting for the next message", async () => {
     setSettings({ firstRunNoticeConfirmed: true });
+    localStorage.setItem("yuanheng-switch-last-app", "codex");
     setYuanhengConnection({
       connected: true,
       userId: "1024",
@@ -805,8 +806,11 @@ describe("App integration with MSW", { timeout: 15_000 }, () => {
       await screen.findByText("待 1 个终端下一条消息应用"),
     ).toBeInTheDocument();
     expect(
-      screen.getByText("直接调整模型、令牌分组和推理等级"),
-    ).toBeInTheDocument();
+      screen.queryByRole("heading", { name: "快捷控制台" }),
+    ).not.toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: "启动 Codex" })).toHaveLength(
+      1,
+    );
     // 首页新模块：焦点工具卡、今日速览统计带、账号用量
     expect(screen.getByText("当前工具")).toBeInTheDocument();
     expect(screen.getByText("快捷切换")).toBeInTheDocument();
@@ -858,6 +862,7 @@ describe("App integration with MSW", { timeout: 15_000 }, () => {
 
   it("updates token group and reasoning directly from the workspace", async () => {
     setSettings({ firstRunNoticeConfirmed: true });
+    localStorage.setItem("yuanheng-switch-last-app", "codex");
     setYuanhengConnection({
       connected: true,
       userId: "1024",
@@ -881,11 +886,8 @@ describe("App integration with MSW", { timeout: 15_000 }, () => {
     const { default: App } = await import("@/App");
     renderApp(App);
 
-    expect(
-      await screen.findByRole("heading", { name: "快捷控制台" }),
-    ).toBeInTheDocument();
-    const groupPicker = screen.getByLabelText("Codex 快捷令牌分组");
-    const reasoningPicker = screen.getByLabelText("Codex 快捷推理等级");
+    const groupPicker = await screen.findByLabelText("Codex 当前工具令牌分组");
+    const reasoningPicker = screen.getByLabelText("Codex 推理等级");
 
     fireEvent.click(groupPicker);
     const callsBeforeFavorite = getConfiguredToolGroupCalls().length;

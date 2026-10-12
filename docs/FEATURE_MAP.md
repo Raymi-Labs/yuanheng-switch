@@ -20,7 +20,7 @@ pnpm remains the application package manager. Existing Tauri/Rust checks and sig
 
 ## DSH 安装与本机 Web（2026-10-11，本地）
 
-工作台 `ModelSwitchCenter/useModelSwitchCenter` 和工具管理 `ToolSetupGrid` 共用显式安装能力，检测目标不再等于安装能力。`settingsApi.runToolLifecycleAction` → `misc.rs` 的 DSH 专用分支 → `dsh_install.rs`，复用任务 ID、锁、取消与进程组/Windows Job 监督。Node 24.14.0 按平台固定 SHA256，官方 npm DSH 固定 0.2.0-rc.2，独立目录安装、不执行 npm lifecycle scripts、不改全局 Node。成功验证后原子发布安装标记，取消/失败不替换旧安装；安装后配置成功才请求启动。
+DSH 安装由工具管理 `ToolSetupGrid` 提供，工作台未就绪状态引导到工具管理；`useModelSwitchCenter` 保留既有生命周期实现，检测目标不等于安装能力。`settingsApi.runToolLifecycleAction` → `misc.rs` 的 DSH 专用分支 → `dsh_install.rs`，复用任务 ID、锁、取消与进程组/Windows Job 监督。Node 24.14.0 按平台固定 SHA256，官方 npm DSH 固定 0.2.0-rc.2，独立目录安装、不执行 npm lifecycle scripts、不改全局 Node。成功验证后原子发布安装标记，取消/失败不替换旧安装；安装后配置成功才请求启动。
 
 识别及启动复用 `desktop_app_detection` 与 `launch_tool`：优先明确选择的应用/源码，否则使用托管运行时或已有 CLI。CLI/Web 源码不要求 `apps/desktop`；源码缺依赖/构建明确报错，不自动更新工作树。托管运行时检测执行有界版本检查，启动 Web 固定 loopback、随机空闲端口、明确 DSH_HOME，并关闭会话遥测。配置仍归 `yuanheng/dsh.rs` 的事务与拥有权逻辑。`useInstallContinuation` 阻止安装完成后跨页面卸载/账号切换继续应用旧意图。
 
@@ -42,7 +42,7 @@ Claude diagnostic persistence uses a bounded background writer, not disk I/O on 
 
 | 能力/入口 | 复用链路 | 不变量与边界 |
 |---|---|---|
-| 工具页、快捷控制台、关于页 CLI 安装 | `settingsApi.runToolLifecycleAction` → `toolLifecycleState` → `commands/misc.rs` | 立即发布执行/验证状态，同工具互斥；安装后本机版本探测确认可运行才成功。第三方安装器不提供统一字节进度，不展示虚假百分比。 |
+| 工具页、关于页 CLI 安装（工作台引导到工具页） | `settingsApi.runToolLifecycleAction` → `toolLifecycleState` → `commands/misc.rs` | 立即发布执行/验证状态，同工具互斥；安装后本机版本探测确认可运行才成功。第三方安装器不提供统一字节进度，不展示虚假百分比。 |
 | 纯净环境安装 | Windows Claude 原生 PowerShell 安装器；POSIX/WSL 原生优先；npm 分支依赖检查 | npm 安装在实际执行环境检查 Node/npm；缺失给出 Node.js LTS 指引，不静默修改全局运行时。WSL 依赖不由 Windows 主机检测代替。 |
 | 模型下拉与后台刷新 | `ModelPicker` → `useRefreshYuanheng` → `useYuanhengToolStatuses` | 工具状态缓存按地址/账号/连接状态隔离，不按同步时间重建。刷新保留已知状态与弹层；选择、Esc、外部点击仍正常关闭。 |
 
@@ -50,7 +50,7 @@ Claude diagnostic persistence uses a bounded background writer, not disk I/O on 
 
 ## 原生安装超时与取消（2026-10-01）
 
-工具页、快捷控制台、关于页共用 `ToolInstallCancel` / `toolLifecycleState`；`native_tool_install_supported` 只判断任务隔离能力，不宣称网络或完整环境就绪。原生安装经 `tool_install_process` 监督，执行上限 10 分钟，每个 stdout/stderr 保留最多 64 KiB 尾部。取消按 operation ID 定位，不按工具名或全局进程名杀进程；清理失败保留后端工具锁。Unix 使用独立进程组，Windows 先绑定 Job Object 再放行脚本，父进程成功退出后仍回收任务内子进程。
+工具页、关于页共用 `ToolInstallCancel` / `toolLifecycleState`；`native_tool_install_supported` 只判断任务隔离能力，不宣称网络或完整环境就绪。原生安装经 `tool_install_process` 监督，执行上限 10 分钟，每个 stdout/stderr 保留最多 64 KiB 尾部。取消按 operation ID 定位，不按工具名或全局进程名杀进程；清理失败保留后端工具锁。Unix 使用独立进程组，Windows 先绑定 Job Object 再放行脚本，父进程成功退出后仍回收任务内子进程。
 
 取消不回滚第三方已写文件，先重新检测再决定是否重试；失败也使本机版本探测缓存失效。WSL 明确不提供原生进程树取消/超时承诺，不终止整个发行版；升级与安装后的只读验证沿用已有流程，不显示“取消安装”按钮。脚本需要用户交互、主动脱离 Unix 进程组或提权到任务外的行为不在支持范围。回归：`ToolInstallCancel.test.tsx` 与 `tool_install_process::tests`。
 
@@ -71,14 +71,18 @@ Claude diagnostic persistence uses a bounded background writer, not disk I/O on 
 
 ## 令牌分组与模型本地收藏（2026-10-04，本地）
 
-实际分组入口是工具管理 `ToolSetupGrid` 的“令牌分组”、快捷控制台 `ModelSwitchCenter` 的“快捷令牌分组”、当前工具 `FocusToolCard` 的“3 · 令牌分组”。三处使用 [GroupPicker](../src/components/desktop/GroupPicker.tsx)，支持搜索、星标收藏置顶，比例和分组名继续来自原 options。收藏不调用 onChange；工具管理仍点击配置/启动后保存，快捷控制台和当前工具仍显式选择后应用。厂商与推理等级下拉仍使用原 CompactSelectPicker。
+实际分组入口是工具管理 `ToolSetupGrid` 的“令牌分组”和当前工具 `FocusToolCard` 的“3 · 令牌分组”。两处使用 [GroupPicker](../src/components/desktop/GroupPicker.tsx)，支持搜索、星标收藏置顶，比例和分组名继续来自原 options。收藏不调用 onChange；工具管理仍点击配置/启动后保存，当前工具仍显式选择后应用。厂商与推理等级下拉仍使用原 CompactSelectPicker。
 
 [ModelPicker](../src/components/desktop/ModelPicker.tsx) 同时支持模型/厂商星标，只从当前传入模型目录展示。收藏不会增加任何厂商、模型或分组权限；已保存但目录外的分组值仍显示原值，不冒充首项或补入选项，不自动换组。
 
 [本地收藏存储](../src/components/desktop/useModelFavorites.ts) 使用固定 `yuanheng:group-favorites:v1` / `yuanheng:model-favorites:v1` key，只存分组名、模型 ID、厂商 ID，不含 API 密钥、账号或地址。偏好在同一客户端本地存储范围内跨入口共享（不按账号隔离），退出/切换账号不会清除偏好，但展示严格受新目录限制。不与 newapi 网页或其他设备同步；清理本地存储会丢失收藏。损坏数据回退空值，不可写提示失败且不影响正常选择。
 
-回归：`GroupPicker.favorites.test.tsx`、`ModelPicker.favorites.test.tsx`、既有分组/刷新测试及 `tests/integration/App.test.tsx` 三入口配置边界。决定与已验证范围见[本地收藏笔记](../.agents/notes/implemented/feature/2026-10-04-model-picker-favorites.md)。
+回归：`GroupPicker.favorites.test.tsx`、`ModelPicker.favorites.test.tsx`、既有分组/刷新测试及 `tests/integration/App.test.tsx` 工具管理与当前工具的配置边界。决定与已验证范围见[本地收藏笔记](../.agents/notes/implemented/feature/2026-10-04-model-picker-favorites.md)。
 
 ## 顶部更新提醒（2026-10-12）
 
 [App](../src/App.tsx) 在登录与工作台分支外的第一行挂载 [UpdateBadge](../src/components/UpdateBadge.tsx)。现有 UpdateProvider 确认可用新版后显示文字、目标版本与红点，无新版则移除并恢复原平台行高；忽略/延后仅控制自动弹窗，被动入口仍保留，主动点击重置偏好并打开 UpdatePrompt。检查、下载和安装期间禁用重复操作；顶栏遵循平台拖动规则，更新按钮与窗口控制隔开。更新端点、签名、检查频率及安装流程不变。
+
+## 工作台操作入口精简（2026-10-12）
+
+[WorkspaceDashboard](../src/components/desktop/WorkspaceDashboard.tsx) 只保留 [FocusToolCard](../src/components/desktop/FocusToolCard.tsx) 作为当前工具的模型、分组、推理等级和启动入口；顶栏已有工具选择仍持久化当前工具。删除重复的 ModelSwitchCenter 展示列表，复用 useModelSwitchCenter 的配置/启动逻辑。推理等级仅在支持的工具和模型下出现，官方 Codex 账号仍由官方客户端管理；保留终端待应用状态、旧快照提示与手动重新检测。空状态可重新检测或转工具管理安装配置，多工具维护继续由 ToolSetupGrid 承载。健康卡与快捷导航重新排布，不留下空列。决定见[工作台入口笔记](../.agents/notes/implemented/simplification/2026-10-12-workspace-single-tool-controls.md)。

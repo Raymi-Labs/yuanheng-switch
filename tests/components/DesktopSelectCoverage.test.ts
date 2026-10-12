@@ -2,12 +2,9 @@ import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 
-const DESKTOP_COMPONENTS = [
-  "FocusToolCard.tsx",
-  "ModelSwitchCenter.tsx",
-  "ToolSetupGrid.tsx",
-].map((file) =>
-  path.resolve(__dirname, "..", "..", "src", "components", "desktop", file),
+const DESKTOP_COMPONENTS = ["FocusToolCard.tsx", "ToolSetupGrid.tsx"].map(
+  (file) =>
+    path.resolve(__dirname, "..", "..", "src", "components", "desktop", file),
 );
 
 describe("desktop select coverage", () => {

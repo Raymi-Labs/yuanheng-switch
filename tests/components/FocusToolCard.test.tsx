@@ -84,14 +84,15 @@ describe("FocusToolCard", () => {
   });
 
   it("没有可运行工具时显示安装引导", () => {
-    render(
-      <FocusToolCard
-        switcher={createSwitcher("ready")}
-        onOpenTools={vi.fn()}
-      />,
-    );
+    const switcher = createSwitcher("ready");
+    const onOpenTools = vi.fn();
+    render(<FocusToolCard switcher={switcher} onOpenTools={onOpenTools} />);
 
     expect(screen.getByText("尚未检测到已安装的 AI 工具")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "重新检测" }));
+    expect(switcher.retryBootstrap).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole("button", { name: "安装与配置" }));
+    expect(onOpenTools).toHaveBeenCalledTimes(1);
   });
 
   it("检测失败时提供重试而不是显示未安装", () => {
@@ -145,6 +146,8 @@ describe("FocusToolCard", () => {
     switcher.rows = ["codex"];
     switcher.runnableRows = ["codex"];
     switcher.installedApps = new Set(["codex"]);
+    switcher.models = { codex: "gpt-5.6" };
+    switcher.connection!.reasoningLevels = { "gpt-5.6": ["high"] };
     switcher.codexAccountMode = {
       data: {
         mode: "official",
@@ -164,7 +167,28 @@ describe("FocusToolCard", () => {
       ),
     ).toBeInTheDocument();
     expect(screen.queryByText("1 · 模型供应商")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Codex 推理等级")).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "元衡中转" }));
     expect(switcher.switchCodexMode).toHaveBeenCalledWith("yuanheng");
+  });
+
+  it("保留旧快照提示，检测期间禁止再次点击且仍显示当前工具", () => {
+    const switcher = createSwitcher("ready");
+    switcher.runnableRows = ["codex"];
+    switcher.inventoryRefreshFailed = true;
+    switcher.bootstrapRefreshing = true;
+    const { rerender } = render(
+      <FocusToolCard switcher={switcher} onOpenTools={vi.fn()} />,
+    );
+    expect(screen.getByText("当前工具")).toBeVisible();
+    expect(screen.getByText(/仍显示上次本机快照/)).toBeVisible();
+    const retry = screen.getByRole("button", { name: "重新检测" });
+    expect(retry).toBeDisabled();
+    fireEvent.click(retry);
+    expect(switcher.retryBootstrap).not.toHaveBeenCalled();
+    switcher.bootstrapRefreshing = false;
+    rerender(<FocusToolCard switcher={switcher} onOpenTools={vi.fn()} />);
+    fireEvent.click(retry);
+    expect(switcher.retryBootstrap).toHaveBeenCalledTimes(1);
   });
 });

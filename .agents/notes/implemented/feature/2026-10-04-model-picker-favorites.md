@@ -8,9 +8,11 @@ Status: implemented
 
 ## Decision
 
-复用三个入口共享的 ModelPicker，明确星标收藏模型或厂商，不推断使用频率。localStorage 只存精确模型 ID / 厂商 ID，设备内共享，不存账号、密钥或使用记录，不同步网页。收藏匹配当前目录与搜索/厂商筛选交集；当前项仍独立，其他收藏优先且不重复，随后原厂商分组。厂商收藏也将其当前目录模型纳入常用区。模型星标是独立于选项的按钮，不触发 onChange/onRefresh，不自动写工具配置。存储损坏回退空收藏；写入失败提示且不假报保存成功。
+复用工具管理和当前工具入口共享的 ModelPicker，明确星标收藏模型或厂商，不推断使用频率。localStorage 只存精确模型 ID / 厂商 ID，设备内共享，不存账号、密钥或使用记录，不同步网页。收藏匹配当前目录与搜索/厂商筛选交集；当前项仍独立，其他收藏优先且不重复，随后原厂商分组。厂商收藏也将其当前目录模型纳入常用区。模型星标是独立于选项的按钮，不触发 onChange/onRefresh，不自动写工具配置。存储损坏回退空收藏；写入失败提示且不假报保存成功。
 
 ## Existing notes audit
+
+[工作台入口精简](../simplification/2026-10-12-workspace-single-tool-controls.md) 移除重复快捷控制台，当前保留工具管理与当前工具两处入口；收藏决定及权限边界保持不变。以下首次验证记录对应当时的三个入口。
 
 [分组层级](2026-10-02-model-picker-groups.md) 部分重叠：原先收藏未获授权，本轮明确新增授权；保留其搜索、排序、权限边界。[刷新连续性](../bug-fix/2026-10-01-tool-install-and-model-picker.md) 部分重叠且不替代：仍保留弹层和账号目录隔离。
 
@@ -32,7 +34,7 @@ Status: implemented
 
 ## Group selection entry points
 
-实际痛点是同厂商分组多。真正入口为 ToolSetupGrid、ModelSwitchCenter、FocusToolCard 中的令牌分组 CompactSelectPicker；其余同组件入口为厂商和推理等级，不应一起改。共享 GroupPicker，仅替换三处分组使用点，复用原 options/value/disabled/onChange。分组收藏使用独立固定本地 key，存精确分组名，不含 API key/账号/地址。搜索与收藏仅重排/筛选当前调用方提供的分组，目录外已保存 value 仍显示原值但不新增选项、不触发回调。不存在权限恢复或跨厂商扩展，收藏偏好设备内共享；工具页仍点击配置保存，快捷页仍显式选择才应用。
+实际痛点是同厂商分组多。当前入口为 ToolSetupGrid、FocusToolCard 中的令牌分组选择器；其余同组件入口为厂商和推理等级，不应一起改。共享 GroupPicker，在两处分组使用点复用，复用原 options/value/disabled/onChange。分组收藏使用独立固定本地 key，存精确分组名，不含 API key/账号/地址。搜索与收藏仅重排/筛选当前调用方提供的分组，目录外已保存 value 仍显示原值但不新增选项、不触发回调。不存在权限恢复或跨厂商扩展，收藏偏好设备内共享；工具页仍点击配置保存，当前工具仍显式选择才应用。
 
 真实备选：在 Radix SelectItem 内嵌收藏按钮代码较少，但该选项的点击/键盘关闭语义容易误触切组；使用与 ModelPicker 相同的 Popover/cmdk 行与独立星标按钮。给整个 CompactSelectPicker 增加收藏则会误影响推理等级/厂商等无关入口，故用语义明确的 GroupPicker 复用其 props 类型。模型收藏继续保留，不能作为分组需求的替代验收。分组收藏缓解重复查找，但不解决跨设备偏好同步；未来若授权账号级同步，须重审存储迁移与账号隔离契约。
 

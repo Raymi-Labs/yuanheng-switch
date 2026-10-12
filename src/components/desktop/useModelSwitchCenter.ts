@@ -58,8 +58,7 @@ export { toolIcon as providerIconOf } from "@/config/desktopTools";
 export type ModelSwitchBootstrapPhase = "loading" | "ready" | "error";
 
 /**
- * 首页模型切换的共享状态：焦点卡与全部工具列表共用一份选择/提交逻辑，
- * 保证两处切换模型后显示一致。
+ * 工作台当前工具的选择、配置与启动状态，复用既有工具检测和操作链。
  */
 export function useModelSwitchCenter() {
   const queryClient = useQueryClient();

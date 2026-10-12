@@ -6,7 +6,6 @@ import type { YuanhengToolId } from "@/lib/api";
 import type { DesktopView } from "./types";
 import { useModelSwitchCenter } from "./useModelSwitchCenter";
 import { FocusToolCard } from "./FocusToolCard";
-import { ModelSwitchCenter } from "./ModelSwitchCenter";
 import { AccountUsageCard } from "./AccountUsageCard";
 import { TodayStatsBand } from "./TodayStatsBand";
 import { YuanhengHealthCard } from "./YuanhengHealthCard";
@@ -40,19 +39,8 @@ export function WorkspaceDashboard({
           focusApp={focusApp}
           onOpenTools={() => onNavigate("tools")}
         />
-        <AccountUsageCard onOpenUsage={() => onNavigate("usage")} />
-      </div>
-
-      <div className="animate-rise-in stagger-1">
-        <TodayStatsBand />
-      </div>
-
-      <div className="grid animate-rise-in stagger-2 items-start gap-4 lg:grid-cols-[1.58fr_1fr]">
-        <ModelSwitchCenter
-          switcher={switcher}
-          onOpenTools={() => onNavigate("tools")}
-        />
-        <div className="flex flex-col gap-4">
+        <div className="flex min-w-0 flex-col gap-3.5">
+          <AccountUsageCard onOpenUsage={() => onNavigate("usage")} />
           <YuanhengHealthCard
             compact
             onOpenConnection={() => onNavigate("network")}
@@ -100,6 +88,10 @@ export function WorkspaceDashboard({
             ))}
           </div>
         </div>
+      </div>
+
+      <div className="animate-rise-in stagger-1">
+        <TodayStatsBand />
       </div>
     </div>
   );
