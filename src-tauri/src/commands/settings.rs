@@ -9,7 +9,10 @@ use tauri_plugin_updater::{Update, UpdaterExt};
 struct UpdateDownloadProgress {
     downloaded: u64,
     total: Option<u64>,
+    phase: &'static str,
 }
+
+static UPDATE_INSTALL_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 #[derive(Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -269,29 +272,48 @@ pub async fn restart_app(app: AppHandle) -> Result<bool, String> {
 /// 这里把退出清理、安装和重启串在同一个后端流程中，避免依赖旧前端继续执行。
 #[tauri::command]
 pub async fn install_update_and_restart(app: AppHandle) -> Result<bool, String> {
+    let _install_guard = UPDATE_INSTALL_LOCK
+        .try_lock()
+        .map_err(|_| "更新正在进行中，请稍候".to_string())?;
     let Some(update) = find_app_update(&app, Duration::from_secs(30)).await? else {
         return Ok(false);
     };
 
     log::info!("开始下载应用更新: {}", update.version);
     let progress_handle = app.clone();
-    let mut downloaded: u64 = 0;
-    let bytes = update
-        .download(
-            move |chunk_len, content_len| {
-                downloaded = downloaded.saturating_add(chunk_len as u64);
-                let _ = progress_handle.emit(
-                    "update-download-progress",
-                    UpdateDownloadProgress {
-                        downloaded,
-                        total: content_len,
-                    },
-                );
-            },
-            || {},
-        )
-        .await
-        .map_err(|e| format!("下载更新失败: {e}"))?;
+    let public_key = app
+        .config()
+        .plugins
+        .0
+        .get("updater")
+        .and_then(|config| config.get("pubkey"))
+        .and_then(serde_json::Value::as_str)
+        .ok_or("更新公钥未配置")?;
+    let bytes = crate::services::update_download::download(
+        &update,
+        public_key,
+        move |downloaded, content_len| {
+            let _ = progress_handle.emit(
+                "update-download-progress",
+                UpdateDownloadProgress {
+                    downloaded,
+                    total: content_len,
+                    phase: "downloading",
+                },
+            );
+        },
+    )
+    .await
+    .map_err(|e| format!("下载更新失败: {e}"))?;
+
+    let _ = app.emit(
+        "update-download-progress",
+        UpdateDownloadProgress {
+            downloaded: bytes.len() as u64,
+            total: Some(bytes.len() as u64),
+            phase: "installing",
+        },
+    );
 
     log::info!("开始安装应用更新: {}", update.version);
 

@@ -23,6 +23,7 @@ export type UpdatePhase =
 export interface UpdateDownloadProgress {
   downloaded: number;
   total: number | null;
+  phase?: "downloading" | "installing";
 }
 
 interface CheckUpdateOptions {
@@ -240,7 +241,9 @@ export function UpdateProvider({ children }: { children: React.ReactNode }) {
           (event) => {
             const nextProgress = event.payload;
             setProgress(nextProgress);
-            if (
+            if (nextProgress.phase) {
+              setPhase(nextProgress.phase);
+            } else if (
               nextProgress.total &&
               nextProgress.downloaded >= nextProgress.total
             ) {
@@ -272,7 +275,9 @@ export function UpdateProvider({ children }: { children: React.ReactNode }) {
       setError(
         installError instanceof Error
           ? installError.message
-          : "Failed to install update",
+          : typeof installError === "string" && installError.trim()
+            ? installError
+            : "Failed to install update",
       );
       setPhase("error");
       throw installError;

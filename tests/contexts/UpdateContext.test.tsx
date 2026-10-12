@@ -168,30 +168,78 @@ describe("UpdateProvider", () => {
     expect(latestContext.phase).toBe("installing");
   });
 
-  it("安装失败时保留更新信息并允许重试", async () => {
-    installUpdateAndRestartMock.mockRejectedValue(new Error("download failed"));
+  it("签名完成前保持下载阶段，切源重下不会提前安装", async () => {
+    let finishInstall: ((value: boolean) => void) | undefined;
+    installUpdateAndRestartMock.mockReturnValue(
+      new Promise<boolean>((resolve) => {
+        finishInstall = resolve;
+      }),
+    );
     renderProvider();
     await act(async () => {
       await latestContext.checkUpdate();
     });
-
+    let updatePromise: Promise<boolean>;
     await act(async () => {
-      await expect(latestContext.startUpdate()).rejects.toThrow(
-        "download failed",
-      );
+      updatePromise = latestContext.startUpdate();
+      await Promise.resolve();
     });
-
-    expect(latestContext.phase).toBe("error");
-    expect(latestContext.error).toBe("download failed");
-    expect(latestContext.updateInfo).toEqual(availableInfo);
-    expect(latestContext.isPromptOpen).toBe(true);
-    installUpdateAndRestartMock.mockResolvedValue(false);
+    act(() => {
+      emitTauriEvent("update-download-progress", {
+        downloaded: 100,
+        total: 100,
+        phase: "downloading",
+      });
+    });
+    expect(latestContext.phase).toBe("downloading");
+    act(() => {
+      emitTauriEvent("update-download-progress", {
+        downloaded: 0,
+        total: null,
+        phase: "downloading",
+      });
+    });
+    expect(latestContext.phase).toBe("downloading");
+    expect(latestContext.progress?.downloaded).toBe(0);
+    act(() => {
+      emitTauriEvent("update-download-progress", {
+        downloaded: 100,
+        total: 100,
+        phase: "installing",
+      });
+    });
+    expect(latestContext.phase).toBe("installing");
     await act(async () => {
-      await latestContext.startUpdate();
+      finishInstall?.(true);
+      await updatePromise;
     });
-    expect(installUpdateAndRestartMock).toHaveBeenCalledTimes(2);
-    expect(latestContext.phase).toBe("idle");
   });
+
+  it.each([new Error("download failed"), "download failed"])(
+    "安装失败时保留更新信息并允许重试（%s）",
+    async (error) => {
+      installUpdateAndRestartMock.mockRejectedValue(error);
+      renderProvider();
+      await act(async () => {
+        await latestContext.checkUpdate();
+      });
+
+      await act(async () => {
+        await expect(latestContext.startUpdate()).rejects.toBe(error);
+      });
+
+      expect(latestContext.phase).toBe("error");
+      expect(latestContext.error).toBe("download failed");
+      expect(latestContext.updateInfo).toEqual(availableInfo);
+      expect(latestContext.isPromptOpen).toBe(true);
+      installUpdateAndRestartMock.mockResolvedValue(false);
+      await act(async () => {
+        await latestContext.startUpdate();
+      });
+      expect(installUpdateAndRestartMock).toHaveBeenCalledTimes(2);
+      expect(latestContext.phase).toBe("idle");
+    },
+  );
 
   it("登录页主动安装期间启动自动检查和重复安装不打断下载或重启", async () => {
     let finishInstall!: (value: boolean) => void;

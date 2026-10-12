@@ -86,3 +86,8 @@ Claude diagnostic persistence uses a bounded background writer, not disk I/O on 
 ## 工作台操作入口精简（2026-10-12）
 
 [WorkspaceDashboard](../src/components/desktop/WorkspaceDashboard.tsx) 只保留 [FocusToolCard](../src/components/desktop/FocusToolCard.tsx) 作为当前工具的模型、分组、推理等级和启动入口；顶栏已有工具选择仍持久化当前工具。删除重复的 ModelSwitchCenter 展示列表，复用 useModelSwitchCenter 的配置/启动逻辑。推理等级仅在支持的工具和模型下出现，官方 Codex 账号仍由官方客户端管理；保留终端待应用状态、旧快照提示与手动重新检测。空状态可重新检测或转工具管理安装配置，多工具维护继续由 ToolSetupGrid 承载。健康卡与快捷导航重新排布，不留下空列。决定见[工作台入口笔记](../.agents/notes/implemented/simplification/2026-10-12-workspace-single-tool-controls.md)。
+
+
+## 更新下载择源与断流恢复（2026-10-12）
+
+现有所有更新入口 → [安装命令](../src-tauri/src/commands/settings.rs) → [签名下载器](../src-tauri/src/services/update_download.rs)，固定版本官方镜像/GitHub 先小量试下载择源，异常时有界切源并在本次操作内 Range 续传。不持久化部分包、不修改外部代理、未知下载地址仍使用原 Tauri 下载；完整文件通过同一公钥/签名后才安装。[UpdateContext](../src/contexts/UpdateContext.tsx) 使用明确阶段，后端互斥防止重复安装。回归覆盖本地真实 HTTP 故障和签名，手动网络 smoke 只下载不安装。服务端缓存配置与用户网络速度独立验收，参见[下载分发说明](guides/desktop-download-delivery.md)。
