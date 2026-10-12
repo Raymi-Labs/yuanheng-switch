@@ -19,6 +19,36 @@ SPEC.loader.exec_module(release)
 
 
 class MacReleaseTests(unittest.TestCase):
+    def test_ticket_validation_recovers_from_temporary_network_failure(self):
+        results = [subprocess.CompletedProcess([], 68, "", "network connection lost"),
+                   subprocess.CompletedProcess([], 0, "validated", "")]
+        with patch.object(release.subprocess, "run", side_effect=results) as runner:
+            with patch.object(release.time, "sleep") as sleep:
+                self.assertEqual(release.run("/usr/bin/xcrun", "stapler", "validate", "Fixture.app"), "validated")
+        self.assertEqual(runner.call_count, 2)
+        sleep.assert_called_once_with(15)
+
+    def test_ticket_validation_network_retries_still_fail_when_exhausted(self):
+        failed = subprocess.CompletedProcess([], 75, "", "temporary service failure")
+        with patch.object(release.subprocess, "run", return_value=failed) as runner:
+            with patch.object(release.time, "sleep") as sleep:
+                with self.assertRaisesRegex(RuntimeError, "exit 75"):
+                    release.run("/usr/bin/xcrun", "stapler", "validate", "Fixture.app")
+        self.assertEqual(runner.call_count, 3)
+        self.assertEqual([call.args[0] for call in sleep.call_args_list], [15, 30])
+
+    def test_invalid_ticket_and_other_verifiers_do_not_retry(self):
+        for code, args in ((65, ("/usr/bin/xcrun", "stapler", "validate", "Fixture.app")),
+                           (68, ("/usr/bin/codesign", "--verify", "Fixture.app")),
+                           (75, ("/usr/sbin/spctl", "--assess", "Fixture.app"))):
+            failed = subprocess.CompletedProcess([], code, "", "rejected")
+            with patch.object(release.subprocess, "run", return_value=failed) as runner:
+                with patch.object(release.time, "sleep") as sleep:
+                    with self.assertRaisesRegex(RuntimeError, "rejected"):
+                        release.run(*args)
+            self.assertEqual(runner.call_count, 1)
+            sleep.assert_not_called()
+
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)

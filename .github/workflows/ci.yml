@@ -57,7 +57,9 @@ jobs:
         run: python3 scripts/test_mirror_desktop_update.py
 
       - name: Test macOS release verification
-        run: python3 scripts/test_verify_macos_release.py
+        run: |
+          python3 scripts/test_apple_release_tools.py
+          python3 scripts/test_verify_macos_release.py
 
   backend:
     name: Backend Checks

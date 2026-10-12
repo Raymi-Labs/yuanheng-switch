@@ -8,14 +8,24 @@ import plistlib
 import re
 import subprocess
 import tempfile
+import time
 from pathlib import Path
 
 
 def run(*args):
-    result = subprocess.run(args, text=True, capture_output=True, timeout=180)
-    if result.returncode:
-        raise RuntimeError(f"{Path(args[0]).name} failed: {result.stdout}{result.stderr}")
-    return result.stdout + result.stderr
+    # stapler validate also contacts CloudKit. Retry only temporary service/host
+    # failures; a missing/invalid ticket, signature or Gatekeeper rejection fails.
+    validating_ticket = args[:3] == ("/usr/bin/xcrun", "stapler", "validate")
+    for attempt in range(3):
+        result = subprocess.run(args, text=True, capture_output=True, timeout=180)
+        if result.returncode == 0:
+            return result.stdout + result.stderr
+        if validating_ticket and result.returncode in (68, 75) and attempt < 2:
+            delay = (15, 30)[attempt]
+            print(f"stapler validate returned temporary error {result.returncode}; retrying in {delay}s", flush=True)
+            time.sleep(delay)
+            continue
+        raise RuntimeError(f"{Path(args[0]).name} failed (exit {result.returncode}): {result.stdout}{result.stderr}")
 
 
 def require(condition, message):

@@ -7925,7 +7925,7 @@ dependencies = [
 
 [[package]]
 name = "yuanheng-switch"
-version = "0.1.75"
+version = "0.1.76"
 dependencies = [
  "anyhow",
  "arboard",

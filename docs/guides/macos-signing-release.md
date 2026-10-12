@@ -21,6 +21,18 @@
 
 Tauri 更新密钥 `TAURI_SIGNING_PRIVATE_KEY` 及其密码继续沿用；自动更新 `.sig` 验证下载字节，Developer ID 与 Apple 公证负责 macOS 分发信任，两个链路均须验证。
 
+## Apple 服务瞬时失败与票据装订
+
+[Apple 工具重试脚本](../../scripts/apple-release-tools.py) 只在 macOS 发行 job 的临时 PATH 中包装 `xcrun` 和 `codesign`，调用的仍是 `/usr/bin` 原生工具。公证提交及其他命令直接转交，参数、标准输入和输出保持原样，不记录公证凭据。
+
+票据装订最多尝试 5 次，间隔为 15、30、60、120 秒；每次原生命令最长 120 秒。装订返回成功后立即执行 `stapler validate`，验证通过才记录当前 app 的成功凭据并交回 Tauri 继续打包。签名仅对明确的 `timestamp service is not available` 重试，最多 3 次，间隔 15、30 秒；证书、身份和权限等错误直接失败。
+
+当前 Tauri CLI 会忽略装订命令的退出码和输出，因此脚本另存失败标记与已验证 app 路径。打包后独立检查这些记录，再进入原有最终产物验证；Tauri 吞掉装订失败或未调用包装器都不能进入产物上传。诊断在构建成功或失败后输出，已知凭据值会脱敏。最终的 app、更新归档和 DMG 校验仍直接调用原生工具；其中 stapler validate 仅对临时主机/服务错误（退出码 68、75）最多尝试 3 次，等待 15、30 秒。缺失/无效票据、签名或 Gatekeeper 拒绝直接失败，网络重试耗尽也停止发布。
+
+Apple 返回 `Accepted` 只确认公证通过，尚需验证实际包内的票据；缺票据时不要删除校验或仅修复构建目录而继续分发旧归档。失败后的重新构建会复用可用的 Rust 缓存，重新完成签名、票据验证及整套打包。已创建标签保持原提交，新流程通过新版本发布。
+
+本地回归：`python3 scripts/test_apple_release_tools.py`，覆盖暂时失败恢复、装订假成功、重试耗尽、缺失/错误构建记录、时间戳失败、其他命令透传和凭据脱敏。它不代替带真实 Apple 凭据的发行构建。
+
 ## 构建与验证
 
 沿用 [Desktop Release](../../.github/workflows/release.yml) 和[集中发布](../release-announcements.md)。macOS 发行构建必须具有全部 Apple 凭据，缺失时失败，不再生成未签名发行包。Tauri 执行证书导入、加固运行时签名、公证和票据装订，然后产生自动更新归档与签名。

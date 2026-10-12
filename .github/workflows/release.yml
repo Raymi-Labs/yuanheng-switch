@@ -42,6 +42,8 @@ jobs:
           pnpm check:release-version
           pnpm typecheck
           pnpm test:unit
+          python3 scripts/test_apple_release_tools.py
+          python3 scripts/test_verify_macos_release.py
 
   build:
     name: Build ${{ matrix.target }}
@@ -105,6 +107,7 @@ jobs:
         with:
           workspaces: "./src-tauri -> target"
           key: ${{ matrix.target }}
+          cache-on-failure: true
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -164,12 +167,20 @@ jobs:
             --team-id "$APPLE_TEAM_ID" \
             --output-format json > /dev/null
 
+      - name: Install bounded Apple tool retries
+        if: runner.os == 'macOS'
+        run: python3 scripts/apple-release-tools.py install
+
       - name: Build signed bundles without publishing
         id: tauri
         uses: tauri-apps/tauri-action@v1
         with:
           uploadUpdaterJson: false
           args: --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}
+
+      - name: Report and enforce Apple tool results
+        if: always() && runner.os == 'macOS' && steps.tauri.outcome != 'skipped'
+        run: python3 scripts/apple-release-tools.py report "$YUANHENG_BUILD_TARGET"
 
       - name: Verify macOS signing, notarization and packaged apps
         if: runner.os == 'macOS'
