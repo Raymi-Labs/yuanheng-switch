@@ -104,3 +104,11 @@ Mac 的“未显式使用 HTTP 代理”测试不排除系统隧道接管，不�
 - 本机两路并行验收时，五个约 18–24 MB 二进制文件完整下载为 18.7–33.2 秒；当前代理/TUN 路线存在波动，不使用先前 3 秒采样作固定承诺。新对象返回一年 immutable；最初 UI 测试对象在旧边缘缓存到期前仍可能显示 4 小时缓存头，内容摘要未变化。
 
 首次回填改由 GitHub Runner 完成后，已删除本地临时 R2 凭据；后续通过 Actions 加密 Secrets 注入。
+
+### 客户端真实请求与旧版兼容
+
+v0.1.77 的 [收尾恢复 run 38289621669](https://github.com/nanashiwang/yuanheng-switch/actions/runs/38289621669) 已完整成功，公开 latest/downloads 均为 0.1.77，正常 API 与缓存边界保持。该版 ARM 包经旧链接完整下载 7.63 秒，SHA-256、精确 Range 和 `origin=1` 比对均通过。
+
+可选 `live_signed_release_download` 使用正式 `YuanHeng-Desktop-Updater` User-Agent、相同 reqwest 下载核心和原更新公钥。设置 `YUANHENG_SMOKE_SOURCE=r2` 可隔离 R2；设置为 `legacy-mirror` 可复现旧版原链接跳转；不设置则验证正常择源。前两种分别完整下载并验签 v0.1.77 的 22,994,265 字节包，耗时 7.25 秒、9.12 秒，均未安装。这样避免双源 smoke 由 GitHub 成功而掩盖 R2 自身问题。
+
+独立 Python urllib/3.9 的 HEAD 曾被 Cloudflare 返回 1010；curl、官网浏览器、无 UA reqwest，以及正式客户端 UA 的上述两条完整下载链均通过。该观测没有作为修改 WAF 的理由，也不能从检测脚本的 HEAD 失败推断客户端受阻。

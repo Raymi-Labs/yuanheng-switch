@@ -369,7 +369,9 @@ async fn overall_deadline_bounds_slow_but_active_streams() {
 async fn live_signed_release_download() {
     let mut builder = Client::builder()
         .https_only(true)
-        .connect_timeout(Duration::from_secs(10));
+        .connect_timeout(Duration::from_secs(10))
+        .user_agent("YuanHeng-Desktop-Updater")
+        .redirect(reqwest::redirect::Policy::limited(5));
     if let Some(proxy) = crate::services::updater_proxy::resolve_updater_proxy() {
         builder = builder.proxy(reqwest::Proxy::all(proxy.as_str()).unwrap());
     }
@@ -388,11 +390,27 @@ async fn live_signed_release_download() {
     let platform = &manifest["platforms"]["darwin-aarch64"];
     let version = manifest["version"].as_str().unwrap();
     let signature = platform["signature"].as_str().unwrap();
-    let sources = official_sources(
+    let mut sources = official_sources(
         &Url::parse(platform["url"].as_str().unwrap()).unwrap(),
         version,
     )
     .unwrap();
+    // Opt in to isolate CDN or old-client redirects; racing can succeed via GitHub.
+    match std::env::var("YUANHENG_SMOKE_SOURCE").as_deref() {
+        Ok("r2") => {
+            sources.retain(|url| url.host_str() == Some("download.meta-api.vip"));
+            assert_eq!(sources.len(), 1, "Expected exactly one official R2 source");
+            println!("Live download constrained to the official R2 source");
+        }
+        Ok("legacy-mirror") => {
+            let mirror = Url::parse(platform["url"].as_str().unwrap()).unwrap();
+            assert_eq!(mirror.host_str(), Some("meta-api.vip"));
+            sources = vec![mirror];
+            println!("Live download constrained to the legacy mirror redirect");
+        }
+        Err(std::env::VarError::NotPresent) => {}
+        _ => panic!("YUANHENG_SMOKE_SOURCE must be r2 or legacy-mirror when set"),
+    }
     let config: serde_json::Value =
         serde_json::from_str(include_str!("../../../tauri.conf.json")).unwrap();
     let public_key = config["plugins"]["updater"]["pubkey"].as_str().unwrap();
