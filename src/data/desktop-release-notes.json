@@ -2,14 +2,14 @@
   "schemaVersion": 1,
   "releases": [
     {
+      "version": "0.1.79",
+      "publishedAt": "2026-10-13T07:25:53Z",
+      "content": "【元衡客户端更新公告｜v0.1.79】\n\n• Claude Desktop 环境准备提示新增“不再提醒”复选框。勾选后关闭提示，再次进入元衡时不再自动弹出。\n• 提醒偏好保存在本机；需要继续处理时，可在工具管理中安装或配置 Claude，主动操作仍会检查环境。也可在准备提示中取消勾选，恢复启动提醒。\n• 优化 DSH 中 Claude 请求的空闲等待与重试，并兼容已有配置。\n\n提供 Windows x64、Apple 芯片 Mac 和 Intel Mac 安装包；macOS 继续使用 Apple Developer ID 签名和 Apple 公证。"
+    },
+    {
       "version": "0.1.78",
       "publishedAt": "2026-10-12T17:48:08Z",
       "content": "【元衡客户端更新公告｜v0.1.78】\n\n• 改善客户端更新下载：加入独立加速下载源，根据实际连接在加速源与 GitHub 之间选择。\n• 下载遇到断流或持续低速时，继续自动切换来源，并在同一次更新中尝试续传。\n• 补齐 Windows、Apple 芯片 Mac 和 Intel Mac 安装包的自动同步与完整性检查，减少发布后文件不齐导致的下载失败。\n\n更新包仍须通过原有签名验证后才能安装；macOS 继续使用 Apple Developer ID 签名和 Apple 公证。实际下载速度取决于所在地区与网络线路。"
-    },
-    {
-      "version": "0.1.77",
-      "publishedAt": "2026-10-12T16:59:04Z",
-      "content": "【元衡客户端更新公告｜v0.1.77】\n\n• 精简左侧导航：使用说明收纳到左下角“帮助”，与官网入口并排。\n• 帮助改为右侧抽屉，查阅安装、配置和常见问题时保留当前页面及操作状态；支持关闭按钮、Esc 和点击遮罩关闭。\n• 保留 ⌘K / Ctrl+K 快捷搜索，可搜索“帮助”“使用说明”打开同一份内置说明，离线也能查看。\n• 调整说明排版和多语言文案，适配窄窗口与明暗主题。\n\n提供 Windows x64、Apple 芯片 Mac 和 Intel Mac 安装包；macOS 继续使用 Apple Developer ID 签名和 Apple 公证。"
     }
   ]
 }

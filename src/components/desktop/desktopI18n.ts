@@ -34,6 +34,13 @@ export const DESKTOP_EN: Record<string, string> = {
 
   "基础环境已就绪，但工具检测未完成。请先点击重新检测，再继续配置 Claude。":
     "Prerequisites are ready, but tool detection did not finish. Redetect tools before continuing Claude setup.",
+  不再提醒: "Don’t remind me again",
+  "仅在本机生效，下次进入元衡不再自动提醒。需要时仍可在工具管理中安装或配置 Claude。":
+    "Applies only on this device. YuanHeng will no longer remind you automatically on startup. You can still install or configure Claude in Tools.",
+  "无法保存提醒偏好，请重试。":
+    "Could not save your reminder preference. Please try again.",
+  "请保存工作后重启 Windows。之后可在工具管理中继续安装或配置 Claude，不需要重新填写密钥。":
+    "Save your work and restart Windows. You can then continue installing or configuring Claude in Tools without re-entering keys.",
   "准备 Claude Desktop 运行环境": "Prepare Claude Desktop",
   "安装应用、Windows 基础环境、官方工作区下载和模型连接分别检查；准备过程中不会自动重启或调用收费模型。":
     "App installation, Windows prerequisites, official workspace downloads and model connectivity are separate checks. Preparation never reboots automatically or invokes paid models.",

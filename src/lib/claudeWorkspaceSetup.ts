@@ -27,14 +27,24 @@ export interface SetupSnapshot {
   busy: boolean;
   visible: boolean;
   resumeRequested: boolean;
+  suppressStartupReminder: boolean;
 }
 const STORAGE_KEY = "yuanheng.claudeWorkspacePreparation.v1";
+const REMINDER_KEY = "yuanheng.claudeWorkspacePreparation.suppressReminder.v1";
+function readReminderPreference(): boolean {
+  try {
+    return localStorage.getItem(REMINDER_KEY) === "true";
+  } catch {
+    return false;
+  }
+}
 const listeners = new Set<() => void>();
 let snapshot: SetupSnapshot = {
   state: null,
   busy: false,
   visible: false,
   resumeRequested: false,
+  suppressStartupReminder: readReminderPreference(),
 };
 let flight: Promise<void> | null = null;
 let refreshFlight: Promise<WorkspacePreparation> | null = null;
@@ -84,8 +94,19 @@ export const claudeWorkspaceSetup = {
   show() {
     publish({ visible: true });
   },
+  setSuppressStartupReminder(suppress: boolean): boolean {
+    // A display preference only: keep the pending intent and native safety checks.
+    try {
+      if (suppress) localStorage.setItem(REMINDER_KEY, "true");
+      else localStorage.removeItem(REMINDER_KEY);
+    } catch {
+      return false;
+    }
+    publish({ suppressStartupReminder: suppress });
+    return true;
+  },
   resumePending() {
-    if (!isWindows()) return false;
+    if (!isWindows() || snapshot.suppressStartupReminder) return false;
     try {
       return localStorage.getItem(STORAGE_KEY) === "pending";
     } catch {

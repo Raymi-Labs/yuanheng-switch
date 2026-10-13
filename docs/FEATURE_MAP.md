@@ -41,6 +41,8 @@ Claude diagnostic persistence uses a bounded background writer, not disk I/O on 
 
 系统启动时间和任务完成标记只在本地保存，不包含密钥；跨重启恢复只读检查后由用户点击继续，使用现有工具配置。已保存配置但准备延期用专门错误类型与普通配置失败区分，刷新保存状态而不回退模型选择。默认不调用模型，基础就绪不等于 Claude 官方工作区组件已下载。说明及 Windows 验收边界见 [首次使用准备](guides/claude-windows-first-run.md)。
 
+环境未就绪提示下提供“不再提醒”，通过独立本机偏好关闭启动弹窗、自动复查和闲置恢复按钮；任务标记及系统环境检查保留。主动安装、配置或启动仍检查并可重新打开提示，手动重试不清除偏好，取消勾选恢复提醒；存储失败显示错误且保持原值。回归入口：`ClaudeWorkspacePreparation.test.tsx`、`claudeWorkspaceSetup.test.ts`。见[提醒偏好笔记](../.agents/notes/implemented/feature/2026-10-13-claude-preparation-reminder.md)。
+
 ## 安装与模型选择连续性（2026-10-01）
 
 | 能力/入口 | 复用链路 | 不变量与边界 |

@@ -144,4 +144,104 @@ describe("Claude Windows preparation intent", () => {
     expect(flow.claudeWorkspaceSetup.getSnapshot().visible).toBe(false);
     expect(flow.claudeWorkspaceSetup.resumePending()).toBe(true);
   });
+
+  it("keeps reminder opt-out across restarts and explicit failed or successful retries", async () => {
+    let flow = await import("@/lib/claudeWorkspaceSetup");
+    mocks.invoke.mockResolvedValue({
+      phase: "failed",
+      message: "failed setup",
+    });
+    await expect(flow.ensureClaudeWorkspaceReady()).rejects.toThrow(
+      "failed setup",
+    );
+    expect(flow.claudeWorkspaceSetup.setSuppressStartupReminder(true)).toBe(
+      true,
+    );
+    flow.claudeWorkspaceSetup.dismiss();
+    expect(flow.claudeWorkspaceSetup.resumePending()).toBe(false);
+    expect(localStorage.getItem("yuanheng.claudeWorkspacePreparation.v1")).toBe(
+      "pending",
+    );
+
+    vi.resetModules();
+    flow = await import("@/lib/claudeWorkspaceSetup");
+    expect(flow.claudeWorkspaceSetup.resumePending()).toBe(false);
+    expect(flow.claudeWorkspaceSetup.getSnapshot().visible).toBe(false);
+    await expect(flow.ensureClaudeWorkspaceReady()).rejects.toThrow(
+      "failed setup",
+    );
+    expect(mocks.invoke).toHaveBeenCalledTimes(2);
+    expect(flow.claudeWorkspaceSetup.getSnapshot()).toMatchObject({
+      visible: true,
+      suppressStartupReminder: true,
+      state: { phase: "failed" },
+    });
+
+    mocks.invoke.mockResolvedValue({ phase: "ready", message: "ready" });
+    await flow.ensureClaudeWorkspaceReady();
+    expect(
+      flow.claudeWorkspaceSetup.getSnapshot().suppressStartupReminder,
+    ).toBe(true);
+    expect(
+      localStorage.getItem("yuanheng.claudeWorkspacePreparation.v1"),
+    ).toBeNull();
+  });
+
+  it("can restore reminders without losing the pending preparation", async () => {
+    const flow = await import("@/lib/claudeWorkspaceSetup");
+    localStorage.setItem("yuanheng.claudeWorkspacePreparation.v1", "pending");
+    flow.claudeWorkspaceSetup.setSuppressStartupReminder(true);
+    expect(flow.claudeWorkspaceSetup.setSuppressStartupReminder(false)).toBe(
+      true,
+    );
+    expect(flow.claudeWorkspaceSetup.resumePending()).toBe(true);
+    vi.resetModules();
+    expect(
+      (
+        await import("@/lib/claudeWorkspaceSetup")
+      ).claudeWorkspaceSetup.resumePending(),
+    ).toBe(true);
+  });
+
+  it("falls back to reminders for malformed or unreadable preferences", async () => {
+    localStorage.setItem("yuanheng.claudeWorkspacePreparation.v1", "pending");
+    localStorage.setItem(
+      "yuanheng.claudeWorkspacePreparation.suppressReminder.v1",
+      "invalid",
+    );
+    let flow = await import("@/lib/claudeWorkspaceSetup");
+    expect(flow.claudeWorkspaceSetup.resumePending()).toBe(true);
+    vi.resetModules();
+    vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => {
+      throw new Error("storage blocked");
+    });
+    flow = await import("@/lib/claudeWorkspaceSetup");
+    expect(
+      flow.claudeWorkspaceSetup.getSnapshot().suppressStartupReminder,
+    ).toBe(false);
+    expect(flow.claudeWorkspaceSetup.resumePending()).toBe(false);
+  });
+
+  it("does not report an unsaved preference as persisted", async () => {
+    const flow = await import("@/lib/claudeWorkspaceSetup");
+    localStorage.setItem("yuanheng.claudeWorkspacePreparation.v1", "pending");
+    vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+      throw new Error("storage full");
+    });
+    expect(flow.claudeWorkspaceSetup.setSuppressStartupReminder(true)).toBe(
+      false,
+    );
+    expect(flow.claudeWorkspaceSetup.resumePending()).toBe(true);
+    vi.restoreAllMocks();
+    flow.claudeWorkspaceSetup.setSuppressStartupReminder(true);
+    vi.spyOn(Storage.prototype, "removeItem").mockImplementation(() => {
+      throw new Error("storage blocked");
+    });
+    expect(flow.claudeWorkspaceSetup.setSuppressStartupReminder(false)).toBe(
+      false,
+    );
+    expect(
+      flow.claudeWorkspaceSetup.getSnapshot().suppressStartupReminder,
+    ).toBe(true);
+  });
 });

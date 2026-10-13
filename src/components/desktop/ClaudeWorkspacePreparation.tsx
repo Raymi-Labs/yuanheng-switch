@@ -1,6 +1,7 @@
-import { useEffect, useSyncExternalStore } from "react";
+import { useEffect, useId, useState, useSyncExternalStore } from "react";
 import { Loader2, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
@@ -20,6 +21,8 @@ export function ClaudeWorkspacePreparation({
 }: {
   onContinue: () => void;
 }) {
+  const reminderId = useId();
+  const [preferenceSaveFailed, setPreferenceSaveFailed] = useState(false);
   const snapshot = useSyncExternalStore(
     claudeWorkspaceSetup.subscribe,
     claudeWorkspaceSetup.getSnapshot,
@@ -52,7 +55,7 @@ export function ClaudeWorkspacePreparation({
         if (!open) claudeWorkspaceSetup.dismiss();
       }}
     >
-      <DialogContent className="max-w-lg">
+      <DialogContent className="max-w-lg overflow-y-auto">
         <DialogHeader>
           <DialogTitle>{dt("准备 Claude Desktop 运行环境")}</DialogTitle>
           <DialogDescription>
@@ -75,10 +78,51 @@ export function ClaudeWorkspacePreparation({
           {state?.phase === "restart_required" && (
             <p className="text-sm text-muted-foreground">
               {dt(
-                "请保存工作后重启 Windows。重新打开元衡会恢复检查，之后点击继续即可，不需要重新填写密钥。",
+                snapshot.suppressStartupReminder
+                  ? "请保存工作后重启 Windows。之后可在工具管理中继续安装或配置 Claude，不需要重新填写密钥。"
+                  : "请保存工作后重启 Windows。重新打开元衡会恢复检查，之后点击继续即可，不需要重新填写密钥。",
               )}
             </p>
           )}
+          {state &&
+            state.phase !== "ready" &&
+            state.phase !== "not_required" && (
+              <div className="space-y-2">
+                <div className="flex items-center gap-2">
+                  <Checkbox
+                    id={reminderId}
+                    checked={snapshot.suppressStartupReminder}
+                    aria-describedby={`${reminderId}-hint`}
+                    onCheckedChange={(checked) => {
+                      setPreferenceSaveFailed(
+                        !claudeWorkspaceSetup.setSuppressStartupReminder(
+                          checked === true,
+                        ),
+                      );
+                    }}
+                  />
+                  <label
+                    htmlFor={reminderId}
+                    className="cursor-pointer text-sm"
+                  >
+                    {dt("不再提醒")}
+                  </label>
+                </div>
+                <p
+                  id={`${reminderId}-hint`}
+                  className="text-xs leading-5 text-muted-foreground"
+                >
+                  {dt(
+                    "仅在本机生效，下次进入元衡不再自动提醒。需要时仍可在工具管理中安装或配置 Claude。",
+                  )}
+                </p>
+                {preferenceSaveFailed && (
+                  <p role="alert" className="text-xs text-destructive">
+                    {dt("无法保存提醒偏好，请重试。")}
+                  </p>
+                )}
+              </div>
+            )}
           <div className="flex flex-wrap justify-end gap-2">
             <Button
               variant="outline"
