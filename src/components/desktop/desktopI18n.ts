@@ -138,6 +138,9 @@ export const DESKTOP_EN: Record<string, string> = {
   网络体检超时: "Network check timed out",
   "已停止等待网络检查，仍可导出本机状态；未将账号判定为失效。":
     "Stopped waiting for the network. Local status can still be exported; the account was not marked invalid.",
+  未读公告: "Unread announcement",
+  "公告中心，有未读公告": "Announcements, unread notices",
+  选择当前工具: "Choose current tool",
   公告中心: "Announcements",
   客户端更新: "App Updates",
   平台通知: "Platform Notices",

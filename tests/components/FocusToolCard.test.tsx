@@ -6,6 +6,11 @@ import type {
   ModelSwitchCenterState,
 } from "@/components/desktop/useModelSwitchCenter";
 
+Object.defineProperty(Element.prototype, "scrollIntoView", {
+  configurable: true,
+  value: vi.fn(),
+});
+
 function createSwitcher(
   bootstrapPhase: ModelSwitchBootstrapPhase,
   retryBootstrap = vi.fn().mockResolvedValue(undefined),
@@ -69,6 +74,25 @@ function createSwitcher(
 }
 
 describe("FocusToolCard", () => {
+  it.each(["loading", "error", "ready"] as const)(
+    "%s 状态仍能切换当前工具",
+    async (phase) => {
+      const onToolChange = vi.fn();
+      render(
+        <FocusToolCard
+          switcher={createSwitcher(phase)}
+          focusApp="claude"
+          availableTools={["claude", "codex"]}
+          onToolChange={onToolChange}
+          onOpenTools={vi.fn()}
+        />,
+      );
+      fireEvent.click(screen.getByRole("combobox", { name: "选择当前工具" }));
+      fireEvent.click(await screen.findByRole("option", { name: "Codex" }));
+      expect(onToolChange).toHaveBeenCalledWith("codex");
+    },
+  );
+
   it("加载期间保留焦点卡位置且不显示未安装结论", () => {
     render(
       <FocusToolCard

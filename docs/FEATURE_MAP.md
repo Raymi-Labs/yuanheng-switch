@@ -90,7 +90,7 @@ Claude diagnostic persistence uses a bounded background writer, not disk I/O on 
 
 ## 工作台操作入口精简（2026-10-12）
 
-[WorkspaceDashboard](../src/components/desktop/WorkspaceDashboard.tsx) 只保留 [FocusToolCard](../src/components/desktop/FocusToolCard.tsx) 作为当前工具的模型、分组、推理等级和启动入口；顶栏已有工具选择仍持久化当前工具。删除重复的 ModelSwitchCenter 展示列表，复用 useModelSwitchCenter 的配置/启动逻辑。推理等级仅在支持的工具和模型下出现，官方 Codex 账号仍由官方客户端管理；保留终端待应用状态、旧快照提示与手动重新检测。空状态可重新检测或转工具管理安装配置，多工具维护继续由 ToolSetupGrid 承载。健康卡与快捷导航重新排布，不留下空列。决定见[工作台入口笔记](../.agents/notes/implemented/simplification/2026-10-12-workspace-single-tool-controls.md)。
+[WorkspaceDashboard](../src/components/desktop/WorkspaceDashboard.tsx) 只保留 [FocusToolCard](../src/components/desktop/FocusToolCard.tsx) 作为当前工具的模型、分组、推理等级和启动入口；当前工具卡内的下拉选择持久化当前工具（见下方 2026-10-13 入口更新）。删除重复的 ModelSwitchCenter 展示列表，复用 useModelSwitchCenter 的配置/启动逻辑。推理等级仅在支持的工具和模型下出现，官方 Codex 账号仍由官方客户端管理；保留终端待应用状态、旧快照提示与手动重新检测。空状态可重新检测或转工具管理安装配置，多工具维护继续由 ToolSetupGrid 承载。健康卡与快捷导航重新排布，不留下空列。决定见[工作台入口笔记](../.agents/notes/implemented/simplification/2026-10-12-workspace-single-tool-controls.md)。
 
 
 ## 更新下载择源与断流恢复（2026-10-12）
@@ -104,3 +104,9 @@ Claude diagnostic persistence uses a bounded background writer, not disk I/O on 
 ## R2 安装包分发（2026-10-13）
 
 现有 Desktop Release → [下载分发工作流](../.github/workflows/desktop-delivery.yml) → [R2 同步和公开摘要校验](../scripts/sync-desktop-r2.py) → 原平台镜像及 latest 发布；缺少凭据或任一验证失败时停止。新下载器精确识别 R2/原镜像/GitHub 官方更新包，候选改为 R2/GitHub；未知地址、续传和原公钥签名协议保持不变。旧下载 URL 的兼容由[源站临时跳转片段](../deploy/nginx/desktop-r2-download-location.conf)承接，镜像探测用 `origin=1` 核对平台本地包。桶级凭据已配置、12 版历史资产已回填，生产旧链接跳转及当前版完整自动分发已验证；生产验收与回滚方式见[分发说明](guides/desktop-download-delivery.md#r2-正式接入代码与上线步骤)。
+
+## 公告铃铛与当前工具选择（2026-10-13）
+
+[App](../src/App.tsx) 工具栏挂载 [公告铃铛](../src/components/desktop/PlatformAnnouncementCenter.tsx)，替代工作台两条横幅。客户端更新与平台通知复用原查询、内部窗口及有界已读标记；分类独立已读，新内容再次显示红点，错误在窗口内重试，关闭后恢复焦点。顶部安装更新入口继续由 UpdateProvider/UpdateBadge 管理。
+
+[WorkspaceDashboard](../src/components/desktop/WorkspaceDashboard.tsx) 将 App 的可见工具与持久化回调传给 [FocusToolCard](../src/components/desktop/FocusToolCard.tsx)，当前工具标题下使用 CompactSelectPicker；加载、失败和未安装状态也可选择。工具管理、模型与分组写入时机不变。移除快捷切换说明。决定及验收见[入口整理笔记](../.agents/notes/implemented/feature/2026-10-13-workspace-notifications-tool-picker.md)。

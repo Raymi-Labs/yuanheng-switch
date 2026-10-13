@@ -1,5 +1,6 @@
 export type AnnouncementCategory = "updates" | "platform";
 export const OPEN_ANNOUNCEMENTS_EVENT = "yuanheng:open-announcements";
+export const PLATFORM_ANNOUNCEMENT_READ_EVENT = "yuanheng:platform-notice-read";
 export const RELEASE_ANNOUNCEMENT_READ_EVENT = "yuanheng:release-note-read";
 
 export interface AnnouncementRequest {

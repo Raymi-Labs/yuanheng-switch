@@ -13,6 +13,7 @@ import { server } from "../msw/server";
 import {
   RELEASE_NOTES_CACHE_KEY,
   RELEASE_NOTES_SEEN_KEY,
+  releaseNoteIdentity,
 } from "@/lib/desktopReleaseNotes";
 import { openAnnouncementCenter } from "@/lib/announcementCenter";
 import {
@@ -20,6 +21,7 @@ import {
   PlatformAnnouncementCenter,
   DesktopAnnouncementCenter,
   summarizeAnnouncement,
+  getAnnouncementIdentity,
 } from "@/components/desktop/PlatformAnnouncementCenter";
 import { setYuanhengAnnouncements } from "../msw/state";
 import { createTestQueryClient } from "../utils/testQueryClient";
@@ -33,6 +35,9 @@ function futureVersion(increment: number): string {
 
 function renderCenter() {
   const client = createTestQueryClient();
+  client.setDefaultOptions({
+    queries: { ...client.getDefaultOptions().queries, retryDelay: 0 },
+  });
   return render(
     <QueryClientProvider client={client}>
       <PlatformAnnouncementCenter />
@@ -46,6 +51,11 @@ describe("PlatformAnnouncementCenter", () => {
     localStorage.removeItem("yuanheng.dashboard.announcement-dismissed.v2");
     localStorage.removeItem(RELEASE_NOTES_CACHE_KEY);
     localStorage.removeItem(RELEASE_NOTES_SEEN_KEY);
+    setYuanhengAnnouncements({
+      enabled: true,
+      source: "platform",
+      announcements: [],
+    });
   });
 
   it("清理平台 Markdown 和旧版 HTML 后生成摘要", () => {
@@ -86,14 +96,15 @@ describe("PlatformAnnouncementCenter", () => {
 
     renderCenter();
 
-    expect(await screen.findByText("重要提醒")).toBeInTheDocument();
+    await waitFor(() =>
+      expect(localStorage.getItem(RELEASE_NOTES_CACHE_KEY)).not.toBeNull(),
+    );
     expect(
-      screen.getByText(
-        "【平台分组名称调整说明】 · 历史令牌仍显示旧分组，需要手动修改。",
-      ),
-    ).toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole("button", { name: /查看详情/ }));
+      screen.queryByText("历史令牌仍显示旧分组，需要手动修改。"),
+    ).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /公告中心/ }));
+    fireEvent.click(screen.getByRole("button", { name: /平台通知/ }));
+    await screen.findByText("以创建令牌页面实时显示为准。");
     expect(screen.getByRole("dialog")).toBeInTheDocument();
     expect(
       screen.getByText("与元衡平台公告中心同步，每分钟自动检查更新"),
@@ -124,19 +135,22 @@ describe("PlatformAnnouncementCenter", () => {
     });
 
     renderCenter();
-    await screen.findByText("平台公告内容");
-    fireEvent.click(screen.getByRole("button", { name: "标记最新公告为已读" }));
-
-    expect(screen.getByText("已同步 1 条公告")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /公告中心/ }));
+    fireEvent.click(screen.getByRole("button", { name: /平台通知/ }));
+    await screen.findAllByText("平台公告内容");
+    fireEvent.click(screen.getByRole("button", { name: "关闭公告中心" }));
     expect(
-      screen.getByRole("button", { name: /查看历史/ }),
+      screen.getByRole("button", { name: "公告中心" }),
     ).toBeInTheDocument();
+    expect(
+      screen.queryByTestId("announcement-notification-dot"),
+    ).not.toBeInTheDocument();
   });
 
   it("旧清单或已是最新版仍可查看两版公告，不自动弹窗", async () => {
     renderCenter();
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "查看更新内容" }));
+    fireEvent.click(screen.getByRole("button", { name: /公告中心/ }));
     const dialog = screen.getByRole("dialog");
     expect(
       within(dialog).getByText("仅展示最近两次客户端更新，不累计历史记录。"),
@@ -165,10 +179,10 @@ describe("PlatformAnnouncementCenter", () => {
     );
     fireEvent.click(screen.getByRole("button", { name: "关闭公告中心" }));
     expect(
-      screen.getByRole("button", { name: "查看更新内容" }),
+      screen.getByRole("button", { name: /公告中心/ }),
     ).toBeInTheDocument();
     expect(
-      screen.queryByRole("button", { name: "标记本次更新已读" }),
+      screen.queryByTestId("announcement-notification-dot"),
     ).not.toBeInTheDocument();
   });
 
@@ -187,8 +201,12 @@ describe("PlatformAnnouncementCenter", () => {
       ),
     );
     renderCenter();
-    await screen.findByText(`v${futureVersion(2)} 更新公告`);
-    fireEvent.click(screen.getByRole("button", { name: "查看更新内容" }));
+    await waitFor(() =>
+      expect(
+        JSON.parse(localStorage.getItem(RELEASE_NOTES_CACHE_KEY)!)[0].version,
+      ).toBe(futureVersion(2)),
+    );
+    fireEvent.click(screen.getByRole("button", { name: /公告中心/ }));
     const dialog = screen.getByRole("dialog");
     expect(
       within(dialog).getByText(`v${futureVersion(1)}`),
@@ -227,11 +245,12 @@ describe("PlatformAnnouncementCenter", () => {
         throw new Error("full");
       });
     try {
-      fireEvent.click(screen.getByRole("button", { name: "标记本次更新已读" }));
+      fireEvent.click(screen.getByRole("button", { name: /公告中心/ }));
+      fireEvent.click(screen.getByRole("button", { name: "关闭公告中心" }));
       expect(
-        screen.queryByRole("button", { name: "标记本次更新已读" }),
+        screen.queryByTestId("announcement-notification-dot"),
       ).not.toBeInTheDocument();
-      fireEvent.click(screen.getByRole("button", { name: "查看更新内容" }));
+      fireEvent.click(screen.getByRole("button", { name: /公告中心/ }));
       await waitFor(() =>
         expect(screen.getByRole("dialog")).toBeInTheDocument(),
       );
@@ -253,7 +272,7 @@ describe("PlatformAnnouncementCenter", () => {
       });
     try {
       renderCenter();
-      fireEvent.click(screen.getByRole("button", { name: "查看更新内容" }));
+      fireEvent.click(screen.getByRole("button", { name: /公告中心/ }));
       expect(screen.getByRole("dialog")).toBeInTheDocument();
     } finally {
       read.mockRestore();
@@ -275,9 +294,13 @@ describe("PlatformAnnouncementCenter", () => {
       ),
     );
     renderCenter();
-    await screen.findByText(`v${futureVersion(1)} 更新公告`);
+    await waitFor(() =>
+      expect(
+        JSON.parse(localStorage.getItem(RELEASE_NOTES_CACHE_KEY)!)[0].version,
+      ).toBe(futureVersion(1)),
+    );
     latest = 2;
-    fireEvent.click(screen.getByRole("button", { name: "查看更新内容" }));
+    fireEvent.click(screen.getByRole("button", { name: /公告中心/ }));
     const dialog = screen.getByRole("dialog");
     await waitFor(() =>
       expect(within(dialog).getAllByText(`v${futureVersion(2)}`)).toHaveLength(
@@ -290,5 +313,76 @@ describe("PlatformAnnouncementCenter", () => {
     expect(
       within(dialog).queryByText(`v${currentRelease.version}`),
     ).not.toBeInTheDocument();
+  });
+  it("分类独立已读，刷新保留，平台正文变化后再次提醒", async () => {
+    const notice = {
+      id: "34",
+      content: "第一版公告",
+      extra: null,
+      publishDate: "2026-10-13T00:00:00Z",
+      type: "default" as const,
+    };
+    setYuanhengAnnouncements({
+      enabled: true,
+      source: "platform",
+      announcements: [notice],
+    });
+    const first = renderCenter();
+    fireEvent.click(screen.getByRole("button", { name: /公告中心/ }));
+    fireEvent.click(screen.getByRole("button", { name: "关闭公告中心" }));
+    await waitFor(() =>
+      expect(
+        screen.getByTestId("announcement-notification-dot"),
+      ).toBeInTheDocument(),
+    );
+    // Only platform remains unread, so the bell opens that category directly.
+    fireEvent.click(screen.getByRole("button", { name: /公告中心/ }));
+    await screen.findAllByText("第一版公告");
+    fireEvent.click(screen.getByRole("button", { name: "关闭公告中心" }));
+    expect(localStorage.getItem(RELEASE_NOTES_SEEN_KEY)).toBe(
+      releaseNoteIdentity(currentRelease),
+    );
+    expect(
+      localStorage.getItem("yuanheng.dashboard.announcement-dismissed.v2"),
+    ).toBe(getAnnouncementIdentity(notice));
+    first.unmount();
+    const second = renderCenter();
+    await waitFor(() =>
+      expect(
+        screen.queryByTestId("announcement-notification-dot"),
+      ).not.toBeInTheDocument(),
+    );
+    second.unmount();
+    setYuanhengAnnouncements({
+      enabled: true,
+      source: "platform",
+      announcements: [{ ...notice, content: "更新后的公告" }],
+    });
+    renderCenter();
+    await screen.findByTestId("announcement-notification-dot");
+    fireEvent.click(screen.getByRole("button", { name: /公告中心/ }));
+    await screen.findAllByText("更新后的公告");
+  });
+  it("平台同步失败留在窗口内提示，并可直接重试", async () => {
+    let offline = true;
+    server.use(
+      http.post("http://tauri.local/get_yuanheng_announcements", () =>
+        offline
+          ? HttpResponse.json({ error: "offline" }, { status: 503 })
+          : HttpResponse.json({
+              enabled: true,
+              source: "platform",
+              announcements: [],
+            }),
+      ),
+    );
+    renderCenter();
+    expect(screen.queryByText("平台公告暂时同步失败")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /公告中心/ }));
+    fireEvent.click(screen.getByRole("button", { name: /平台通知/ }));
+    await screen.findByText("平台公告暂时同步失败");
+    offline = false;
+    fireEvent.click(screen.getByRole("button", { name: "重试" }));
+    await screen.findByText("已同步，暂无公告");
   });
 });

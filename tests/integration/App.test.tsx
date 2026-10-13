@@ -877,7 +877,10 @@ describe("App integration with MSW", { timeout: 15_000 }, () => {
     );
     // 首页新模块：焦点工具卡、今日速览统计带、账号用量
     expect(screen.getByText("当前工具")).toBeInTheDocument();
-    expect(screen.getByText("快捷切换")).toBeInTheDocument();
+    expect(screen.queryByText("快捷切换")).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("combobox", { name: "选择当前工具" }),
+    ).toBeInTheDocument();
     expect(screen.getByLabelText(/模型供应商$/)).toBeInTheDocument();
     expect(screen.getByLabelText(/当前工具令牌分组$/)).toBeInTheDocument();
     expect(screen.getByText("今日请求")).toBeInTheDocument();
@@ -919,8 +922,11 @@ describe("App integration with MSW", { timeout: 15_000 }, () => {
     renderApp(App);
 
     expect(
-      await screen.findByText("平台公告 · 内部测试与加群福利。"),
+      await screen.findByRole("button", { name: /公告中心/ }),
     ).toBeInTheDocument();
+    expect(
+      screen.queryByText("平台公告 · 内部测试与加群福利。"),
+    ).not.toBeInTheDocument();
     expect(screen.queryByText(/box-sizing/)).not.toBeInTheDocument();
   });
 
@@ -1153,7 +1159,7 @@ describe("App integration with MSW", { timeout: 15_000 }, () => {
     ["workbuddy", "WorkBuddy"],
     ["dsh", "DSH"],
   ] as const)(
-    "selects and restores %s from the toolbar",
+    "selects and restores %s from the current tool card",
     async (app, label) => {
       setSettings({ firstRunNoticeConfirmed: true });
       setYuanhengConnection({ connected: true, models: ["gpt-5.6"] });
@@ -1165,14 +1171,12 @@ describe("App integration with MSW", { timeout: 15_000 }, () => {
       const { default: App } = await import("@/App");
       const first = renderApp(App);
       await screen.findByRole("heading", { name: "工作台" });
-      fireEvent.keyDown(
-        screen.getByRole("button", { name: "desktop.toolbar.switchTool" }),
-        { key: "ArrowDown" },
-      );
-      fireEvent.click(await screen.findByRole("menuitem", { name: label }));
+      await screen.findByRole("button", { name: "启动 Claude" });
+      fireEvent.click(screen.getByRole("combobox", { name: "选择当前工具" }));
+      fireEvent.click(await screen.findByRole("option", { name: label }));
       await waitFor(() =>
         expect(
-          screen.getByRole("button", { name: "desktop.toolbar.switchTool" }),
+          screen.getByRole("combobox", { name: "选择当前工具" }),
         ).toHaveTextContent(label),
       );
       expect(localStorage.getItem("yuanheng-switch-last-app")).toBe(app);
@@ -1188,7 +1192,7 @@ describe("App integration with MSW", { timeout: 15_000 }, () => {
       renderApp(App);
       await waitFor(() =>
         expect(
-          screen.getByRole("button", { name: "desktop.toolbar.switchTool" }),
+          screen.getByRole("combobox", { name: "选择当前工具" }),
         ).toHaveTextContent(label),
       );
       expect(

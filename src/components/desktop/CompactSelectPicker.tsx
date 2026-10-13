@@ -98,11 +98,13 @@ export function CompactSelectPicker({
           >
             <span className="flex min-w-0 items-center gap-2">
               {option.icon && (
-                <ProviderIcon
-                  icon={option.icon}
-                  name={option.iconName ?? option.label}
-                  size={14}
-                />
+                <span aria-hidden="true">
+                  <ProviderIcon
+                    icon={option.icon}
+                    name={option.iconName ?? option.label}
+                    size={14}
+                  />
+                </span>
               )}
               <span className="min-w-0 flex-1 truncate">{option.label}</span>
             </span>

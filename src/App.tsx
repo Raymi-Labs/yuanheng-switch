@@ -5,8 +5,6 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   ArrowLeft,
-  Check,
-  ChevronDown,
   ChevronRight,
   Download,
   FolderArchive,
@@ -46,12 +44,6 @@ import { useScanUnmanagedSkills } from "@/hooks/useSkills";
 import { cn } from "@/lib/utils";
 
 import { Button } from "@/components/ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { UpdateBadge } from "@/components/UpdateBadge";
 import { useUpdate } from "@/contexts/UpdateContext";
 import { ClaudeWorkspacePreparation } from "@/components/desktop/ClaudeWorkspacePreparation";
@@ -89,14 +81,9 @@ import { OnboardingWizard } from "@/components/desktop/OnboardingWizard";
 import { YuanhengAccessScreen } from "@/components/desktop/YuanhengAccessScreen";
 import type { DesktopView } from "@/components/desktop/types";
 import { useYuanhengConnection } from "@/lib/query/yuanheng";
-import { ProviderIcon } from "@/components/ProviderIcon";
+import { PlatformAnnouncementCenter } from "@/components/desktop/PlatformAnnouncementCenter";
 
-import {
-  DESKTOP_TOOLS,
-  isCoreApp,
-  toolLabel,
-  toolIcon as appProviderIcon,
-} from "@/config/desktopTools";
+import { DESKTOP_TOOLS, isCoreApp } from "@/config/desktopTools";
 
 const DEFAULT_DRAG_BAR_HEIGHT = isWindows() || isLinux() ? 0 : 28;
 const VIEW_KEY = "yuanheng-desktop-last-view";
@@ -467,7 +454,14 @@ function App() {
     switch (view) {
       case "home":
         return (
-          <WorkspaceDashboard focusApp={activeTool} onNavigate={navigate} />
+          <WorkspaceDashboard
+            focusApp={activeTool}
+            onToolChange={persistActiveApp}
+            availableTools={DESKTOP_TOOLS.filter(
+              (app) => !isCoreApp(app) || visibleApps[app] !== false,
+            )}
+            onNavigate={navigate}
+          />
         );
       case "tools":
         return (
@@ -830,45 +824,7 @@ function App() {
                 className="flex items-center gap-1.5"
                 style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
               >
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <button
-                      type="button"
-                      className="mr-1 hidden h-8 items-center gap-2 rounded-lg bg-muted/60 px-2.5 text-[11px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground sm:flex"
-                      aria-label={t("desktop.toolbar.switchTool")}
-                    >
-                      <ProviderIcon
-                        icon={appProviderIcon(activeTool)}
-                        name={toolLabel(activeTool)}
-                        size={14}
-                      />
-                      {toolLabel(activeTool)}
-                      <ChevronDown className="h-3 w-3 opacity-60" />
-                    </button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end" className="w-44">
-                    {DESKTOP_TOOLS.filter(
-                      (app) => !isCoreApp(app) || visibleApps[app] !== false,
-                    ).map((app) => (
-                      <DropdownMenuItem
-                        aria-label={toolLabel(app)}
-                        key={app}
-                        onClick={() => persistActiveApp(app)}
-                        className="gap-2 text-[12px]"
-                      >
-                        <ProviderIcon
-                          icon={appProviderIcon(app)}
-                          name={toolLabel(app)}
-                          size={14}
-                        />
-                        <span className="flex-1">{toolLabel(app)}</span>
-                        {app === activeTool && (
-                          <Check className="h-3.5 w-3.5 text-primary" />
-                        )}
-                      </DropdownMenuItem>
-                    ))}
-                  </DropdownMenuContent>
-                </DropdownMenu>
+                <PlatformAnnouncementCenter />
                 <button
                   type="button"
                   onClick={() => setCommandPaletteOpen(true)}

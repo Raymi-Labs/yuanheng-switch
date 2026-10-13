@@ -1,5 +1,5 @@
 import { CodexHistoryHint } from "./CodexHistoryHint";
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import {
   AlertTriangle,
   CheckCircle2,
@@ -14,7 +14,6 @@ import {
   type YuanhengReasoningLevel,
   type YuanhengToolId,
 } from "@/lib/api";
-import { ProviderIcon } from "@/components/ProviderIcon";
 import { ModelPicker } from "./ModelPicker";
 import { CompactSelectPicker } from "./CompactSelectPicker";
 import { GroupPicker } from "./GroupPicker";
@@ -31,6 +30,8 @@ import { ToolActivationProgress } from "./ToolActivationProgress";
 interface FocusToolCardProps {
   switcher: ModelSwitchCenterState;
   focusApp?: YuanhengToolId;
+  availableTools?: YuanhengToolId[];
+  onToolChange?: (app: YuanhengToolId) => void;
   onOpenTools: () => void;
 }
 
@@ -52,7 +53,7 @@ function FocusToolDecoration() {
   );
 }
 
-function FocusToolLoadingCard() {
+function FocusToolLoadingCard({ toolPicker }: { toolPicker?: ReactNode }) {
   return (
     <section
       className={focusCardShell}
@@ -60,6 +61,7 @@ function FocusToolLoadingCard() {
       aria-busy="true"
     >
       <FocusToolDecoration />
+      {toolPicker && <div className="relative mb-4">{toolPicker}</div>}
       <div className="relative animate-pulse">
         <div className="flex items-center gap-3">
           <span className="h-[42px] w-[42px] rounded-xl bg-white/10" />
@@ -96,17 +98,20 @@ function FocusToolStateCard({
   onOpenTools,
   onRetry,
   refreshing,
+  toolPicker,
 }: {
   error?: boolean;
   selectedTool?: YuanhengToolId;
   onOpenTools: () => void;
   onRetry: () => Promise<void>;
   refreshing: boolean;
+  toolPicker?: ReactNode;
 }) {
   const Icon = error ? AlertTriangle : Wrench;
   return (
     <section className={focusCardShell}>
       <FocusToolDecoration />
+      {toolPicker && <div className="relative mb-4">{toolPicker}</div>}
       <div className="relative flex min-h-[206px] flex-col items-center justify-center text-center">
         <span className="flex h-11 w-11 items-center justify-center rounded-xl border border-white/10 bg-white/10">
           <Icon className="h-5 w-5 text-[#e9b67c]" />
@@ -156,6 +161,8 @@ function FocusToolStateCard({
 export function FocusToolCard({
   switcher,
   focusApp,
+  availableTools,
+  onToolChange,
   onOpenTools,
 }: FocusToolCardProps) {
   const {
@@ -205,11 +212,32 @@ export function FocusToolCard({
     Partial<Record<YuanhengToolId, string>>
   >({});
 
+  const toolPicker =
+    app && onToolChange && availableTools ? (
+      <div className="min-w-0 max-w-[260px]">
+        <p className="mb-1.5 text-[10px] font-semibold tracking-[0.12em] text-white/65">
+          {dt("当前工具")}
+        </p>
+        <CompactSelectPicker
+          label={dt("选择当前工具")}
+          value={app}
+          options={availableTools.map((tool) => ({
+            value: tool,
+            label: toolLabel(tool),
+            icon: providerIconOf(tool),
+          }))}
+          onChange={(tool) => onToolChange(tool as YuanhengToolId)}
+          triggerClassName="h-10 border-[#e9b67c]/50 bg-white/10 px-3 text-[15px] font-semibold text-white hover:bg-white/15 focus:ring-[#e9b67c] [&>svg]:text-[#e9b67c] [&>svg]:opacity-100"
+          itemClassName="text-sm"
+        />
+      </div>
+    ) : null;
+
   if (
     bootstrapPhase === "loading" ||
     (!connection?.connected && codexAccountMode.data?.mode !== "official")
   ) {
-    return <FocusToolLoadingCard />;
+    return <FocusToolLoadingCard toolPicker={toolPicker} />;
   }
   if (bootstrapPhase === "error") {
     return (
@@ -218,6 +246,7 @@ export function FocusToolCard({
         onOpenTools={onOpenTools}
         onRetry={retryBootstrap}
         refreshing={bootstrapRefreshing}
+        toolPicker={toolPicker}
       />
     );
   }
@@ -228,6 +257,7 @@ export function FocusToolCard({
         onOpenTools={onOpenTools}
         onRetry={retryBootstrap}
         refreshing={bootstrapRefreshing}
+        toolPicker={toolPicker}
       />
     );
   }
@@ -316,28 +346,25 @@ export function FocusToolCard({
     <section className={focusCardShell}>
       <FocusToolDecoration />
 
-      <div className="relative flex items-center gap-3">
-        <span className="flex h-[42px] w-[42px] items-center justify-center rounded-xl border border-white/10 bg-white/10">
-          <ProviderIcon
-            icon={providerIconOf(app)}
-            name={toolLabel(app)}
-            size={20}
-          />
-        </span>
-        <div className="min-w-0">
-          <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-white/50">
-            {dt("当前工具")}
-          </p>
-          <p className="mt-0.5 flex items-center gap-2 font-display text-[17px] font-semibold">
-            {toolLabel(app)}
+      <div className="relative flex flex-wrap items-center gap-3">
+        {toolPicker ? (
+          <div className="min-w-0 flex-1 basis-40">
+            {toolPicker}
             {configured && (
-              <span className="inline-flex items-center gap-1 rounded-full bg-emerald-400/15 px-2 py-0.5 text-[10px] font-normal text-emerald-300">
-                <CheckCircle2 className="h-2.5 w-2.5" />
+              <span className="mt-1.5 inline-flex items-center gap-1 text-[10px] text-emerald-300">
+                <CheckCircle2 className="h-3 w-3" />
                 {dt("已配置")}
               </span>
             )}
-          </p>
-        </div>
+          </div>
+        ) : (
+          <div className="min-w-0 flex-1">
+            <p className="text-[10px] text-white/65">{dt("当前工具")}</p>
+            <p className="font-display text-[17px] font-semibold">
+              {toolLabel(app)}
+            </p>
+          </div>
+        )}
         <button
           type="button"
           disabled={bootstrapRefreshing}
@@ -480,14 +507,6 @@ export function FocusToolCard({
       </div>
 
       <div className="relative mt-4 rounded-xl border border-white/10 bg-black/10 p-3">
-        <div className="mb-2.5 flex items-center justify-between gap-3">
-          <p className="text-[10px] font-semibold text-white/75">
-            {dt("快捷切换")}
-          </p>
-          <p className="text-[9.5px] text-white/45">
-            {dt("先选供应商，再选模型；修改后立即生效")}
-          </p>
-        </div>
         {usesOfficialCodexAccount ? (
           <div className="rounded-lg border border-emerald-300/15 bg-emerald-300/[0.06] px-3 py-2 text-[10px] leading-4 text-emerald-100/80">
             {dt(
