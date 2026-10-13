@@ -6327,6 +6327,73 @@ mod tests {
 
     #[test]
     #[serial]
+    fn dsh_legacy_claude_policy_remains_trusted_for_reconfiguration_and_restore() {
+        use sha2::{Digest, Sha256};
+
+        for restore_only in [false, true] {
+            let (_home, state) = isolated_state();
+            let models = vec!["claude-opus-5-5".into(), "gpt-6.1-sol".into()];
+            let connection = YuanhengConnectionStatus {
+                models: models.clone(),
+                terminal_models: models.clone(),
+                ..Default::default()
+            };
+            dsh::configure(&state, "synthetic-key", &models[0], &models, "default").unwrap();
+            let root = crate::config::get_home_dir().join(".dsh");
+            let raw = state
+                .db
+                .get_setting("yuanheng_dsh_configuration")
+                .unwrap()
+                .unwrap();
+            let mut record: Value = serde_json::from_str(&raw).unwrap();
+            // Reconstruct an authentic pre-policy configuration and its ownership hashes.
+            for (index, profile) in ["desktop", "web"].into_iter().enumerate() {
+                let path = root.join(format!("profiles/{profile}/cordis.patch.yml"));
+                let text = std::fs::read_to_string(&path).unwrap();
+                let mut document: serde_yaml::Value = serde_yaml::from_str(&text).unwrap();
+                let provider = document[0]["config"]["providers"]["yuanheng-messages"]
+                    .as_mapping_mut()
+                    .unwrap();
+                provider.remove(serde_yaml::Value::from("streamIdleTimeoutMs"));
+                provider.remove(serde_yaml::Value::from("retryPolicy"));
+                let managed = format!(
+                    "# BEGIN YUANHENG DSH\n{}# END YUANHENG DSH\n",
+                    serde_yaml::to_string(&document).unwrap()
+                );
+                std::fs::write(&path, &managed).unwrap();
+                record["hashes"][index + 1] =
+                    json!(format!("{:x}", Sha256::digest(managed.as_bytes())));
+            }
+            state
+                .db
+                .set_setting("yuanheng_dsh_configuration", &record.to_string())
+                .unwrap();
+            let legacy_status = dsh::status(&state, &connection);
+            assert!(!legacy_status.configured);
+            assert!(legacy_status.needs_update);
+            assert_eq!(
+                dsh::credential(&state, "default").unwrap().as_deref(),
+                Some("synthetic-key")
+            );
+
+            if !restore_only {
+                let token = dsh::credential(&state, "default").unwrap().unwrap();
+                dsh::configure(&state, &token, &models[0], &models, "default").unwrap();
+                let updated_status = dsh::status(&state, &connection);
+                assert!(updated_status.configured);
+                assert!(!updated_status.needs_update);
+                assert_eq!(
+                    dsh::credential(&state, "default").unwrap().as_deref(),
+                    Some("synthetic-key")
+                );
+            }
+            assert!(dsh::restore(&state).unwrap());
+            assert!(dsh::credential(&state, "default").unwrap().is_none());
+        }
+    }
+
+    #[test]
+    #[serial]
     fn dsh_refuses_external_edits_overrides_and_busy_writers() {
         let (_home, state) = isolated_state();
         let root = crate::config::get_home_dir().join(".dsh");
