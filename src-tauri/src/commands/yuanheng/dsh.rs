@@ -11,6 +11,8 @@ const RECORD: &str = "yuanheng_dsh_configuration";
 const KEY: &str = "YUANHENG_DSH_API_KEY";
 const BEGIN: &str = "# BEGIN YUANHENG DSH\n";
 const END: &str = "# END YUANHENG DSH\n";
+const CLAUDE_STREAM_IDLE_TIMEOUT_MS: u64 = 600_000;
+const CLAUDE_MAX_RETRIES: u64 = 1;
 
 #[derive(serde::Serialize, serde::Deserialize)]
 struct Record {
@@ -136,13 +138,17 @@ fn profile_body(original: &str, model: &str, models: &[String]) -> Result<String
             .map(|id| json!({"id": id, "name": id, "input": ["text"]}))
             .collect::<Vec<_>>();
         if !catalog.is_empty() {
-            providers.insert(
-                name.into(),
-                json!({
-                    "displayName": format!("元亨 API · {protocol}"), "apiKeyEnv": KEY,
-                    "api": protocol, "baseURL": if protocol == "anthropic-messages" { BASE_URL } else { OPENAI_BASE_URL }, "models": catalog
-                }),
-            );
+            let mut provider = json!({
+                "displayName": format!("元亨 API · {protocol}"), "apiKeyEnv": KEY,
+                "api": protocol, "baseURL": if protocol == "anthropic-messages" { BASE_URL } else { OPENAI_BASE_URL }, "models": catalog
+            });
+            if protocol == "anthropic-messages" {
+                provider["streamIdleTimeoutMs"] = json!(CLAUDE_STREAM_IDLE_TIMEOUT_MS);
+                provider["retryPolicy"] = json!({
+                    "mode": "normal", "maxRetries": CLAUDE_MAX_RETRIES
+                });
+            }
+            providers.insert(name.into(), provider);
         }
     }
     serde_yaml::to_string(&json!([
@@ -364,6 +370,40 @@ fn intact(r: &Record) -> bool {
         })
 }
 
+// A trusted legacy block can still supply credentials or be restored. Only
+// tool status requires the current policy, so reapplying can migrate it safely.
+fn claude_policy_current(r: &Record) -> bool {
+    if !r
+        .models
+        .iter()
+        .any(|model| route(model).0 == "yuanheng-messages")
+    {
+        return true;
+    }
+    paths(&r.home).iter().skip(1).all(|path| {
+        let Ok(text) = read(path) else { return false };
+        let Ok((_, Some(owned))) = split(&text) else {
+            return false;
+        };
+        let Ok(value) = yaml(&owned) else {
+            return false;
+        };
+        let Some(rows) = value.as_sequence() else {
+            return false;
+        };
+        let Some(entry) = rows
+            .iter()
+            .find(|row| row["id"].as_str() == Some("llm-pi-ai"))
+        else {
+            return false;
+        };
+        let provider = &entry["config"]["providers"]["yuanheng-messages"];
+        provider["streamIdleTimeoutMs"].as_u64() == Some(CLAUDE_STREAM_IDLE_TIMEOUT_MS)
+            && provider["retryPolicy"]["mode"].as_str() == Some("normal")
+            && provider["retryPolicy"]["maxRetries"].as_u64() == Some(CLAUDE_MAX_RETRIES)
+    })
+}
+
 // A later user patch can override an unchanged managed block. Inspect the final
 // config rows too; matching marker bytes alone is not proof of effective state.
 fn effective_matches(path: &Path, owned: &str, index: usize) -> bool {
@@ -417,6 +457,7 @@ pub(super) fn status(
     let configured = r.as_ref().is_some_and(|r| {
         r.home == home()
             && intact(r)
+            && claude_policy_current(r)
             && connection.models.contains(&r.model)
             && cached_models_for_group(connection, Some(&r.group), Some(r.model.clone()))
                 .iter()
@@ -496,12 +537,12 @@ mod tests {
     #[test]
     fn preserves_other_provider_and_rejects_collision() {
         let text =
-            "- id: llm-pi-ai\n  config:\n    providers:\n      custom: {api: openai-completions}\n";
+            "- id: llm-pi-ai\n  config:\n    providers:\n      custom: {api: openai-completions, streamIdleTimeoutMs: 450000, retryPolicy: {mode: normal, maxRetries: 7}}\n";
         let body = profile_body(text, "model", &["model".into(), "second".into()]).unwrap();
         let parsed = yaml(&body).unwrap();
         assert_eq!(
-            parsed[0]["config"]["providers"]["custom"]["api"].as_str(),
-            Some("openai-completions")
+            parsed[0]["config"]["providers"]["custom"],
+            yaml(text).unwrap()[0]["config"]["providers"]["custom"]
         );
         assert_eq!(
             parsed[0]["config"]["providers"]["yuanheng-chat"]["models"]
@@ -538,6 +579,71 @@ mod tests {
             providers["yuanheng-responses"]["baseURL"].as_str(),
             Some(OPENAI_BASE_URL)
         );
+        assert_eq!(
+            providers["yuanheng-messages"]["streamIdleTimeoutMs"].as_u64(),
+            Some(600_000)
+        );
+        assert_eq!(
+            providers["yuanheng-messages"]["retryPolicy"]["mode"].as_str(),
+            Some("normal")
+        );
+        assert_eq!(
+            providers["yuanheng-messages"]["retryPolicy"]["maxRetries"].as_u64(),
+            Some(1)
+        );
+        for name in ["yuanheng-chat", "yuanheng-responses"] {
+            assert!(providers[name].get("streamIdleTimeoutMs").is_none());
+            assert!(providers[name].get("retryPolicy").is_none());
+        }
+    }
+
+    #[test]
+    fn claude_policy_requires_both_profiles_without_affecting_gpt_only() {
+        let home = tempfile::tempdir().unwrap();
+        let mut record = Record {
+            home: home.path().into(),
+            model: "claude-opus-5-5".into(),
+            group: "default".into(),
+            models: vec!["claude-opus-5-5".into(), "gpt-6.1-sol".into()],
+            hashes: vec![],
+            pending: false,
+            previous_hashes: vec![],
+        };
+        let body = profile_body("", &record.model, &record.models).unwrap();
+        let profiles = paths(home.path());
+        for path in profiles.iter().skip(1) {
+            write(path, &block(&body)).unwrap();
+        }
+        assert!(claude_policy_current(&record));
+
+        let mut legacy = yaml(&body).unwrap();
+        let provider = legacy[0]["config"]["providers"]["yuanheng-messages"]
+            .as_mapping_mut()
+            .unwrap();
+        provider.remove(serde_yaml::Value::from("streamIdleTimeoutMs"));
+        provider.remove(serde_yaml::Value::from("retryPolicy"));
+        write(
+            &profiles[2],
+            &block(&serde_yaml::to_string(&legacy).unwrap()),
+        )
+        .unwrap();
+        assert!(!claude_policy_current(&record));
+
+        write(&profiles[2], &block(&body)).unwrap();
+        assert!(claude_policy_current(&record));
+        let mut unlimited = yaml(&body).unwrap();
+        unlimited[0]["config"]["providers"]["yuanheng-messages"]["retryPolicy"]["mode"] =
+            serde_yaml::Value::from("always");
+        write(
+            &profiles[1],
+            &block(&serde_yaml::to_string(&unlimited).unwrap()),
+        )
+        .unwrap();
+        assert!(!claude_policy_current(&record));
+
+        record.model = "gpt-6.1-sol".into();
+        record.models = vec![record.model.clone()];
+        assert!(claude_policy_current(&record));
     }
 
     #[test]

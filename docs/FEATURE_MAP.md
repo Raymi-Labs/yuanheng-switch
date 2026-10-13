@@ -25,6 +25,8 @@ DSH 安装由工具管理 `ToolSetupGrid` 提供，工作台未就绪状态引�
 
 识别及启动复用 `desktop_app_detection` 与 `launch_tool`：优先明确选择的应用/源码，否则使用托管运行时或已有 CLI。CLI/Web 源码不要求 `apps/desktop`；源码缺依赖/构建明确报错，不自动更新工作树。托管运行时检测执行有界版本检查，启动 Web 固定 loopback、随机空闲端口、明确 DSH_HOME，并关闭会话遥测。配置仍归 `yuanheng/dsh.rs` 的事务与拥有权逻辑。`useInstallContinuation` 阻止安装完成后跨页面卸载/账号切换继续应用旧意图。
 
+托管 `yuanheng-messages` Claude 路由使用 600 秒流空闲等待和最多一次自动重试；GPT、其他路由与用户供应商沿用原策略。桌面/Web 两份 profile 均需包含当前策略，否则工具状态提示重新配置；可信旧块仍可复用凭据或恢复，外部修改继续受 hash 保护。配置后刷新或重启 DSH，正在执行的请求不追加等待。用户自定义 profile、远程 Web 和服务器超时不自动修改。取舍与验证见[Claude 请求策略](../.agents/notes/implemented/bug-fix/2026-10-13-dsh-claude-stream-policy.md)。
+
 回归：DSH Rust 测试、两入口安装/配置/启动与失败测试、真实 shell 校验失败拒绝测试，以及 `scripts/test-dsh-web.mjs` 对官方包和本机模拟模型服务的浏览器验收。使用步骤见 [DSH 首次使用](guides/dsh-first-run.md)。自动化结果不代表 Windows 真机或真实上游推理验收。
 
 Unauthenticated recovery: [YuanhengAccessScreen](../src/components/desktop/YuanhengAccessScreen.tsx) exposes [AccessUpdateControl](../src/components/desktop/AccessUpdateControl.tsx) for manual checks while no update is known, including login loading, credential errors, registration and two-factor challenges. Known updates use the shared top-row entry without duplicating the login button. It reuses the global [UpdateProvider](../src/contexts/UpdateContext.tsx) / [UpdatePrompt](../src/components/UpdatePrompt.tsx) and existing native updater; manual checks bypass automatic-check preferences and dismissed prompts. Check failures keep retry and the existing official download page reachable. Installing is exclusive with checks and duplicate installs; no authentication or credential-recovery command is required. Older binaries without this entry can use [manual recovery](release-announcements.md).
