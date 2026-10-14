@@ -34,3 +34,5 @@ Status: implemented
 ## 入口后续调整
 
 [公告铃铛与就近工具选择](../feature/2026-10-13-workspace-notifications-tool-picker.md)将顶栏工具选择迁入当前工具卡，覆盖加载、失败和未安装状态；本篇的单个工作台操作区决定继续成立。原验证记录中的顶栏选择对应当时入口。
+
+[Codex 配置标记恢复](../bug-fix/2026-10-14-codex-surface-mode-repair.md)修正首次单工具配置与旧版标记不一致时的中转切换；沿用本篇的工作台和工具管理入口，不改变官方登录条件。

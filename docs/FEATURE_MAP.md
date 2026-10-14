@@ -110,3 +110,9 @@ Claude diagnostic persistence uses a bounded background writer, not disk I/O on 
 [App](../src/App.tsx) 工具栏挂载 [公告铃铛](../src/components/desktop/PlatformAnnouncementCenter.tsx)，替代工作台两条横幅。客户端更新与平台通知复用原查询、内部窗口及有界已读标记；分类独立已读，新内容再次显示红点，错误在窗口内重试，关闭后恢复焦点。顶部安装更新入口继续由 UpdateProvider/UpdateBadge 管理。
 
 [WorkspaceDashboard](../src/components/desktop/WorkspaceDashboard.tsx) 将 App 的可见工具与持久化回调传给 [FocusToolCard](../src/components/desktop/FocusToolCard.tsx)，当前工具标题下使用 CompactSelectPicker；加载、失败和未安装状态也可选择。工具管理、模型与分组写入时机不变。移除快捷切换说明。决定及验收见[入口整理笔记](../.agents/notes/implemented/feature/2026-10-13-workspace-notifications-tool-picker.md)。
+
+## Codex 首次配置与中转切换恢复（2026-10-14）
+
+工具管理、工作台的配置与使用方式切换共用 [yuanheng.rs](../src-tauri/src/commands/yuanheng.rs)。首次配置单个 Codex 工具时，CLI/桌面记录各自保存正确标记，单工具操作仍只写选中工具的路由。旧版复制成相同标记的元衡记录在只读检查中视为可恢复；点击“元衡中转”后才在原快照/回滚流程中纠正并应用两份路由，不要求额外安装 CLI。
+
+恢复保留独立模型、分组、凭据和官方 auth.json；未知标记、非元衡拥有的错标记录、缺少凭据或外部端点继续拒绝。已应用状态仍检查真实文件，检测本身不迁移；官方模式继续要求官方登录，提示明确区分中转账号。回归与边界见[配置标记恢复笔记](../.agents/notes/implemented/bug-fix/2026-10-14-codex-surface-mode-repair.md)。

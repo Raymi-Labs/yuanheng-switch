@@ -54,6 +54,7 @@ const CHATGPT_DESKTOP_NAMESPACE: &str = "chatgpt-desktop";
 const LOCAL_PROXY_TOKEN: &str = "PROXY_MANAGED";
 const NO_PREVIOUS_VALUE: &str = "__none__";
 const CODEX_OFFICIAL_PROVIDER_ID: &str = crate::database::CODEX_OFFICIAL_PROVIDER_ID;
+const CODEX_OFFICIAL_LOGIN_REQUIRED: &str = "未检测到 OpenAI 官方登录。中转账号请使用“元衡中转”；如需官方模式，请先在 Codex 中登录 ChatGPT 官方账号";
 
 /// Shared, bounded catalog sync. A failed refresh never destroys the last good
 /// account-scoped price book, and pricing failure cannot prevent tool use.
@@ -1873,6 +1874,13 @@ enum CodexSurface {
 }
 
 impl CodexSurface {
+    fn marker(self) -> &'static str {
+        match self {
+            Self::Terminal => "terminal",
+            Self::Desktop => "desktop",
+        }
+    }
+
     fn namespace(self) -> &'static str {
         match self {
             Self::Terminal => AppType::Codex.as_str(),
@@ -1959,24 +1967,15 @@ fn codex_official_login_available() -> Result<bool, String> {
 }
 
 fn yuanheng_codex_mode_available(state: &AppState) -> bool {
-    [AppType::Codex.as_str(), CHATGPT_DESKTOP_NAMESPACE]
-        .iter()
-        .all(|namespace| {
-            state
-                .db
-                .get_provider_by_id(MANAGED_PROVIDER_ID, namespace)
+    [CodexSurface::Terminal, CodexSurface::Desktop]
+        .into_iter()
+        .all(|surface| {
+            prepared_managed_codex_provider(state, surface)
                 .ok()
                 .flatten()
                 .is_some_and(|provider| {
                     provider_has_credentials_for_route(&provider, &AppType::Codex, true)
-                        && codex_surface_matches(
-                            &provider,
-                            if *namespace == CHATGPT_DESKTOP_NAMESPACE {
-                                CodexSurface::Desktop
-                            } else {
-                                CodexSurface::Terminal
-                            },
-                        )
+                        && codex_surface_matches(&provider, surface)
                 })
         })
 }
@@ -2252,7 +2251,7 @@ fn switch_codex_account_mode_at_origin(
     let operation = (|| -> Result<(), String> {
         if target_mode == "official" {
             if !codex_official_login_available()? {
-                return Err("未检测到 OpenAI 官方登录，请先在 Codex 中登录官方账号".to_string());
+                return Err(CODEX_OFFICIAL_LOGIN_REQUIRED.to_string());
             }
             read_owned_codex_terminal_profile()?;
             state
@@ -2272,13 +2271,13 @@ fn switch_codex_account_mode_at_origin(
             }
             // 该文件只允许不存在，或仍为元衡自己生成的路由；未知内容不覆盖。
             read_owned_codex_terminal_profile()?;
-            for namespace in [AppType::Codex.as_str(), CHATGPT_DESKTOP_NAMESPACE] {
-                let mut provider = managed_codex_provider_for_namespace(state, namespace)?
-                    .ok_or("元衡配置不存在")?;
+            for surface in [CodexSurface::Terminal, CodexSurface::Desktop] {
+                let mut provider =
+                    prepared_managed_codex_provider(state, surface)?.ok_or("元衡配置不存在")?;
                 migrate_codex_provider_endpoint(&mut provider)?;
                 state
                     .db
-                    .save_provider(namespace, &provider)
+                    .save_provider(surface.namespace(), &provider)
                     .map_err(|e| e.to_string())?;
             }
             write_codex_surface_config_at_origin(state, CodexSurface::Terminal, proxy_origin)?;
@@ -2332,6 +2331,37 @@ fn managed_codex_provider_for_namespace(
         .db
         .get_provider_by_id(MANAGED_PROVIDER_ID, namespace)
         .map_err(|error| error.to_string())
+}
+
+/// Old first-tool setup cloned its surface marker into the other namespace.
+/// Repair only our known markers; an unknown record still requires configuration.
+fn normalize_managed_codex_surface(provider: &mut Provider, surface: CodexSurface) {
+    if provider.id == MANAGED_PROVIDER_ID
+        && provider.category.as_deref() == Some("managed")
+        && matches!(
+            provider
+                .settings_config
+                .get("yuanhengSurface")
+                .and_then(Value::as_str),
+            Some("terminal" | "desktop")
+        )
+    {
+        provider.settings_config["yuanhengSurface"] = json!(surface.marker());
+    }
+}
+
+/// Prepare in memory for both preflight and switching. Read-only status must not
+/// migrate the DB or claim the live route is already applied; writes stay inside
+/// the explicit mode switch's existing snapshot/rollback boundary.
+fn prepared_managed_codex_provider(
+    state: &AppState,
+    surface: CodexSurface,
+) -> Result<Option<Provider>, String> {
+    let mut provider = managed_codex_provider_for_namespace(state, surface.namespace())?;
+    if let Some(provider) = provider.as_mut() {
+        normalize_managed_codex_surface(provider, surface);
+    }
+    Ok(provider)
 }
 
 fn save_managed_codex_provider(
@@ -2556,10 +2586,7 @@ async fn configure_codex_surface(
         reasoning,
     )?;
     set_codex_available_models(&mut selected, model, available_models);
-    selected.settings_config["yuanhengSurface"] = json!(match surface {
-        CodexSurface::Terminal => "terminal",
-        CodexSurface::Desktop => "desktop",
-    });
+    selected.settings_config["yuanhengSurface"] = json!(surface.marker());
     let terminal_before = managed_codex_provider_for_namespace(state, AppType::Codex.as_str())?;
     let desktop_before = managed_codex_provider_for_namespace(state, CHATGPT_DESKTOP_NAMESPACE)?;
 
@@ -2579,6 +2606,8 @@ async fn configure_codex_surface(
             .or_else(|| terminal_before.clone())
             .unwrap_or_else(|| terminal.clone())
     };
+    normalize_managed_codex_surface(&mut terminal, CodexSurface::Terminal);
+    normalize_managed_codex_surface(&mut desktop, CodexSurface::Desktop);
     migrate_codex_provider_endpoint(&mut terminal)?;
     migrate_codex_provider_endpoint(&mut desktop)?;
 
@@ -2854,10 +2883,7 @@ fn codex_surface_matches(provider: &Provider, surface: CodexSurface) -> bool {
         .settings_config
         .get("yuanhengSurface")
         .and_then(Value::as_str)
-        == Some(match surface {
-            CodexSurface::Terminal => "terminal",
-            CodexSurface::Desktop => "desktop",
-        })
+        == Some(surface.marker())
 }
 
 fn provider_has_credentials(provider: &Provider, app: &AppType) -> bool {
@@ -4357,7 +4383,7 @@ pub async fn switch_codex_account_mode(
     read_owned_codex_terminal_profile()?;
     if mode == "official" {
         if !codex_official_login_available()? {
-            return Err("未检测到 OpenAI 官方登录，请先在 Codex 中登录官方账号".to_string());
+            return Err(CODEX_OFFICIAL_LOGIN_REQUIRED.to_string());
         }
         let snapshot = capture_codex_mode_switch_snapshot(&state)?;
         build_codex_official_mode_config(
@@ -7327,6 +7353,242 @@ mod tests {
         assert_eq!(terminal_catalog["models"][0]["slug"], "gpt-5.6-sol");
         assert_eq!(desktop_catalog["models"].as_array().unwrap().len(), 1);
         assert_eq!(desktop_catalog["models"][0]["slug"], "k3");
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn codex_first_surface_configuration_allows_managed_mode_switch() {
+        for surface in [CodexSurface::Desktop, CodexSurface::Terminal] {
+            let (_home, state) = isolated_state();
+            let mut config = state.db.get_proxy_config().await.unwrap();
+            config.listen_port = 0;
+            state.db.update_proxy_config(config).await.unwrap();
+            let proxy = state.proxy_service.start().await.unwrap();
+            let original_live = "model = \"gpt-existing\"\n";
+            let auth = json!({ "auth_mode": "apikey", "OPENAI_API_KEY": "relay-login-test" });
+            crate::codex_config::write_codex_live_atomic(&auth, Some(original_live)).unwrap();
+
+            let result = configure_codex_surface(
+                &state,
+                surface,
+                "synthetic-key",
+                "gpt-5.6-sol",
+                &["gpt-5.6-sol".into()],
+                "premium",
+                "high",
+            )
+            .await
+            .unwrap();
+            state.proxy_service.stop().await.unwrap();
+            assert!(result.configured);
+            let connection = YuanhengConnectionStatus {
+                models: vec!["gpt-5.6-sol".into()],
+                terminal_models: vec!["gpt-5.6-sol".into()],
+                ..Default::default()
+            };
+            if surface == CodexSurface::Desktop {
+                assert!(chatgpt_desktop_status(&state, &connection).configured);
+                assert!(!codex_terminal_profile_path().exists());
+            } else {
+                assert!(tool_status(&state, AppType::Codex, &connection).configured);
+                assert_eq!(
+                    crate::codex_config::read_codex_config_text().unwrap(),
+                    original_live
+                );
+            }
+            let before = codex_account_mode_status_inner(&state).unwrap();
+            assert!(
+                before.yuanheng_available,
+                "one configured tool must allow switching"
+            );
+            assert!(!before.official_login_available);
+            let switched = switch_codex_account_mode_at_origin(
+                &state,
+                "yuanheng",
+                Some(&before.mode),
+                &format!("http://127.0.0.1:{}", proxy.port),
+            )
+            .unwrap();
+            assert_eq!(switched.mode, "yuanheng");
+            for target in [CodexSurface::Terminal, CodexSurface::Desktop] {
+                let provider = managed_codex_provider_for_namespace(&state, target.namespace())
+                    .unwrap()
+                    .unwrap();
+                assert!(codex_surface_matches(&provider, target));
+            }
+            let final_auth: Value =
+                crate::config::read_json_file(&crate::codex_config::get_codex_auth_path()).unwrap();
+            assert_eq!(final_auth, auth);
+        }
+    }
+
+    #[test]
+    #[serial]
+    fn codex_mode_switch_repairs_legacy_surface_markers_without_changing_selections() {
+        for wrong_surface in [CodexSurface::Terminal, CodexSurface::Desktop] {
+            let (_home, state) = isolated_state();
+            prepare_managed_codex_mode(&state, false);
+            let mut original =
+                managed_codex_provider_for_namespace(&state, wrong_surface.namespace())
+                    .unwrap()
+                    .unwrap();
+            original.settings_config["yuanhengSurface"] =
+                json!(if wrong_surface == CodexSurface::Terminal {
+                    "desktop"
+                } else {
+                    "terminal"
+                });
+            state
+                .db
+                .save_provider(wrong_surface.namespace(), &original)
+                .unwrap();
+            let snapshot = capture_codex_mode_switch_snapshot(&state).unwrap();
+            let auth = std::fs::read(crate::codex_config::get_codex_auth_path()).unwrap();
+            let status = codex_account_mode_status_inner(&state).unwrap();
+            assert_eq!(status.mode, "unknown", "repairable does not mean applied");
+            assert!(status.yuanheng_available);
+            assert_eq!(
+                managed_codex_provider_for_namespace(&state, wrong_surface.namespace())
+                    .unwrap()
+                    .unwrap()
+                    .settings_config,
+                original.settings_config,
+                "read-only status must not migrate stored records",
+            );
+            let result = switch_codex_account_mode_at_origin(
+                &state,
+                "yuanheng",
+                Some("unknown"),
+                "http://127.0.0.1:15721",
+            )
+            .unwrap();
+            assert_eq!(result.mode, "yuanheng");
+            for (surface, previous) in [
+                (CodexSurface::Terminal, snapshot.managed_terminal.unwrap()),
+                (CodexSurface::Desktop, snapshot.managed_desktop.unwrap()),
+            ] {
+                let mut expected = previous;
+                expected.settings_config["yuanhengSurface"] =
+                    json!(if surface == CodexSurface::Terminal {
+                        "terminal"
+                    } else {
+                        "desktop"
+                    });
+                let actual = managed_codex_provider_for_namespace(&state, surface.namespace())
+                    .unwrap()
+                    .unwrap();
+                assert_eq!(
+                    serde_json::to_value(actual).unwrap(),
+                    serde_json::to_value(expected).unwrap()
+                );
+            }
+            assert_eq!(
+                std::fs::read(crate::codex_config::get_codex_auth_path()).unwrap(),
+                auth
+            );
+        }
+    }
+
+    #[test]
+    #[serial]
+    fn codex_mode_switch_does_not_repair_unknown_or_untrusted_surface_records() {
+        for invalid in [
+            "unknown-marker",
+            "missing-marker",
+            "non-managed",
+            "missing-key",
+            "external-endpoint",
+        ] {
+            let (_home, state) = isolated_state();
+            prepare_managed_codex_mode(&state, false);
+            let mut terminal = managed_codex_provider_for_namespace(&state, "codex")
+                .unwrap()
+                .unwrap();
+            terminal.settings_config["yuanhengSurface"] = json!("desktop");
+            match invalid {
+                "unknown-marker" => terminal.settings_config["yuanhengSurface"] = json!("other"),
+                "missing-marker" => {
+                    terminal
+                        .settings_config
+                        .as_object_mut()
+                        .unwrap()
+                        .remove("yuanhengSurface");
+                }
+                "non-managed" => terminal.category = Some("custom".into()),
+                "missing-key" => terminal.settings_config["auth"]["OPENAI_API_KEY"] = json!(""),
+                "external-endpoint" => {
+                    terminal.settings_config["config"] = json!(terminal.settings_config["config"]
+                        .as_str()
+                        .unwrap()
+                        .replace(OPENAI_BASE_URL, "https://example.invalid/v1"));
+                }
+                _ => unreachable!(),
+            }
+            state.db.save_provider("codex", &terminal).unwrap();
+            assert!(!yuanheng_codex_mode_available(&state), "{invalid}");
+            assert!(
+                switch_codex_account_mode_at_origin(
+                    &state,
+                    "yuanheng",
+                    Some("unknown"),
+                    "http://127.0.0.1:15721",
+                )
+                .is_err(),
+                "{invalid}"
+            );
+            assert_eq!(
+                managed_codex_provider_for_namespace(&state, "codex")
+                    .unwrap()
+                    .unwrap()
+                    .settings_config,
+                terminal.settings_config
+            );
+        }
+    }
+
+    #[test]
+    #[serial]
+    fn codex_surface_marker_repair_rolls_back_when_desktop_write_fails() {
+        let (_home, state) = isolated_state();
+        prepare_managed_codex_mode(&state, false);
+        let mut terminal = managed_codex_provider_for_namespace(&state, "codex")
+            .unwrap()
+            .unwrap();
+        terminal.settings_config["yuanhengSurface"] = json!("desktop");
+        state.db.save_provider("codex", &terminal).unwrap();
+        let before = capture_codex_mode_switch_snapshot(&state).unwrap();
+        let catalog_path = crate::codex_config::get_codex_named_model_catalog_path(
+            crate::codex_config::YUANHENG_DESKTOP_MODEL_CATALOG_FILENAME,
+        );
+        std::fs::remove_file(&catalog_path).unwrap();
+        std::fs::create_dir(&catalog_path).unwrap();
+        assert!(yuanheng_codex_mode_available(&state));
+        assert!(switch_codex_account_mode_at_origin(
+            &state,
+            "yuanheng",
+            Some("unknown"),
+            "http://127.0.0.1:18888",
+        )
+        .is_err());
+        assert_eq!(
+            managed_codex_provider_for_namespace(&state, "codex")
+                .unwrap()
+                .unwrap()
+                .settings_config,
+            terminal.settings_config
+        );
+        assert_eq!(
+            crate::codex_config::read_codex_config_text().unwrap(),
+            before.live_config.unwrap()
+        );
+        assert_eq!(
+            std::fs::read_to_string(codex_terminal_profile_path()).unwrap(),
+            before.terminal_profile.unwrap()
+        );
+        assert_eq!(
+            ProviderService::current(&state, AppType::Codex).unwrap(),
+            MANAGED_PROVIDER_ID
+        );
     }
 
     fn prepare_managed_codex_mode(state: &AppState, with_oauth: bool) {
