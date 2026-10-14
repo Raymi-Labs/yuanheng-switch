@@ -60,9 +60,8 @@ export function LanguageSwitcher() {
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <Button
-          variant="ghost"
+          variant="outline"
           size="icon"
-          className="h-9 w-9 rounded-full bg-muted/60 text-foreground/80 hover:bg-muted hover:text-foreground"
           aria-label={t("desktop.toolbar.language", {
             defaultValue: "Change language",
           })}

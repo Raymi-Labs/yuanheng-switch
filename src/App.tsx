@@ -820,7 +820,6 @@ function App() {
                 className="flex items-center gap-1.5"
                 style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
               >
-                <PlatformAnnouncementCenter />
                 <button
                   type="button"
                   onClick={() => setCommandPaletteOpen(true)}
@@ -833,6 +832,7 @@ function App() {
                     ⌘K
                   </kbd>
                 </button>
+                <PlatformAnnouncementCenter />
                 <LanguageSwitcher />
                 <ModeToggle />
                 <Button
