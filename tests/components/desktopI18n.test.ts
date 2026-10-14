@@ -30,9 +30,6 @@ describe("desktopI18n", () => {
       }),
     ).toBe("統一管理 Codex 的技能、MCP、提示詞與代理能力。");
     expect(dt("今日 Tokens")).toBe("今日權杖");
-    expect(dt("{{v0}} 个技能 · {{v1}} 个 MCP", { v0: 2, v1: 3 })).toBe(
-      "2 個技能 · 3 個 MCP",
-    );
   });
 
   it("日语使用完整的桌面翻译而不是英文回退", async () => {

@@ -2,14 +2,14 @@
   "schemaVersion": 1,
   "releases": [
     {
+      "version": "0.1.84",
+      "publishedAt": "2026-10-14T20:42:40Z",
+      "content": "【元衡客户端更新公告｜v0.1.84】\n\n• 工作台“智能体检”移到今日统计下方，集中展示体检结果，保留检查、修复和详情功能。\n• 移除工作台重复的“能力中心”和“工具管理”快捷卡片，继续通过左侧导航进入，让首页布局更简洁。\n\n提供 Windows x64、Apple 芯片 Mac 和 Intel Mac 安装包；macOS 继续使用 Apple Developer ID 签名和 Apple 公证。"
+    },
+    {
       "version": "0.1.83",
       "publishedAt": "2026-10-14T18:43:17Z",
       "content": "【元衡客户端更新公告｜v0.1.83】\n\n• 语言切换按钮统一为圆角方形，与主题、设置按钮保持相同的尺寸和边框，保留清晰的“文/A”翻译图标。\n• “快捷操作”移到公告铃铛左侧，工具栏排列更一致，键盘操作顺序同步调整。\n\n提供 Windows x64、Apple 芯片 Mac 和 Intel Mac 安装包；macOS 继续使用 Apple Developer ID 签名和 Apple 公证。"
-    },
-    {
-      "version": "0.1.82",
-      "publishedAt": "2026-10-14T17:25:26Z",
-      "content": "【元衡客户端更新公告｜v0.1.82】\n\n• 移除工具栏“当前状态”按钮、弹出面板和宽屏右侧状态栏，减少重复展示，让主内容区域获得更多空间。余额、用量与连接信息继续通过原有页面查看。\n• 语言切换改用更直观的“文/A”翻译图标，搭配圆形底色，深浅色主题下都更容易识别。保留原有语言选项与保存方式。\n\n提供 Windows x64、Apple 芯片 Mac 和 Intel Mac 安装包；macOS 继续使用 Apple Developer ID 签名和 Apple 公证。"
     }
   ]
 }

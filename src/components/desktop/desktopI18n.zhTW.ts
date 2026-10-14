@@ -285,8 +285,6 @@ export const DESKTOP_ZH_TW: Record<string, string> = {
   "启用到 Codex": "啟用到 Codex",
   "统一管理 {{app}} 的 Skills、MCP、提示词与 Agent 能力。":
     "統一管理 {{app}} 的技能、MCP、提示詞與代理能力。",
-  "{{v0}} 个技能 · {{v1}} 个 MCP": "{{v0}} 個技能 · {{v1}} 個 MCP",
-  "{{count}} 个已就绪": "{{count}} 個已就緒",
   正在检测本机工具: "正在偵測本機工具",
   本机工具检测失败: "本機工具偵測失敗",
   "尚未检测到已安装的 AI 工具": "尚未偵測到已安裝的 AI 工具",

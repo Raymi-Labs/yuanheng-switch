@@ -37,11 +37,4 @@ describe("desktop localization coverage", () => {
     expect(about).not.toContain("{tool.error}");
     expect(about).toContain("localizeToolVersionError(tool?.error)");
   });
-
-  it("localizes workspace capability counts", () => {
-    const source = readSource("src/components/desktop/WorkspaceDashboard.tsx");
-
-    expect(source).not.toContain("Skills ·");
-    expect(source).toContain('dt("{{v0}} 个技能 · {{v1}} 个 MCP"');
-  });
 });

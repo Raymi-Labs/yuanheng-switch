@@ -305,8 +305,6 @@ export const DESKTOP_EN: Record<string, string> = {
   "启用到 Codex": "Enable for Codex",
   "统一管理 {{app}} 的 Skills、MCP、提示词与 Agent 能力。":
     "Manage Skills, MCP, prompts, and agent capabilities for {{app}}.",
-  "{{v0}} 个技能 · {{v1}} 个 MCP": "{{v0}} Skills · {{v1}} MCP",
-  "{{count}} 个已就绪": "{{count}} ready",
   正在检测本机工具: "Detecting local tools",
   本机工具检测失败: "Local tool detection failed",
   "尚未检测到已安装的 AI 工具": "No installed AI tools detected",

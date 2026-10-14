@@ -295,8 +295,6 @@ export const DESKTOP_KO: Record<string, string> = {
   "启用到 Codex": "Codex에서 활성화",
   "统一管理 {{app}} 的 Skills、MCP、提示词与 Agent 能力。":
     "{{app}}를 위한 스킬, MCP, 프롬프트, 에이전트 기능을 관리하세요.",
-  "{{v0}} 个技能 · {{v1}} 个 MCP": "{{v0}} 기술 · {{v1}} MCP",
-  "{{count}} 个已就绪": "{{count}} 준비됐어",
   正在检测本机工具: "로컬 도구 탐지",
   本机工具检测失败: "로컬 툴 탐지 실패",
   "尚未检测到已安装的 AI 工具": "설치된 AI 도구가 감지되지 않음",
