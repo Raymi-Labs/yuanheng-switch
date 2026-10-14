@@ -116,3 +116,7 @@ Claude diagnostic persistence uses a bounded background writer, not disk I/O on 
 工具管理、工作台的配置与使用方式切换共用 [yuanheng.rs](../src-tauri/src/commands/yuanheng.rs)。首次配置单个 Codex 工具时，CLI/桌面记录各自保存正确标记，单工具操作仍只写选中工具的路由。旧版复制成相同标记的元衡记录在只读检查中视为可恢复；点击“元衡中转”后才在原快照/回滚流程中纠正并应用两份路由，不要求额外安装 CLI。
 
 恢复保留独立模型、分组、凭据和官方 auth.json；未知标记、非元衡拥有的错标记录、缺少凭据或外部端点继续拒绝。已应用状态仍检查真实文件，检测本身不迁移；官方模式继续要求官方登录，提示明确区分中转账号。回归与边界见[配置标记恢复笔记](../.agents/notes/implemented/bug-fix/2026-10-14-codex-surface-mode-repair.md)。
+
+## 工具栏与主内容空间（2026-10-15）
+
+[App](../src/App.tsx) 移除“当前状态”按钮、窄窗口抽屉及宽窗口右侧常驻面板，主内容区统一填满侧栏之外的宽度。余额、当前工具、用量和连接状态仍使用原有页面及共享 API；不新增迁移或改变账户数据。[LanguageSwitcher](../src/components/desktop/LanguageSwitcher.tsx) 使用圆形底色的文/A 翻译图标，复用五语言菜单、保存及失败回退。范围与验收见[状态面板精简笔记](../.agents/notes/implemented/simplification/2026-10-15-remove-context-panel.md)。

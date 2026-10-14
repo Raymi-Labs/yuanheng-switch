@@ -3342,9 +3342,7 @@
       "language": "切换语言",
       "settings": "设置",
       "switchTool": "切换当前工具",
-      "quickActions": "快捷操作",
-      "currentStatus": "当前状态",
-      "openCurrentStatusPanel": "打开当前状态面板"
+      "quickActions": "快捷操作"
     },
     "window": {
       "minimize": "最小化窗口",

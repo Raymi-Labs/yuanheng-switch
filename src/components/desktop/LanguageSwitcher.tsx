@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Check, Globe2, Loader2 } from "lucide-react";
+import { Check, Languages, Loader2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -62,7 +62,7 @@ export function LanguageSwitcher() {
         <Button
           variant="ghost"
           size="icon"
-          className="h-8 w-8 text-muted-foreground hover:text-foreground"
+          className="h-9 w-9 rounded-full bg-muted/60 text-foreground/80 hover:bg-muted hover:text-foreground"
           aria-label={t("desktop.toolbar.language", {
             defaultValue: "Change language",
           })}
@@ -72,9 +72,9 @@ export function LanguageSwitcher() {
           disabled={isSaving}
         >
           {isSaving ? (
-            <Loader2 className="h-4 w-4 animate-spin" />
+            <Loader2 className="h-[18px] w-[18px] animate-spin" aria-hidden />
           ) : (
-            <Globe2 className="h-4 w-4" />
+            <Languages className="h-[18px] w-[18px]" aria-hidden />
           )}
         </Button>
       </DropdownMenuTrigger>

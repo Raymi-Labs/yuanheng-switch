@@ -3344,9 +3344,7 @@
       "language": "切換語言",
       "settings": "設定",
       "switchTool": "切換目前工具",
-      "quickActions": "快捷操作",
-      "currentStatus": "目前狀態",
-      "openCurrentStatusPanel": "開啟目前狀態面板"
+      "quickActions": "快捷操作"
     },
     "window": {
       "minimize": "最小化視窗",

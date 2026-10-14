@@ -14,7 +14,6 @@ import {
   Minus,
   Plus,
   Search,
-  PanelRight,
   PackageCheck,
   Settings,
   Store,
@@ -68,8 +67,6 @@ import AgentsDefaultsPanel from "@/components/openclaw/AgentsDefaultsPanel";
 import HermesMemoryPanel from "@/components/hermes/HermesMemoryPanel";
 
 import { DesktopSidebar } from "@/components/desktop/DesktopSidebar";
-import { DesktopContextPanel } from "@/components/desktop/DesktopContextPanel";
-import { ContextPanelDialog } from "@/components/desktop/ContextPanelDialog";
 import { GlobalCommandPalette } from "@/components/desktop/GlobalCommandPalette";
 import { WorkspaceDashboard } from "@/components/desktop/WorkspaceDashboard";
 import { ToolsPage } from "@/components/desktop/ToolsPage";
@@ -224,7 +221,6 @@ function App() {
   const [showEnvBanner, setShowEnvBanner] = useState(false);
   const [isWindowMaximized, setIsWindowMaximized] = useState(false);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
-  const [contextPanelOpen, setContextPanelOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
 
   const promptPanelRef = useRef<any>(null);
@@ -837,16 +833,6 @@ function App() {
                     ⌘K
                   </kbd>
                 </button>
-                <Button
-                  variant="outline"
-                  size="icon"
-                  onClick={() => setContextPanelOpen(true)}
-                  className="min-[1320px]:hidden"
-                  title={t("desktop.toolbar.currentStatus")}
-                  aria-label={t("desktop.toolbar.openCurrentStatusPanel")}
-                >
-                  <PanelRight className="h-4 w-4" />
-                </Button>
                 <LanguageSwitcher />
                 <ModeToggle />
                 <Button
@@ -883,12 +869,6 @@ function App() {
               {renderContent()}
             </main>
           </section>
-          <DesktopContextPanel
-            activeApp={activeTool}
-            connection={yuanhengConnection}
-            onNavigate={navigate}
-            className="hidden min-[1320px]:flex"
-          />
         </div>
       )}
 
@@ -901,16 +881,8 @@ function App() {
         onSetActiveApp={persistActiveApp}
         onOpenHelp={() => {
           if (!yuanhengConnection?.connected) return;
-          setContextPanelOpen(false);
           setHelpOpen(true);
         }}
-      />
-      <ContextPanelDialog
-        open={contextPanelOpen}
-        onOpenChange={setContextPanelOpen}
-        activeApp={activeTool}
-        connection={yuanhengConnection}
-        onNavigate={navigate}
       />
 
       {yuanhengConnection?.connected && (

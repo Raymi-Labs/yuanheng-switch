@@ -3342,9 +3342,7 @@
       "language": "언어 변경",
       "settings": "설정",
       "switchTool": "현재 도구 변경",
-      "quickActions": "빠른 작업",
-      "currentStatus": "현재 상태",
-      "openCurrentStatusPanel": "현재 상태 패널 열기"
+      "quickActions": "빠른 작업"
     },
     "window": {
       "minimize": "창 최소화",

@@ -3342,9 +3342,7 @@
       "language": "言語を切り替える",
       "settings": "設定",
       "switchTool": "現在のツールを切り替える",
-      "quickActions": "クイック操作",
-      "currentStatus": "現在の状態",
-      "openCurrentStatusPanel": "現在の状態パネルを開く"
+      "quickActions": "クイック操作"
     },
     "window": {
       "minimize": "ウィンドウを最小化",

@@ -59,8 +59,6 @@ describe("locale resources", () => {
       expect(locale.settings.languageHint).toBeTruthy();
       expect(locale.desktop.toolbar.language).toBeTruthy();
       expect(locale.desktop.toolbar.quickActions).toBeTruthy();
-      expect(locale.desktop.toolbar.currentStatus).toBeTruthy();
-      expect(locale.desktop.toolbar.openCurrentStatusPanel).toBeTruthy();
       expect(locale.desktop.views.settings).toBeTruthy();
       expect(locale.desktop.window.close).toBeTruthy();
       expect(locale.desktop.agents.description).toBeTruthy();
@@ -135,8 +133,5 @@ describe("locale resources", () => {
     );
     expect(zhTW.settings.appearanceAndLanguage).toBe("外觀與語言");
     expect(zhTW.settings.interfaceDensity).toBe("介面密度");
-    expect(zhTW.desktop.toolbar.openCurrentStatusPanel).toBe(
-      "開啟目前狀態面板",
-    );
   });
 });

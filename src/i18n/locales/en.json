@@ -3342,9 +3342,7 @@
       "language": "Change language",
       "settings": "Settings",
       "switchTool": "Switch current tool",
-      "quickActions": "Quick Actions",
-      "currentStatus": "Current Status",
-      "openCurrentStatusPanel": "Open the current status panel"
+      "quickActions": "Quick Actions"
     },
     "window": {
       "minimize": "Minimize window",

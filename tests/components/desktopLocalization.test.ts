@@ -10,11 +10,9 @@ describe("desktop localization coverage", () => {
     const source = readSource("src/App.tsx");
 
     expect(source).not.toContain('title="快捷操作 (⌘K)"');
-    expect(source).not.toContain('aria-label="打开当前状态面板"');
     expect(source).not.toContain('{t("desktop.skills.import")}已有配置');
     expect(source).not.toContain('title="Skills"');
     expect(source).toContain('t("desktop.toolbar.quickActions")');
-    expect(source).toContain('t("desktop.toolbar.openCurrentStatusPanel")');
     expect(source).toContain('title={t("desktop.views.skills")}');
   });
 
