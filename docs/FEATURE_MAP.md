@@ -99,7 +99,7 @@ Claude diagnostic persistence uses a bounded background writer, not disk I/O on 
 
 ## 全局帮助抽屉（2026-10-13）
 
-[DesktopSidebar](../src/components/desktop/DesktopSidebar.tsx) 底部并排提供帮助与官网，主导航不再占用说明页。[HelpDrawer](../src/components/desktop/HelpDrawer.tsx) 复用 Dialog 展示内置快速开始、日常使用、排错与 FAQ；支持关闭按钮、Escape、遮罩关闭和入口焦点恢复，正文可滚动且可离线查看。命令面板通过“帮助 / 使用说明 / help / guide”打开同一抽屉；后台页面与输入保持挂载，模态期间不执行后台跳转快捷键。旧 guide 页面恢复时回退工作台，退出登录关闭抽屉。短窗口侧栏收紧间距并保留导航滚动，底部辅助入口始终可见。决定见[帮助抽屉笔记](../.agents/notes/implemented/feature/2026-10-13-help-drawer.md)。
+[DesktopSidebar](../src/components/desktop/DesktopSidebar.tsx) 的日常使用导航依次为工作台、声音克隆、会话与用量、工具管理、能力中心；底部并排提供帮助与官网，主导航不再占用说明页。[HelpDrawer](../src/components/desktop/HelpDrawer.tsx) 复用 Dialog 展示内置快速开始、日常使用、排错与 FAQ；支持关闭按钮、Escape、遮罩关闭和入口焦点恢复，正文可滚动且可离线查看。命令面板通过“帮助 / 使用说明 / help / guide”打开同一抽屉；后台页面与输入保持挂载，模态期间不执行后台跳转快捷键。旧 guide 页面恢复时回退工作台，退出登录关闭抽屉。短窗口侧栏收紧间距并保留导航滚动，底部辅助入口始终可见。决定见[帮助抽屉笔记](../.agents/notes/implemented/feature/2026-10-13-help-drawer.md)。
 
 ## R2 安装包分发（2026-10-13）
 

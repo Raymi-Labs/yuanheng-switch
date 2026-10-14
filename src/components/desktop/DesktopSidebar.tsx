@@ -39,10 +39,10 @@ interface DesktopSidebarProps {
 
 const dailyItems = [
   { id: "home" as const, label: "工作台", icon: Gauge },
+  { id: "voiceClone" as const, label: "声音克隆", icon: Mic2 },
+  { id: "usage" as const, label: "会话与用量", icon: Activity },
   { id: "tools" as const, label: "工具管理", icon: Bot },
   { id: "capabilities" as const, label: "能力中心", icon: Blocks },
-  { id: "usage" as const, label: "会话与用量", icon: Activity },
-  { id: "voiceClone" as const, label: "声音克隆", icon: Mic2 },
 ];
 
 const professionalItems = [
