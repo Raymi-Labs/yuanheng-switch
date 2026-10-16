@@ -10,6 +10,8 @@ export interface TokenUsage {
 export interface RequestLog {
   requestId: string;
   providerId: string;
+  /** Token group captured on the provider used for this request; absent for unknown history. */
+  requestGroup?: string | null;
   providerName?: string;
   declaredProvider?: string;
   providerAttribution?: "session_meta" | "turn_context";
@@ -227,6 +229,7 @@ export const KNOWN_APP_TYPES: ReadonlyArray<AppType> = [
  */
 export const CACHE_INCLUSIVE_APP_TYPES: ReadonlySet<string> = new Set([
   "codex",
+  "chatgpt-desktop",
   "gemini",
   "grokbuild",
 ]);

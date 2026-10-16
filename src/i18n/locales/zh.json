@@ -1710,7 +1710,7 @@
     "sessionProviderUnknown": "供应商未确认",
     "sessionAttributionHelp": "来自本机 Codex 会话日志，包含 Token 统计，但不一定记录真实供应商、HTTP 状态或耗时。不会根据当前登录方式倒推历史供应商。",
     "referenceCost": "估算闪电",
-    "referenceCostHelp": "按当前元衡报价、分组倍率及请求时段估算闪电。默认采用各模型最低可用报价，可指定分组；这不是实际扣费。官方账号调用也仅作折算，平台扣费以平台账单为准。",
+    "referenceCostHelp": "根据请求时记录的令牌分组和当前平台报价估算；分组未知或自动选组时不估算。请求分组不等于平台最终结算分组，实际扣费以平台账单为准。",
     "gpt6PricingHint": "GPT-6 Astra 内置 Standard 参考价：单次输入（含缓存）超过 272K 时，输入和缓存价为 2 倍、输出价为 1.5 倍，作用于整次请求。自定义价格优先；Fast、Batch 等模式不自动推断。",
     "platformPricing": {
       "title": "元衡平台报价 · ⚡",
@@ -1720,7 +1720,7 @@
       "sync": "同步平台报价",
       "synced": "{{count}} 个模型 · {{time}}",
       "synced_one": "{{count}} 个模型 · {{time}}",
-      "help": "按当前元衡报价、分组倍率及请求时段估算闪电。默认采用各模型最低可用报价，可指定分组；这不是实际扣费。官方账号调用也仅作折算，平台扣费以平台账单为准。",
+      "help": "根据请求时记录的令牌分组和当前平台报价估算；分组未知或自动选组时不估算。请求分组不等于平台最终结算分组，实际扣费以平台账单为准。",
       "stale": "正在使用上次缓存的报价。",
       "missing": "尚未取得平台报价，请同步后查看估算。",
       "search": "搜索平台模型",
@@ -1742,9 +1742,14 @@
         "usage_missing": "用量未返回",
         "quantity_missing": "缺少计费数量",
         "rule_unsupported": "需平台账单核算",
-        "group_missing": "无可用报价分组"
+        "group_missing": "无可用报价分组",
+        "request_group_unknown": "暂不估算"
       },
-      "uncovered_one": "{{count}} 条未计入估算"
+      "uncovered_one": "{{count}} 条未计入估算",
+      "requestGroup": "请求分组",
+      "unknownRequestGroup": "请求分组未知",
+      "catalogHelp": "此分组仅用于比较目录报价，不改变请求分组或请求日志。",
+      "autoRequestGroup": "自动选组（实际分组未知）"
     },
     "periodSummary": {
       "title": "周期消耗汇总",
@@ -1759,7 +1764,7 @@
       "priced": "已计价",
       "unpriced": "未计价",
       "partial": "{{count}} 条请求未计入金额。",
-      "help": "随当前应用、供应商和模型筛选统计。按当前元衡报价折算，包含官方账号的参考价值；实际扣费以平台账单为准。",
+      "help": "随当前应用、供应商和模型筛选统计，仅估算已记录请求分组的用量；分组未知及自动选组不计入金额，实际扣费以平台账单为准。",
       "loadFailed": "周期汇总加载失败，请刷新后重试。",
       "partial_one": "{{count}} 条请求未计入金额。"
     },

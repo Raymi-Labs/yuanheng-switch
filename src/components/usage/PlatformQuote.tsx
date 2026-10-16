@@ -14,8 +14,8 @@ export function PlatformQuote({
   const quote = log.platformQuote;
   const available = quote?.amount != null;
   return (
-    <div className="space-y-1" title={t("usage.platformPricing.help")}>
-      <div className="font-medium tabular-nums">
+    <div className="min-w-48 space-y-1" title={t("usage.platformPricing.help")}>
+      <div className="whitespace-nowrap font-medium tabular-nums">
         {available
           ? fmtCredits(quote.amount, detail ? 6 : 4, quote.symbol)
           : t(
@@ -30,11 +30,11 @@ export function PlatformQuote({
           {t("usage.accountBilling")}
         </div>
       )}
-      {quote?.group && (
-        <div className="text-xs text-muted-foreground">
-          {quote.group} · ×{quote.groupRatio}
-        </div>
-      )}
+      <div className="text-xs text-muted-foreground">
+        {log.requestGroup
+          ? `${t("usage.platformPricing.requestGroup")}: ${log.requestGroup === "auto" ? t("usage.platformPricing.autoRequestGroup") : log.requestGroup}`
+          : t("usage.platformPricing.unknownRequestGroup")}
+      </div>
       {detail && (
         <>
           <p className="text-xs text-muted-foreground">

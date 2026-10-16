@@ -1712,7 +1712,7 @@
     "sessionProviderUnknown": "供應商未確認",
     "sessionAttributionHelp": "來自本機 Codex 對話記錄，包含 Token 統計，但不一定記錄實際供應商、HTTP 狀態或耗時。不會根據目前登入方式推斷歷史供應商。",
     "referenceCost": "估算閃電",
-    "referenceCostHelp": "按目前元衡報價、分組倍率及請求時段估算閃電。預設採用各模型最低可用報價，可指定分組；這不是實際扣費。官方帳號呼叫也僅作折算，平台扣費以平台帳單為準。",
+    "referenceCostHelp": "根據請求時記錄的令牌分組和目前平台報價估算；分組未知或自動選組時不估算。實際結算分組與扣費以平台帳單為準。",
     "gpt6PricingHint": "GPT-6 Astra 內建 Standard 參考價：單次輸入（含快取）超過 272K 時，整次請求的輸入與快取價為 2 倍、輸出價為 1.5 倍。自訂價格優先；不自動推斷 Fast、Batch 等模式。",
     "platformPricing": {
       "title": "元衡平台報價 · ⚡",
@@ -1721,7 +1721,7 @@
       "groupUnavailable": "目前無法使用",
       "sync": "同步平台報價",
       "synced": "{{count}} 個模型 · {{time}}",
-      "help": "按目前元衡報價、分組倍率及請求時段估算閃電。預設採用各模型最低可用報價，可指定分組；這不是實際扣費。官方帳號呼叫也僅作折算，平台扣費以平台帳單為準。",
+      "help": "根據請求時記錄的令牌分組和目前平台報價估算；分組未知或自動選組時不估算。實際結算分組與扣費以平台帳單為準。",
       "stale": "正在使用上次快取的報價。",
       "missing": "尚未取得平台報價，請同步後查看估算。",
       "search": "搜尋平台模型",
@@ -1743,10 +1743,15 @@
         "usage_missing": "未回傳用量",
         "quantity_missing": "缺少計費數量",
         "rule_unsupported": "需平台帳單核算",
-        "group_missing": "無可用報價分組"
+        "group_missing": "無可用報價分組",
+        "request_group_unknown": "暫不估算"
       },
       "synced_one": "{{count}} 個模型 · {{time}}",
-      "uncovered_one": "{{count}} 筆未計入估算"
+      "uncovered_one": "{{count}} 筆未計入估算",
+      "requestGroup": "請求分組",
+      "unknownRequestGroup": "請求分組未知",
+      "catalogHelp": "此分組僅用於比較目錄報價，不會改變請求分組或請求日誌。",
+      "autoRequestGroup": "自動選組（實際分組未知）"
     },
     "periodSummary": {
       "title": "週期消耗彙總",

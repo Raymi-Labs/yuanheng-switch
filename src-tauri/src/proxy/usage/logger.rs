@@ -92,11 +92,20 @@ pub struct RequestLog {
 /// 使用量记录器
 pub struct UsageLogger<'a> {
     db: &'a Database,
+    request_group: Option<String>,
 }
 
 impl<'a> UsageLogger<'a> {
     pub fn new(db: &'a Database) -> Self {
-        Self { db }
+        Self {
+            db,
+            request_group: None,
+        }
+    }
+
+    pub fn with_request_group(mut self, group: Option<String>) -> Self {
+        self.request_group = group;
+        self
     }
 
     /// 记录成功的请求
@@ -123,12 +132,14 @@ impl<'a> UsageLogger<'a> {
             };
 
         let created_at = chrono::Utc::now().timestamp();
-        let input_token_semantics =
-            if matches!(log.app_type.as_str(), "codex" | "gemini" | "grokbuild") {
-                INPUT_TOKEN_SEMANTICS_TOTAL
-            } else {
-                INPUT_TOKEN_SEMANTICS_FRESH
-            };
+        let input_token_semantics = if matches!(
+            log.app_type.as_str(),
+            "codex" | "chatgpt-desktop" | "gemini" | "grokbuild"
+        ) {
+            INPUT_TOKEN_SEMANTICS_TOTAL
+        } else {
+            INPUT_TOKEN_SEMANTICS_FRESH
+        };
         let semantic = UsageSemantic::from_log(log, input_token_semantics);
         let existing = Self::load_existing_semantic(&conn, &log.request_id)?;
 
@@ -175,8 +186,8 @@ impl<'a> UsageLogger<'a> {
                 input_token_semantics,
                 input_cost_usd, output_cost_usd, cache_read_cost_usd, cache_creation_cost_usd, total_cost_usd,
                 latency_ms, first_token_ms, status_code, error_message, session_id,
-                provider_type, is_streaming, cost_multiplier, created_at
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25)"
+                provider_type, is_streaming, cost_multiplier, created_at, request_group
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26)"
         );
         let affected_rows = conn
             .execute(
@@ -207,6 +218,7 @@ impl<'a> UsageLogger<'a> {
                     log.is_streaming as i64,
                     log.cost_multiplier,
                     created_at,
+                    self.request_group,
                 ],
             )
             .map_err(|e| AppError::Database(format!("记录请求日志失败: {e}")))?;

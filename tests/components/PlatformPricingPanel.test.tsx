@@ -62,7 +62,7 @@ describe("platform price catalog", () => {
   });
   it("allows explicit sync/group selection and warns about cached prices", () => {
     state.data.stale = true;
-    render(<PlatformPricingPanel />);
+    render(<PlatformPricingPanel catalog />);
     expect(screen.getByRole("status")).toHaveTextContent(
       "usage.platformPricing.stale",
     );
@@ -72,6 +72,13 @@ describe("platform price catalog", () => {
       target: { value: "premium" },
     });
     expect(state.group).toHaveBeenCalledWith("premium", expect.any(Object));
+  });
+  it("does not offer a global group override on request usage", () => {
+    render(<PlatformPricingPanel />);
+    expect(
+      screen.queryByLabelText("usage.platformPricing.group"),
+    ).not.toBeInTheDocument();
+    expect(screen.getByText("usage.platformPricing.help")).toBeInTheDocument();
   });
   it("does not silently fall back when the selected group cannot price a model", () => {
     state.data.selectedGroup = "premium";

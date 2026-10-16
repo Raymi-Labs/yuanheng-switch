@@ -2855,7 +2855,7 @@ fn provider_note_value(provider: &Provider, key: &str) -> Option<String> {
         .map(str::to_string)
 }
 
-fn provider_group(provider: &Provider) -> Option<String> {
+pub(crate) fn provider_group(provider: &Provider) -> Option<String> {
     provider_note_value(provider, "group")
 }
 

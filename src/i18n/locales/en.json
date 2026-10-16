@@ -1710,7 +1710,7 @@
     "sessionProviderUnknown": "Provider unconfirmed",
     "sessionAttributionHelp": "Imported from local Codex session logs. The actual provider, HTTP status or latency may not be recorded. Current sign-in settings are not used to infer historical providers.",
     "referenceCost": "Estimated credits",
-    "referenceCostHelp": "Credit estimates use current YuanHeng prices, group ratios and request time. The default is the lowest available quote per model; choose a group to override it. These are not actual charges. Official-account usage is a comparison estimate only; actual platform charges come from its ledger.",
+    "referenceCostHelp": "Estimated using the token group recorded for this request and current platform prices. Unknown or automatic groups are not estimated. The request group is not a confirmed settlement group; actual charges follow the platform ledger.",
     "gpt6PricingHint": "GPT-6 Astra built-in Standard reference rates: prompts over 272K tokens (including cache) use 2× input/cache and 1.5× output rates for the full request. Custom prices take precedence; Fast, Batch and other modes are not inferred.",
     "platformPricing": {
       "title": "YuanHeng pricing · ⚡",
@@ -1720,7 +1720,7 @@
       "sync": "Sync platform pricing",
       "synced": "{{count}} models · {{time}}",
       "synced_one": "{{count}} model · {{time}}",
-      "help": "Credit estimates use current YuanHeng prices, group ratios and request time. The default is the lowest available quote per model; choose a group to override it. These are not actual charges. Official-account usage is a comparison estimate only; actual platform charges come from its ledger.",
+      "help": "Estimated using the token group recorded for this request and current platform prices. Unknown or automatic groups are not estimated. The request group is not a confirmed settlement group; actual charges follow the platform ledger.",
       "stale": "Using the last cached price book.",
       "missing": "Platform pricing is unavailable. Sync to see estimates.",
       "search": "Search platform models",
@@ -1743,8 +1743,13 @@
         "usage_missing": "Usage unavailable",
         "quantity_missing": "Billing quantity missing",
         "rule_unsupported": "See platform ledger",
-        "group_missing": "No eligible pricing group"
-      }
+        "group_missing": "No eligible pricing group",
+        "request_group_unknown": "Estimate unavailable"
+      },
+      "requestGroup": "Request group",
+      "unknownRequestGroup": "Request group unknown",
+      "catalogHelp": "This group only compares catalog prices; it does not change request groups or request logs.",
+      "autoRequestGroup": "Automatic routing (actual group unknown)"
     },
     "periodSummary": {
       "title": "Period usage total",
@@ -1759,7 +1764,7 @@
       "priced": "Priced",
       "unpriced": "Unpriced",
       "partial": "{{count}} requests are excluded from the amount.",
-      "help": "Uses the selected app, provider and model filters. Current YuanHeng quotes include comparison estimates for official accounts; actual charges come from the platform ledger.",
+      "help": "Uses the current app, provider and model filters. Only requests with a recorded group are estimated; unknown and automatic groups are excluded from the amount. Actual charges follow the platform ledger.",
       "loadFailed": "Could not load the period total. Please refresh and try again.",
       "partial_one": "{{count}} requests are excluded from the amount."
     },

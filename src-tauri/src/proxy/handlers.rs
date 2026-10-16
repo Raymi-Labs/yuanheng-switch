@@ -399,6 +399,7 @@ fn validate_claude_desktop_gateway_auth(
 ///
 /// 支持 OpenAI Chat Completions 和 Responses API 两种格式的转换
 struct ClaudeUsageLog {
+    request_group: Option<String>,
     model: String,
     request_model: String,
     outbound_model: String,
@@ -429,6 +430,7 @@ fn prepare_claude_usage_log(
         .unwrap_or_else(|| ctx.request_model.clone());
 
     Some(ClaudeUsageLog {
+        request_group: ctx.request_group(),
         model,
         request_model: ctx.request_model.clone(),
         outbound_model: ctx
@@ -459,6 +461,7 @@ async fn write_claude_usage_log(state: &ProxyState, log: ClaudeUsageLog) {
         log.is_streaming,
         log.status_code,
         Some(log.session_id),
+        log.request_group,
     )
     .await;
 }
@@ -541,6 +544,7 @@ async fn handle_claude_transform(
         let usage_collector = if usage_logging_enabled(state) {
             let state = state.clone();
             let provider_id = ctx.provider.id.clone();
+            let request_group = ctx.request_group();
             let request_model = ctx.request_model.clone();
             // 上游/转换层未回显模型时，优先用映射后的出站模型兜底（路由接管真值），
             // 其次才是客户端请求别名。空字符串视为缺失（转换器对无回显上游会合成 ""）。
@@ -568,6 +572,7 @@ async fn handle_claude_transform(
                         let latency_ms = start_time.elapsed().as_millis() as u64;
                         let state = state.clone();
                         let provider_id = provider_id.clone();
+                        let request_group = request_group.clone();
                         let session_id = session_id.clone();
                         let request_model = request_model.clone();
                         let outbound_model = fallback_model.clone();
@@ -586,6 +591,7 @@ async fn handle_claude_transform(
                                 true,
                                 status_code,
                                 Some(session_id),
+                                request_group,
                             )
                             .await;
                         });
@@ -1270,6 +1276,7 @@ async fn handle_codex_responses_namespace_restore(
                 tokio::spawn({
                     let state = state.clone();
                     let provider_id = ctx.provider.id.clone();
+                    let request_group = ctx.request_group();
                     let session_id = ctx.session_id.clone();
                     let latency_ms = ctx.latency_ms();
                     async move {
@@ -1286,6 +1293,7 @@ async fn handle_codex_responses_namespace_restore(
                             false,
                             status.as_u16(),
                             Some(session_id),
+                            request_group,
                         )
                         .await;
                     }
@@ -1346,6 +1354,7 @@ async fn handle_codex_chat_to_responses_transform(
         let usage_collector = if usage_logging_enabled(state) {
             let state = state.clone();
             let provider_id = ctx.provider.id.clone();
+            let request_group = ctx.request_group();
             let request_model = ctx.request_model.clone();
             // 接管/模型覆写场景的归因兜底：出站真值优先于客户端请求别名
             let fallback_model = ctx
@@ -1380,6 +1389,7 @@ async fn handle_codex_chat_to_responses_transform(
 
                     let state = state.clone();
                     let provider_id = provider_id.clone();
+                    let request_group = request_group.clone();
                     let request_model = request_model.clone();
                     let outbound_model = fallback_model.clone();
                     let session_id = session_id.clone();
@@ -1398,6 +1408,7 @@ async fn handle_codex_chat_to_responses_transform(
                             true,
                             status.as_u16(),
                             Some(session_id),
+                            request_group,
                         )
                         .await;
                     });
@@ -1503,6 +1514,7 @@ async fn handle_codex_chat_to_responses_transform(
         tokio::spawn({
             let state = state.clone();
             let provider_id = ctx.provider.id.clone();
+            let request_group = ctx.request_group();
             let session_id = ctx.session_id.clone();
             let latency_ms = ctx.latency_ms();
             async move {
@@ -1519,6 +1531,7 @@ async fn handle_codex_chat_to_responses_transform(
                     false,
                     status.as_u16(),
                     Some(session_id),
+                    request_group,
                 )
                 .await;
             }
@@ -1668,6 +1681,7 @@ async fn handle_codex_anthropic_to_responses_transform(
         tokio::spawn({
             let state = state.clone();
             let provider_id = ctx.provider.id.clone();
+            let request_group = ctx.request_group();
             let session_id = ctx.session_id.clone();
             let latency_ms = ctx.latency_ms();
             async move {
@@ -1684,6 +1698,7 @@ async fn handle_codex_anthropic_to_responses_transform(
                     false,
                     status.as_u16(),
                     Some(session_id),
+                    request_group,
                 )
                 .await;
             }
@@ -1726,6 +1741,7 @@ fn build_codex_anthropic_sse_response(
     let usage_collector = if usage_logging_enabled(state) {
         let state = state.clone();
         let provider_id = ctx.provider.id.clone();
+        let request_group = ctx.request_group();
         let request_model = ctx.request_model.clone();
         let fallback_model = ctx
             .outbound_model
@@ -1753,6 +1769,7 @@ fn build_codex_anthropic_sse_response(
 
                 let state = state.clone();
                 let provider_id = provider_id.clone();
+                let request_group = request_group.clone();
                 let request_model = request_model.clone();
                 let outbound_model = fallback_model.clone();
                 let session_id = session_id.clone();
@@ -1771,6 +1788,7 @@ fn build_codex_anthropic_sse_response(
                         true,
                         status.as_u16(),
                         Some(session_id),
+                        request_group,
                     )
                     .await;
                 });
@@ -2722,7 +2740,7 @@ fn log_forward_error(
 ) {
     use super::usage::logger::UsageLogger;
 
-    let logger = UsageLogger::new(&state.db);
+    let logger = UsageLogger::new(&state.db).with_request_group(ctx.request_group());
     let status_code = map_proxy_error_to_status(error);
     let error_message = get_error_message(error);
     let request_id = uuid::Uuid::new_v4().to_string();
@@ -2761,6 +2779,7 @@ async fn log_usage(
     is_streaming: bool,
     status_code: u16,
     session_id: Option<String>,
+    request_group: Option<String>,
 ) {
     use super::usage::logger::UsageLogger;
 
@@ -2768,7 +2787,7 @@ async fn log_usage(
         return;
     }
 
-    let logger = UsageLogger::new(&state.db);
+    let logger = UsageLogger::new(&state.db).with_request_group(request_group);
 
     let (multiplier, pricing_model_source) =
         logger.resolve_pricing_config(provider_id, app_type).await;

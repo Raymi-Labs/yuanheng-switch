@@ -133,6 +133,89 @@ describe("RequestLogTable", () => {
     expect(screen.queryByText("0.0s")).not.toBeInTheDocument();
   });
 
+  it("shows the request group and desktop fresh input without displaying an unrelated quote group", () => {
+    useRequestLogsMock.mockReturnValue({
+      data: {
+        data: [
+          makeUsageLog({
+            appType: "chatgpt-desktop",
+            dataSource: "proxy",
+            requestGroup: "OpenAI · 优质",
+            inputTokens: 41466,
+            cacheReadTokens: 41088,
+            outputTokens: 130,
+            platformQuote: {
+              amount: "0.115578",
+              symbol: "⚡️",
+              reason: "estimate",
+              group: "OpenAI · 企业专属",
+              groupRatio: "1",
+            },
+          }),
+        ],
+        total: 1,
+        page: 0,
+        pageSize: 20,
+      },
+      isLoading: false,
+    });
+    render(
+      <RequestLogTable
+        range={{ preset: "today" }}
+        rangeLabel="Today"
+        refreshIntervalMs={0}
+      />,
+    );
+    expect(
+      screen.getByText("usage.platformPricing.requestGroup: OpenAI · 优质"),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/企业专属/)).not.toBeInTheDocument();
+    expect(screen.getByText("378")).toBeInTheDocument();
+    expect(screen.getByText("≈ ⚡️0.1156")).toBeInTheDocument();
+  });
+
+  it.each([null, "auto"])(
+    "does not invent a billing group for %s",
+    (requestGroup) => {
+      useRequestLogsMock.mockReturnValue({
+        data: {
+          data: [
+            makeUsageLog({
+              requestGroup,
+              platformQuote: {
+                amount: null,
+                symbol: "⚡️",
+                reason: "request_group_unknown",
+              },
+            }),
+          ],
+          total: 1,
+          page: 0,
+          pageSize: 20,
+        },
+        isLoading: false,
+      });
+      render(
+        <RequestLogTable
+          range={{ preset: "today" }}
+          rangeLabel="Today"
+          refreshIntervalMs={0}
+        />,
+      );
+      expect(
+        screen.getByText(
+          requestGroup === "auto"
+            ? "usage.platformPricing.requestGroup: usage.platformPricing.autoRequestGroup"
+            : "usage.platformPricing.unknownRequestGroup",
+        ),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByText("usage.platformPricing.reason.request_group_unknown"),
+      ).toBeInTheDocument();
+      expect(screen.queryByText(/≈/)).not.toBeInTheDocument();
+    },
+  );
+
   it("shows platform credits beside official account billing without relabelling legacy USD", () => {
     const official = makeUsageLog({
       requestId: "session:codex:codex-official:resp-priced",

@@ -75,6 +75,16 @@ pub struct RequestContext {
 }
 
 impl RequestContext {
+    /// Snapshot of the token group configured on the provider actually selected for this request.
+    pub(crate) fn request_group(&self) -> Option<String> {
+        if self.provider.category.as_deref() != Some("managed")
+            || self.provider.id != crate::commands::MANAGED_PROVIDER_ID
+        {
+            return None;
+        }
+        crate::commands::provider_group(&self.provider)
+    }
+
     /// 创建请求上下文
     ///
     /// # Arguments

@@ -545,6 +545,7 @@ pub(crate) fn create_usage_collector(
 
     let state = state.clone();
     let provider_id = ctx.provider.id.clone();
+    let request_group = ctx.request_group();
     let request_model = ctx.request_model.clone();
     // 流式事件缺失模型名时的归因兜底：映射后的出站模型（路由接管真值）优先，
     // 其次才是客户端请求别名
@@ -572,6 +573,7 @@ pub(crate) fn create_usage_collector(
 
                 let state = state.clone();
                 let provider_id = provider_id.clone();
+                let request_group = request_group.clone();
                 let session_id = session_id.clone();
                 let request_model = request_model.clone();
                 let outbound_model = fallback_model.clone();
@@ -590,6 +592,7 @@ pub(crate) fn create_usage_collector(
                         true, // is_streaming
                         status_code,
                         Some(session_id),
+                        request_group,
                     )
                     .await;
                 });
@@ -598,6 +601,7 @@ pub(crate) fn create_usage_collector(
                 let latency_ms = start_time.elapsed().as_millis() as u64;
                 let state = state.clone();
                 let provider_id = provider_id.clone();
+                let request_group = request_group.clone();
                 let session_id = session_id.clone();
                 let request_model = request_model.clone();
                 let outbound_model = fallback_model.clone();
@@ -616,6 +620,7 @@ pub(crate) fn create_usage_collector(
                         true, // is_streaming
                         status_code,
                         Some(session_id),
+                        request_group,
                     )
                     .await;
                 });
@@ -644,6 +649,7 @@ fn spawn_log_usage(
 
     let state = state.clone();
     let provider_id = ctx.provider.id.clone();
+    let request_group = ctx.request_group();
     let app_type_str = ctx.app_type_str.to_string();
     let model = model.to_string();
     let request_model = request_model.to_string();
@@ -669,6 +675,7 @@ fn spawn_log_usage(
             is_streaming,
             status_code,
             Some(session_id),
+            request_group,
         )
         .await;
     });
@@ -702,10 +709,11 @@ async fn log_usage_internal(
     is_streaming: bool,
     status_code: u16,
     session_id: Option<String>,
+    request_group: Option<String>,
 ) {
     use super::usage::logger::UsageLogger;
 
-    let logger = UsageLogger::new(&state.db);
+    let logger = UsageLogger::new(&state.db).with_request_group(request_group);
     let (multiplier, pricing_model_source) =
         logger.resolve_pricing_config(provider_id, app_type).await;
     let pricing_model = if pricing_model_source == PRICING_SOURCE_REQUEST {
@@ -947,6 +955,82 @@ mod tests {
     use std::str::FromStr;
     use std::sync::Arc;
     use tokio::sync::RwLock;
+
+    #[tokio::test]
+    async fn request_group_snapshot_survives_switch_for_streaming_and_json() {
+        use crate::app_config::AppType;
+        use crate::provider::Provider;
+        use crate::proxy::handler_config::CODEX_PARSER_CONFIG;
+        let db = Arc::new(Database::memory().unwrap());
+        let state = build_state(db.clone());
+        let mut provider = Provider::with_id(
+            "yuanheng-managed".into(),
+            "YuanHeng".into(),
+            serde_json::json!({}),
+            None,
+        );
+        provider.category = Some("managed".into());
+        provider.notes = Some("由元衡桌面端自动维护 | group=OpenAI · 优质 | reasoning=auto".into());
+        db.save_provider("chatgpt-desktop", &provider).unwrap();
+        db.set_current_provider("chatgpt-desktop", &provider.id)
+            .unwrap();
+        let mut ctx = RequestContext::new(
+            &state,
+            &serde_json::json!({"model":"gpt-6-astra"}),
+            &HeaderMap::new(),
+            AppType::Codex,
+            "Codex",
+            "chatgpt-desktop",
+        )
+        .await
+        .unwrap();
+        assert_eq!(ctx.request_group().as_deref(), Some("OpenAI · 优质"));
+        let collector = create_usage_collector(&ctx, &state, 200, &CODEX_PARSER_CONFIG).unwrap();
+        // Simulate a switch after the request selected its provider, before stream completion.
+        provider.notes = Some("group=OpenAI · 企业专属".into());
+        db.save_provider("chatgpt-desktop", &provider).unwrap();
+        let response = |id: &str| serde_json::json!({"id":id,"model":"gpt-6-astra","usage":{"input_tokens":41466,"output_tokens":130,"input_tokens_details":{"cached_tokens":41088}}});
+        collector.push(serde_json::json!({"type":"response.completed","response":response("resp-group-stream")})).await;
+        collector.finish().await;
+        let mut headers = HeaderMap::new();
+        headers.insert("content-type", "application/json".parse().unwrap());
+        let upstream = ProxyResponse::buffered(
+            http::StatusCode::OK,
+            headers,
+            Bytes::from(serde_json::to_vec(&response("resp-group-json")).unwrap()),
+        );
+        process_response(upstream, &ctx, &state, &CODEX_PARSER_CONFIG, None)
+            .await
+            .unwrap();
+        tokio::time::timeout(Duration::from_secs(3), async {
+            loop {
+                let logs = db
+                    .get_request_logs(&crate::services::usage_stats::LogFilters::default(), 0, 10)
+                    .unwrap();
+                if logs.data.len() == 2 {
+                    for log in logs.data {
+                        assert_eq!(log.request_group.as_deref(), Some("OpenAI · 优质"));
+                        assert_eq!(
+                            log.input_token_semantics,
+                            crate::services::sql_helpers::INPUT_TOKEN_SEMANTICS_TOTAL
+                        );
+                        assert_eq!(log.input_tokens - log.cache_read_tokens, 378);
+                    }
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .unwrap();
+        ctx.provider = provider;
+        assert_eq!(ctx.request_group().as_deref(), Some("OpenAI · 企业专属"));
+        ctx.provider.category = None;
+        assert!(ctx.request_group().is_none());
+        ctx.provider.category = Some("managed".into());
+        ctx.provider.id = "third-party".into();
+        assert!(ctx.request_group().is_none());
+    }
 
     #[test]
     fn format_headers_keeps_only_allowlisted_diagnostic_values() {
@@ -1327,6 +1411,7 @@ mod tests {
             false,
             200,
             None,
+            None,
         )
         .await;
 
@@ -1396,6 +1481,7 @@ mod tests {
             None,
             false,
             200,
+            None,
             None,
         )
         .await;
@@ -1476,6 +1562,7 @@ mod tests {
             None,
             false,
             200,
+            None,
             None,
         )
         .await;

@@ -126,6 +126,8 @@ pub struct PaginatedLogs {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RequestLogDetail {
+    #[serde(default)]
+    pub request_group: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub declared_provider: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -165,19 +167,20 @@ pub struct RequestLogDetail {
     pub pricing_model: Option<String>,
 }
 
-/// 把 28 列的查询结果映射为 `RequestLogDetail`。
+/// 把 29 列的查询结果映射为 `RequestLogDetail`。
 ///
-/// 调用方的 SELECT **必须**按以下顺序返回 28 列：
+/// 调用方的 SELECT **必须**按以下顺序返回 29 列：
 /// `request_id, provider_id, provider_name, app_type, model, request_model,
 ///  cost_multiplier, input_tokens, output_tokens, cache_read_tokens,
 ///  cache_creation_tokens, input_cost_usd, output_cost_usd, cache_read_cost_usd,
 ///  cache_creation_cost_usd, total_cost_usd, is_streaming, latency_ms,
 ///  first_token_ms, duration_ms, status_code, error_message, created_at,
-///  data_source, pricing_model, input_token_semantics, declared_provider, provider_attribution`
+///  data_source, pricing_model, input_token_semantics, declared_provider, provider_attribution, request_group`
 ///
 /// 不需要 provider_name 时（如 backfill）SELECT `NULL AS provider_name` 占位即可。
 fn row_to_request_log_detail(row: &rusqlite::Row<'_>) -> rusqlite::Result<RequestLogDetail> {
     Ok(RequestLogDetail {
+        request_group: row.get(28)?,
         declared_provider: row.get(26)?,
         provider_attribution: row.get(27)?,
         request_id: row.get(0)?,
@@ -1585,7 +1588,7 @@ impl Database {
                     l.input_cost_usd, l.output_cost_usd, l.cache_read_cost_usd, l.cache_creation_cost_usd, l.total_cost_usd,
                     l.is_streaming, l.latency_ms, l.first_token_ms, l.duration_ms,
                     l.status_code, l.error_message, l.created_at, l.data_source, l.pricing_model,
-                    l.input_token_semantics, l.declared_provider, l.provider_attribution
+                    l.input_token_semantics, l.declared_provider, l.provider_attribution, l.request_group
              FROM proxy_request_logs l
              LEFT JOIN providers p ON l.provider_id = p.id AND l.app_type = p.app_type
              {where_clause}
@@ -1633,7 +1636,7 @@ impl Database {
                     l.input_cost_usd, l.output_cost_usd, l.cache_read_cost_usd, l.cache_creation_cost_usd, l.total_cost_usd,
                     l.is_streaming, l.latency_ms, l.first_token_ms, l.duration_ms,
                     l.status_code, l.error_message, l.created_at, l.data_source, l.pricing_model,
-                    l.input_token_semantics, l.declared_provider, l.provider_attribution
+                    l.input_token_semantics, l.declared_provider, l.provider_attribution, l.request_group
              FROM proxy_request_logs l
              LEFT JOIN providers p ON l.provider_id = p.id AND l.app_type = p.app_type
              WHERE COALESCE(l.data_source, 'proxy') = 'proxy' AND l.app_type = ?1 AND l.created_at >= ?2
@@ -1668,7 +1671,7 @@ impl Database {
                     l.input_cost_usd, l.output_cost_usd, l.cache_read_cost_usd, l.cache_creation_cost_usd, l.total_cost_usd,
                     l.is_streaming, l.latency_ms, l.first_token_ms, l.duration_ms,
                     l.status_code, l.error_message, l.created_at, l.data_source, l.pricing_model,
-                    l.input_token_semantics, l.declared_provider, l.provider_attribution
+                    l.input_token_semantics, l.declared_provider, l.provider_attribution, l.request_group
              FROM proxy_request_logs l
              LEFT JOIN providers p ON l.provider_id = p.id AND l.app_type = p.app_type
              WHERE l.request_id = ?"
@@ -1818,7 +1821,7 @@ impl Database {
                         input_cost_usd, output_cost_usd, cache_read_cost_usd,
                         cache_creation_cost_usd, total_cost_usd, is_streaming, latency_ms,
                         first_token_ms, duration_ms, status_code, error_message, created_at,
-                        data_source, pricing_model, input_token_semantics, declared_provider, provider_attribution
+                        data_source, pricing_model, input_token_semantics, declared_provider, provider_attribution, request_group
              FROM proxy_request_logs
              WHERE CAST(total_cost_usd AS REAL) <= 0
                AND (input_tokens > 0 OR output_tokens > 0
@@ -1902,7 +1905,10 @@ impl Database {
         // 1. 历史 Codex/Gemini 行只包含 cache read；新 total 行还包含 cache write。
         // 2. Claude/Anthropic 的 input_tokens 已经是 fresh input，不能再次扣减
         // 3. 各项成本是基础成本（不含倍率），倍率只作用于最终总价
-        let cache_inclusive_app = matches!(log.app_type.as_str(), "codex" | "gemini" | "grokbuild");
+        let cache_inclusive_app = matches!(
+            log.app_type.as_str(),
+            "codex" | "chatgpt-desktop" | "gemini" | "grokbuild"
+        );
         let billable_input_tokens =
             if !cache_inclusive_app || log.input_token_semantics == INPUT_TOKEN_SEMANTICS_FRESH {
                 log.input_tokens as u64

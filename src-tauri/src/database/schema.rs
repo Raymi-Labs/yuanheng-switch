@@ -208,7 +208,7 @@ impl Database {
             provider_type TEXT, is_streaming INTEGER NOT NULL DEFAULT 0,
             cost_multiplier TEXT NOT NULL DEFAULT '1.0', created_at INTEGER NOT NULL,
             data_source TEXT NOT NULL DEFAULT 'proxy',
-            declared_provider TEXT, provider_attribution TEXT
+            declared_provider TEXT, provider_attribution TEXT, request_group TEXT
         )", []).map_err(|e| AppError::Database(e.to_string()))?;
 
         conn.execute("CREATE INDEX IF NOT EXISTS idx_request_logs_provider ON proxy_request_logs(provider_id, app_type)", [])
@@ -534,6 +534,10 @@ impl Database {
                     18 => {
                         Self::migrate_v18_to_v19(conn)?;
                         Self::set_user_version(conn, 19)?;
+                    }
+                    19 => {
+                        Self::migrate_v19_to_v20(conn)?;
+                        Self::set_user_version(conn, 20)?;
                     }
                     _ => {
                         return Err(AppError::Database(format!(
@@ -1565,6 +1569,20 @@ impl Database {
             [],
         )
         .map_err(|e| AppError::Database(e.to_string()))?;
+        Ok(())
+    }
+
+    /// v19 -> v20: request token-group snapshots and desktop Responses input semantics.
+    fn migrate_v19_to_v20(conn: &Connection) -> Result<(), AppError> {
+        if Self::table_exists(conn, "proxy_request_logs")? {
+            Self::add_column_if_missing(conn, "proxy_request_logs", "request_group", "TEXT")?;
+            if Self::has_column(conn, "proxy_request_logs", "app_type")?
+                && Self::has_column(conn, "proxy_request_logs", "data_source")?
+                && Self::has_column(conn, "proxy_request_logs", "input_token_semantics")?
+            {
+                conn.execute("UPDATE proxy_request_logs SET input_token_semantics=1 WHERE app_type='chatgpt-desktop' AND data_source='proxy' AND input_token_semantics=2", [])?;
+            }
+        }
         Ok(())
     }
 
@@ -3042,6 +3060,35 @@ impl Database {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn migrate_v19_to_v20_repairs_only_desktop_proxy_semantics_without_inventing_groups(
+    ) -> Result<(), AppError> {
+        let conn = Connection::open_in_memory()?;
+        conn.execute_batch("CREATE TABLE proxy_request_logs(request_id TEXT, app_type TEXT, data_source TEXT, input_token_semantics INTEGER, total_cost_usd TEXT);
+          INSERT INTO proxy_request_logs VALUES ('desktop','chatgpt-desktop','proxy',2,'2.31124'),('session','chatgpt-desktop','codex_session',2,'999'),('claude','claude','proxy',2,'42');")?;
+        Database::migrate_v19_to_v20(&conn)?;
+        Database::migrate_v19_to_v20(&conn)?;
+        let mut stmt = conn.prepare("SELECT input_token_semantics,total_cost_usd,request_group FROM proxy_request_logs ORDER BY rowid")?;
+        let rows = stmt
+            .query_map([], |r| {
+                Ok((
+                    r.get::<_, i64>(0)?,
+                    r.get::<_, String>(1)?,
+                    r.get::<_, Option<String>>(2)?,
+                ))
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        assert_eq!(
+            rows,
+            vec![
+                (1, "2.31124".into(), None),
+                (2, "999".into(), None),
+                (2, "42".into(), None)
+            ]
+        );
+        Ok(())
+    }
 
     #[test]
     fn migrate_v18_to_v19_keeps_old_values_and_only_reopens_rollout_metadata(

@@ -114,7 +114,19 @@ impl PriceBook {
     }
 
     /// Exact platform model IDs only. Never guess a price from a model prefix.
+    #[cfg(test)]
     fn quote(&self, usage: &QuoteUsage) -> Value {
+        self.quote_for_group(usage, self.selected_group.as_deref())
+    }
+
+    fn request_quote(&self, usage: &QuoteUsage, group: Option<&str>) -> Value {
+        match group.filter(|g| !g.trim().is_empty() && *g != "auto") {
+            Some(group) => self.quote_for_group(usage, Some(group)),
+            None => json!({"amount":null,"reason":"request_group_unknown","symbol":self.symbol}),
+        }
+    }
+
+    fn quote_for_group(&self, usage: &QuoteUsage, selected_group: Option<&str>) -> Value {
         let unavailable = |reason: &str| json!({"amount": null, "reason": reason, "symbol": self.symbol, "quotedAt": self.fetched_at});
         let Some(model) = self.models.get(&usage.model) else {
             return unavailable("model_missing");
@@ -135,7 +147,7 @@ impl PriceBook {
             .groups
             .iter()
             .filter(|(g, _)| enabled.is_some_and(|a| a.iter().any(|v| v.as_str() == Some(g))))
-            .filter(|(g, _)| self.selected_group.as_ref().is_none_or(|s| s == *g))
+            .filter(|(g, _)| selected_group.is_none_or(|s| s == g.as_str()))
             .filter_map(|(g, v)| Decimal::from_str(v).ok().map(|r| (g, r)))
             .min_by_key(|(_, r)| *r);
         let Some((group, ratio)) = selected else {
@@ -250,7 +262,8 @@ pub fn log_quote(book: Option<&PriceBook>, log: &RequestLogDetail) -> Value {
     let Some(book) = book else {
         return json!({"amount":null,"reason":"pricing_missing","symbol":"⚡️"});
     };
-    let inclusive = ["codex", "gemini", "grokbuild"].contains(&log.app_type.as_str());
+    let inclusive =
+        ["codex", "chatgpt-desktop", "gemini", "grokbuild"].contains(&log.app_type.as_str());
     let cached = if log.input_token_semantics == super::sql_helpers::INPUT_TOKEN_SEMANTICS_TOTAL {
         log.cache_read_tokens
             .saturating_add(log.cache_creation_tokens)
@@ -265,20 +278,23 @@ pub fn log_quote(book: Option<&PriceBook>, log: &RequestLogDetail) -> Value {
     } else {
         log.input_tokens
     };
-    book.quote(&QuoteUsage {
-        model: log
-            .pricing_model
-            .as_ref()
-            .filter(|m| !m.is_empty())
-            .unwrap_or(&log.model)
-            .clone(),
-        input: input.into(),
-        output: log.output_tokens.into(),
-        read: log.cache_read_tokens.into(),
-        write: log.cache_creation_tokens.into(),
-        inclusive,
-        at: log.created_at,
-    })
+    book.request_quote(
+        &QuoteUsage {
+            model: log
+                .pricing_model
+                .as_ref()
+                .filter(|m| !m.is_empty())
+                .unwrap_or(&log.model)
+                .clone(),
+            input: input.into(),
+            output: log.output_tokens.into(),
+            read: log.cache_read_tokens.into(),
+            write: log.cache_creation_tokens.into(),
+            inclusive,
+            at: log.created_at,
+        },
+        log.request_group.as_deref(),
+    )
 }
 
 #[derive(Default)]
@@ -360,10 +376,11 @@ pub fn decorate_stats(
         let effective_model = super::usage_stats::effective_model_sql("l");
         let fresh = fresh_input_sql("l");
         let filter = effective_usage_log_filter("l");
-        let sql = format!("SELECT {folded}, l.provider_id, {effective_model}, {fresh}, l.output_tokens, l.cache_read_tokens, l.cache_creation_tokens, l.created_at, l.app_type FROM proxy_request_logs l LEFT JOIN providers p ON p.id=l.provider_id AND p.app_type=l.app_type WHERE (?1 IS NULL OR l.created_at>=?1) AND (?2 IS NULL OR l.created_at<=?2) AND (?3 IS NULL OR {folded}=?3) AND (?4 IS NULL OR {pname}=?4) AND (?5 IS NULL OR {effective_model}=?5) AND {filter}");
+        let sql = format!("SELECT {folded}, l.provider_id, {effective_model}, {fresh}, l.output_tokens, l.cache_read_tokens, l.cache_creation_tokens, l.created_at, l.app_type, l.request_group FROM proxy_request_logs l LEFT JOIN providers p ON p.id=l.provider_id AND p.app_type=l.app_type WHERE (?1 IS NULL OR l.created_at>=?1) AND (?2 IS NULL OR l.created_at<=?2) AND (?3 IS NULL OR {folded}=?3) AND (?4 IS NULL OR {pname}=?4) AND (?5 IS NULL OR {effective_model}=?5) AND {filter}");
         let mut stmt = conn.prepare(&sql)?;
         let rows = stmt.query_map(rusqlite::params![start, end, app, provider, model], |r| {
             Ok((
+                r.get::<_, Option<String>>(9)?,
                 r.get::<_, String>(0)?,
                 format!("{}:{}", r.get::<_, String>(8)?, r.get::<_, String>(1)?),
                 QuoteUsage {
@@ -378,9 +395,10 @@ pub fn decorate_stats(
             ))
         })?;
         for row in rows {
-            let (app, provider, mut usage) = row?;
-            usage.inclusive = ["codex", "gemini", "grokbuild"].contains(&app.as_str());
-            let q = book.quote(&usage);
+            let (group, app, provider, mut usage) = row?;
+            usage.inclusive =
+                ["codex", "chatgpt-desktop", "gemini", "grokbuild"].contains(&app.as_str());
+            let q = book.request_quote(&usage, group.as_deref());
             if let Some(amount) = q.get("amount").and_then(decimal) {
                 total.add(amount);
                 let key = match kind {
@@ -460,6 +478,58 @@ mod tests {
                 .timestamp(),
         }
     }
+    #[test]
+    fn request_quotes_ignore_catalog_selection_and_never_guess_history() -> Result<(), AppError> {
+        let db = Database::memory()?;
+        let mut b = book();
+        b.selected_group = Some("OpenAI · 企业专属".into());
+        db.set_setting(CACHE_KEY, &serde_json::to_string(&b).unwrap())?;
+        db.set_setting(GROUP_KEY, "OpenAI · 企业专属")?;
+        let at = usage("gpt-6-astra").at;
+        {
+            let conn = lock_conn!(db.conn);
+            for (id, group) in [
+                ("quality", Some("OpenAI · 优质")),
+                ("enterprise", Some("OpenAI · 企业专属")),
+                ("history", None),
+                ("auto", Some("auto")),
+            ] {
+                conn.execute("INSERT INTO proxy_request_logs(request_id,provider_id,app_type,model,input_tokens,output_tokens,cache_read_tokens,input_token_semantics,latency_ms,status_code,created_at,request_group,total_cost_usd) VALUES (?1,'p','chatgpt-desktop','gpt-6-astra',41466,130,41088,1,1,200,?2,?3,'999')", rusqlite::params![id,at,group])?;
+            }
+        }
+        for (id, expected) in [("quality", "0.115578"), ("enterprise", "0.25684")] {
+            let log = db.get_request_detail(id)?.unwrap();
+            let q = log_quote(Some(&b), &log);
+            assert_eq!(q["amount"], expected);
+            assert_eq!(q["group"], log.request_group.unwrap());
+            assert_eq!(log.total_cost_usd, "999");
+        }
+        for id in ["history", "auto"] {
+            let q = log_quote(Some(&b), &db.get_request_detail(id)?.unwrap());
+            assert!(q["amount"].is_null());
+            assert_eq!(q["reason"], "request_group_unknown");
+        }
+        // Catalog changes affect neither request history nor aggregate cost.
+        for group in ["OpenAI · 企业专属", "OpenAI · 优质", ""] {
+            db.set_setting(GROUP_KEY, group)?;
+            let raw = db.get_usage_summary(Some(at), Some(at + 1), None, None, None)?;
+            let q = decorate_stats(
+                &db,
+                serde_json::to_value(raw).unwrap(),
+                "summary",
+                Some(at),
+                Some(at + 1),
+                None,
+                None,
+                None,
+            )?;
+            assert_eq!(decimal(&q["totalCost"]), Decimal::from_str("0.372418").ok());
+            assert_eq!(q["pricedRequests"], 2);
+            assert_eq!(q["unpricedRequests"], 2);
+        }
+        Ok(())
+    }
+
     #[test]
     fn quotes_platform_rates_groups_and_long_context_without_usd_relabelling() {
         let mut book = book();
@@ -554,7 +624,7 @@ mod tests {
             let conn = lock_conn!(db.conn);
             for (id, app, input, semantics) in [("a", "codex", 225330, 1), ("b", "claude", 1074, 2)]
             {
-                conn.execute("INSERT INTO proxy_request_logs (request_id,provider_id,app_type,model,input_tokens,output_tokens,cache_read_tokens,input_token_semantics,total_cost_usd,latency_ms,status_code,created_at) VALUES (?1,'same-provider',?2,'gpt-6-astra',?3,94,224256,?4,'999',1,200,?5)",rusqlite::params![id,app,input,semantics,at])?;
+                conn.execute("INSERT INTO proxy_request_logs (request_id,provider_id,app_type,model,input_tokens,output_tokens,cache_read_tokens,input_token_semantics,total_cost_usd,latency_ms,status_code,created_at,request_group) VALUES (?1,'same-provider',?2,'gpt-6-astra',?3,94,224256,?4,'999',1,200,?5,'OpenAI · 优质')",rusqlite::params![id,app,input,semantics,at])?;
             }
         }
         let raw = db.get_usage_summary(Some(at), Some(at + 1), None, None, None)?;

@@ -61,30 +61,32 @@ export function PlatformPricingPanel({
     <div className="space-y-3 rounded-lg border bg-card/40 p-4">
       <div className="flex flex-wrap items-center gap-3">
         <strong className="text-sm">{t("usage.platformPricing.title")}</strong>
-        <select
-          aria-label={t("usage.platformPricing.group")}
-          className="max-w-72 rounded-md border bg-background p-1.5 text-sm"
-          value={data?.selectedGroup ?? ""}
-          disabled={!data || group.isPending}
-          onChange={(event) =>
-            group.mutate(event.target.value || null, {
-              onError: (e) => toast.error(String(e)),
-            })
-          }
-        >
-          <option value="">{t("usage.platformPricing.autoGroup")}</option>
-          {data?.selectedGroup && !(data.selectedGroup in data.groups) && (
-            <option value={data.selectedGroup}>
-              {data.selectedGroup} (
-              {t("usage.platformPricing.groupUnavailable")})
-            </option>
-          )}
-          {Object.entries(data?.groups ?? {}).map(([name, ratio]) => (
-            <option key={name} value={name}>
-              {name} · ×{ratio}
-            </option>
-          ))}
-        </select>
+        {catalog && (
+          <select
+            aria-label={t("usage.platformPricing.group")}
+            className="max-w-72 rounded-md border bg-background p-1.5 text-sm"
+            value={data?.selectedGroup ?? ""}
+            disabled={!data || group.isPending}
+            onChange={(event) =>
+              group.mutate(event.target.value || null, {
+                onError: (e) => toast.error(String(e)),
+              })
+            }
+          >
+            <option value="">{t("usage.platformPricing.autoGroup")}</option>
+            {data?.selectedGroup && !(data.selectedGroup in data.groups) && (
+              <option value={data.selectedGroup}>
+                {data.selectedGroup} (
+                {t("usage.platformPricing.groupUnavailable")})
+              </option>
+            )}
+            {Object.entries(data?.groups ?? {}).map(([name, ratio]) => (
+              <option key={name} value={name}>
+                {name} · ×{ratio}
+              </option>
+            ))}
+          </select>
+        )}
         <Button
           size="sm"
           variant="outline"
@@ -110,7 +112,11 @@ export function PlatformPricingPanel({
         )}
       </div>
       <p className="text-xs text-muted-foreground">
-        {t("usage.platformPricing.help")}
+        {t(
+          catalog
+            ? "usage.platformPricing.catalogHelp"
+            : "usage.platformPricing.help",
+        )}
       </p>
       {(error || data?.stale || data?.syncError) && (
         <p role="status" className="text-xs text-amber-600">
