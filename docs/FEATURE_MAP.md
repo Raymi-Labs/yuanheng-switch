@@ -127,3 +127,7 @@ Claude diagnostic persistence uses a bounded background writer, not disk I/O on 
 ## 工具栏与主内容空间（2026-10-15）
 
 [App](../src/App.tsx) 移除“当前状态”按钮、窄窗口抽屉及宽窗口右侧常驻面板，主内容区统一填满侧栏之外的宽度。余额、当前工具、用量和连接状态仍使用原有页面及共享 API；不新增迁移或改变账户数据。工具栏依次为快捷操作、公告铃铛、语言、主题、设置；铃铛、语言、主题和设置共用 outline/icon 圆角方形按钮，铃铛保留未读红点；[LanguageSwitcher](../src/components/desktop/LanguageSwitcher.tsx) 保留文/A 翻译图标，使用与主题、设置相同的圆角方形按钮，复用五语言菜单、保存及失败回退。范围与验收见[状态面板精简笔记](../.agents/notes/implemented/simplification/2026-10-15-remove-context-panel.md)。
+
+## 设置页标签布局（2026-10-17）
+
+[SettingsPage](../src/components/settings/SettingsPage.tsx) 的六列标签按内容区宽度均分，局部覆盖共用 TabsTrigger 的 120px 最小宽度，避免窄窗口下相邻选中态与悬停态重叠。长标签可换行，六个按钮等高；复用既有 Radix 选择、焦点与键盘导航，不改变其他页面的标签样式或设置保存逻辑。

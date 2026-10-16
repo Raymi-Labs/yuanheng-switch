@@ -237,19 +237,43 @@ export function SettingsPage({
           onValueChange={setActiveTab}
           className="flex min-h-0 flex-1 flex-col"
         >
-          <TabsList className="mb-4 grid w-full shrink-0 grid-cols-6 rounded-lg glass">
-            <TabsTrigger value="general">
+          <TabsList className="mb-4 grid w-full shrink-0 grid-cols-6 items-stretch rounded-lg glass">
+            <TabsTrigger
+              value="general"
+              className="min-w-0 whitespace-normal px-2"
+            >
               {t("settings.tabGeneral")}
             </TabsTrigger>
-            <TabsTrigger value="proxy">{t("settings.tabProxy")}</TabsTrigger>
-            <TabsTrigger value="auth">
+            <TabsTrigger
+              value="proxy"
+              className="min-w-0 whitespace-normal px-2"
+            >
+              {t("settings.tabProxy")}
+            </TabsTrigger>
+            <TabsTrigger
+              value="auth"
+              className="min-w-0 whitespace-normal px-2"
+            >
               {t("settings.tabAuth", { defaultValue: "认证" })}
             </TabsTrigger>
-            <TabsTrigger value="advanced">
+            <TabsTrigger
+              value="advanced"
+              className="min-w-0 whitespace-normal px-2"
+            >
               {t("settings.tabAdvanced")}
             </TabsTrigger>
-            <TabsTrigger value="usage">{t("usage.title")}</TabsTrigger>
-            <TabsTrigger value="about">{t("common.about")}</TabsTrigger>
+            <TabsTrigger
+              value="usage"
+              className="min-w-0 whitespace-normal px-2"
+            >
+              {t("usage.title")}
+            </TabsTrigger>
+            <TabsTrigger
+              value="about"
+              className="min-w-0 whitespace-normal px-2"
+            >
+              {t("common.about")}
+            </TabsTrigger>
           </TabsList>
 
           <div className="flex min-h-0 flex-1 flex-col pb-6">
