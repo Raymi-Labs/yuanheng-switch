@@ -16,6 +16,7 @@ import {
   type AnnouncementRequest,
 } from "@/lib/announcementCenter";
 import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
@@ -396,12 +397,14 @@ export function PlatformAnnouncementCenter() {
   );
   const hasUnread = unread.updates || unread.platform;
   return (
-    <button
+    <Button
       type="button"
+      variant="outline"
+      size="icon"
       aria-label={dt(hasUnread ? "公告中心，有未读公告" : "公告中心")}
       title={dt("公告中心")}
       aria-haspopup="dialog"
-      className="relative inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      className="relative shrink-0"
       onClick={() =>
         openAnnouncementCenter(
           unread.updates ? "updates" : unread.platform ? "platform" : "updates",
@@ -416,7 +419,7 @@ export function PlatformAnnouncementCenter() {
           className="absolute right-1 top-1 h-2 w-2 rounded-full bg-red-500 ring-2 ring-background"
         />
       )}
-    </button>
+    </Button>
   );
 }
 

@@ -956,7 +956,7 @@ describe("App integration with MSW", { timeout: 15_000 }, () => {
     renderApp(App);
 
     const groupPicker = await screen.findByLabelText("Codex 当前工具令牌分组");
-    const reasoningPicker = screen.getByLabelText("Codex 推理等级");
+    const reasoningPicker = await screen.findByLabelText("Codex 推理等级");
 
     fireEvent.click(groupPicker);
     const callsBeforeFavorite = getConfiguredToolGroupCalls().length;

@@ -2,9 +2,9 @@
   "schemaVersion": 1,
   "releases": [
     {
-      "version": "0.1.87",
-      "publishedAt": "2026-10-16T17:22:48Z",
-      "content": "【元衡客户端更新公告｜v0.1.87】\n\n• 移除工作台重复的“账号用量”卡片，余额和充值继续使用左下角账号入口。\n• “当前工具”卡片扩展到工作台内容区全宽，下方依次展示今日统计和智能体检，减少页面空白。\n\n提供 Windows x64、Apple 芯片 Mac 和 Intel Mac 安装包；macOS 继续使用 Apple Developer ID 签名和 Apple 公证。"
+      "version": "0.1.88",
+      "publishedAt": "2026-10-16T18:25:28Z",
+      "content": "【元衡客户端更新公告｜v0.1.88】\n\n• 移除工作台重复的“账号用量”卡片，余额和充值继续使用左下角账号入口。\n• “当前工具”卡片扩展到工作台内容区全宽，下方依次展示今日统计和智能体检，减少页面空白。\n• 公告铃铛增加圆角方框，尺寸、边框与语言、主题、设置按钮一致，保留未读红点。\n\n提供 Windows x64、Apple 芯片 Mac 和 Intel Mac 安装包；macOS 继续使用 Apple Developer ID 签名和 Apple 公证。"
     },
     {
       "version": "0.1.86",
