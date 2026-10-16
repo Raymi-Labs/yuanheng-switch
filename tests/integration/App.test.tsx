@@ -597,7 +597,7 @@ describe("App integration with MSW", { timeout: 15_000 }, () => {
       }),
     ).toBeInTheDocument();
     expect(
-      await screen.findByRole("heading", { name: "按需检查账号与工具凭据" }),
+      await screen.findByRole("heading", { name: "连接与配置检查" }),
     ).toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: "工具管理" }),

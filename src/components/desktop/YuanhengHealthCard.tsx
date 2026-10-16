@@ -44,6 +44,13 @@ interface YuanhengHealthCardProps {
 }
 
 const STATUS_META = {
+  idle: {
+    title: "连接与配置检查",
+    description: "工具无法连接或报错时，检查登录状态、访问凭据和本地路由。",
+    icon: Stethoscope,
+    tone: "text-muted-foreground",
+    background: "bg-muted",
+  },
   ok: {
     title: "检查通过",
     description: "配置检查已通过，实际调用以请求记录为准。",
@@ -85,7 +92,8 @@ export function YuanhengHealthCard({
     setPreviewOpen(false);
   }, [connection?.userId, connection?.lastSyncedAt]);
   const report = diagnostics.data;
-  const meta = STATUS_META[report?.status ?? "warning"];
+  const meta =
+    STATUS_META[report?.status ?? (diagnostics.isError ? "warning" : "idle")];
   const StatusIcon = meta.icon;
   const actions = new Set(
     report?.checks.map((check) => check.action).filter(Boolean) ?? [],
@@ -231,28 +239,23 @@ export function YuanhengHealthCard({
     }
   };
 
-  if (diagnostics.isLoading && !report) {
-    return (
-      <section className="flex min-h-36 items-center justify-center rounded-2xl border bg-card">
-        <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-      </section>
-    );
-  }
-
-  const primaryLabel = !report
-    ? dt("重新检查")
-    : !connection?.connected || actions.has("login")
-      ? dt("前往登录")
-      : actions.has("configure_tools") && !actions.has("repair_credentials")
-        ? dt("配置工具")
-        : report?.status === "ok" ||
-            (!actions.has("repair_tools") && !actions.has("repair_credentials"))
-          ? dt("重新检查")
-          : dt("一键修复");
+  const primaryLabel = diagnostics.isFetching
+    ? dt("检查中…")
+    : !report
+      ? dt(diagnostics.isError ? "重新检查" : "开始检查")
+      : !connection?.connected || actions.has("login")
+        ? dt("前往登录")
+        : actions.has("configure_tools") && !actions.has("repair_credentials")
+          ? dt("配置工具")
+          : report?.status === "ok" ||
+              (!actions.has("repair_tools") &&
+                !actions.has("repair_credentials"))
+            ? dt("重新检查")
+            : dt("一键修复");
 
   return (
     <section className="overflow-hidden rounded-2xl border bg-card shadow-sm">
-      <div className={cn("flex items-start gap-3 p-5", compact && "p-4")}>
+      <div className={cn("flex items-center gap-3 p-5", compact && "p-4")}>
         <span
           className={cn(
             "flex h-10 w-10 shrink-0 items-center justify-center rounded-xl",
@@ -271,52 +274,53 @@ export function YuanhengHealthCard({
               ? dt(meta.title)
               : diagnostics.isError
                 ? dt("暂时无法检查")
-                : dt("按需检查账号与工具凭据")}
+                : dt(STATUS_META.idle.title)}
           </h2>
           <p className="mt-1 text-[11px] leading-5 text-muted-foreground">
             {report?.checks.find((item) => item.status !== "ok")?.message
               ? dt(report.checks.find((item) => item.status !== "ok")!.message)
               : !report
-                ? dt("网络体检按需执行，不影响工作台加载。")
+                ? dt(STATUS_META.idle.description)
                 : dt(meta.description)}
           </p>
         </div>
-      </div>
-
-      <div className="flex items-center gap-2 border-t bg-muted/20 px-4 py-3">
-        <Button
-          size="sm"
-          onClick={() => void handlePrimaryAction()}
-          disabled={repair.isPending || diagnostics.isFetching}
-        >
-          {repair.isPending || diagnostics.isFetching ? (
-            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-          ) : report?.status === "ok" ? (
-            <RefreshCw className="h-3.5 w-3.5" />
-          ) : !connection?.connected || actions.has("login") ? (
-            <Cloud className="h-3.5 w-3.5" />
-          ) : (
-            <Wrench className="h-3.5 w-3.5" />
-          )}
-          {primaryLabel}
-        </Button>
-        {report && (
+        <div className="ml-auto flex shrink-0 flex-col items-end gap-1 sm:flex-row sm:items-center sm:gap-2">
           <Button
-            variant="ghost"
             size="sm"
-            className="ml-auto"
-            onClick={() => setExpanded((value) => !value)}
+            onClick={() => void handlePrimaryAction()}
+            disabled={repair.isPending || diagnostics.isFetching}
           >
-            <Stethoscope className="h-3.5 w-3.5" />
-            {dt("检查详情")}
-            <ChevronDown
-              className={cn(
-                "h-3.5 w-3.5 transition-transform",
-                expanded && "rotate-180",
-              )}
-            />
+            {repair.isPending || diagnostics.isFetching ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : !report ? (
+              <Stethoscope className="h-3.5 w-3.5" />
+            ) : report.status === "ok" ? (
+              <RefreshCw className="h-3.5 w-3.5" />
+            ) : !connection?.connected || actions.has("login") ? (
+              <Cloud className="h-3.5 w-3.5" />
+            ) : (
+              <Wrench className="h-3.5 w-3.5" />
+            )}
+            {primaryLabel}
           </Button>
-        )}
+          {report && (
+            <Button
+              variant="ghost"
+              size="sm"
+              aria-expanded={expanded}
+              onClick={() => setExpanded((value) => !value)}
+            >
+              <Stethoscope className="h-3.5 w-3.5" />
+              {dt("检查详情")}
+              <ChevronDown
+                className={cn(
+                  "h-3.5 w-3.5 transition-transform",
+                  expanded && "rotate-180",
+                )}
+              />
+            </Button>
+          )}
+        </div>
       </div>
 
       {expanded && report && (

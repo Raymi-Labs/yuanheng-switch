@@ -152,9 +152,11 @@ export const DESKTOP_EN: Record<string, string> = {
   "暂时无法同步，正在显示本地保存的最近两次更新。":
     "Unable to sync right now. Showing the last two locally saved updates.",
   配置待验证: "Configuration awaiting verification",
-  按需检查账号与工具凭据: "Check account and tool credentials on demand",
-  "网络体检按需执行，不影响工作台加载。":
-    "Network checks run on demand without delaying the workspace.",
+  连接与配置检查: "Connection and configuration check",
+  "工具无法连接或报错时，检查登录状态、访问凭据和本地路由。":
+    "If a tool cannot connect or reports errors, check sign-in, credentials, and local routing.",
+  开始检查: "Start Check",
+  "检查中…": "Checking…",
   "将重新生成当前设备凭据并更新工具配置；旧令牌会保留，避免中断其他工具，是否继续？":
     "Regenerate this device's credentials and update tool configurations? Old tokens will be retained to avoid interrupting other tools.",
   等待请求记录: "Waiting for a request record",
