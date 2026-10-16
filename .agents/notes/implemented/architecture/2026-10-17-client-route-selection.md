@@ -59,6 +59,8 @@ Core停止或旧版不支持时显示明确状态且禁用模式编辑；保存�
 - 前端146文件931项通过；本地 Node25 需 `NODE_OPTIONS=--no-experimental-webstorage` 避免原生localStorage影响既有测试替身。新增卡片测试覆盖保存失败保留偏好、固定模式重新检测、取消操作ID和Core停止/恢复。
 - 类型检查、Rust格式/Clippy、renderer与Core构建以及笔记检查作为本轮发布门禁。
 - 真实App壳在本地隔离IPC模拟数据下验收正常/固定/检测/取消/保存失败、首次未测/过期/全失败/Core停止、工作台异常跳转和键盘单选；浅色/暗色、900px/1440px及五语言无卡片溢出，刷新可恢复。模拟数据不代表线上网络测量。
+- 使用临时配置目录运行本轮已构建的 Core，通过本机系统代理访问线上两入口：启动自动检测正常、手动短流两路均成功、固定 CF 偏好在进程重启后保留。一轮曾出现 CF 冷连接超时，Core 保留正常跳板；后续一轮两路均为3/3成功且短流正常。测试未改动用户配置、未调用模型；结果只代表当时网络。
+- [v0.1.92](https://github.com/nanashiwang/yuanheng-switch/releases/tag/v0.1.92) 对应 `694680e5`；同提交的 [CI](https://github.com/nanashiwang/yuanheng-switch/actions/runs/38974360477) 与 [发布工作流](https://github.com/nanashiwang/yuanheng-switch/actions/runs/38974418694) 全部成功。macOS 双架构签名/公证和 Windows 构建完成；GitHub 9个附件、源站8个版本附件、R2的5个二进制分段下载与文件大小均核验，自动更新清单6个平台别名/签名/中文说明一致。2026-10-17 07:10（UTC+8）线上更新版本确认为0.1.92。
 
 ## Consequences
 
