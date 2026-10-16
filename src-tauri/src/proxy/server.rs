@@ -330,6 +330,19 @@ impl ProxyServer {
             .route("/health", get(handlers::health_check))
             .route("/status", get(handlers::get_status))
             .route("/__yuanheng/core/info", get(handlers::get_core_info))
+            .route("/__yuanheng/core/routes", get(handlers::get_core_routes))
+            .route(
+                "/__yuanheng/core/routes/policy",
+                post(handlers::set_core_route_policy),
+            )
+            .route(
+                "/__yuanheng/core/routes/probe",
+                post(handlers::probe_core_routes),
+            )
+            .route(
+                "/__yuanheng/core/routes/cancel",
+                post(handlers::cancel_core_route_probe),
+            )
             .route("/__yuanheng/core/reload", post(handlers::reload_core))
             .route("/__yuanheng/core/shutdown", post(handlers::shutdown_core))
             .route(

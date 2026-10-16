@@ -18,6 +18,7 @@ import { GlobalProxySettings } from "@/components/settings/GlobalProxySettings";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { ToggleRow } from "@/components/ui/toggle-row";
 import { useProxyStatus } from "@/hooks/useProxyStatus";
+import { RouteSelectionCard } from "@/components/settings/RouteSelectionCard";
 import type { SettingsFormState } from "@/hooks/useSettings";
 
 interface ProxyTabContentProps {
@@ -89,6 +90,7 @@ export function ProxyTabContent({
       transition={{ duration: 0.3 }}
       className="space-y-4"
     >
+      <RouteSelectionCard />
       <Accordion type="multiple" defaultValue={[]} className="w-full space-y-4">
         {/* Local Proxy */}
         <AccordionItem

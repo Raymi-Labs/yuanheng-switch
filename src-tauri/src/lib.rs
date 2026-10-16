@@ -43,6 +43,7 @@ mod session_manager;
 mod settings;
 mod store;
 
+mod route_selection;
 mod tray;
 mod usage_events;
 mod usage_script;
@@ -1461,6 +1462,10 @@ pub fn run() {
             commands::fetch_models_for_config,
             // ours: endpoint speed test + custom endpoint management
             commands::test_api_endpoints,
+            commands::get_yuanheng_route_status,
+            commands::set_yuanheng_route_policy,
+            commands::probe_yuanheng_routes,
+            commands::cancel_yuanheng_route_probe,
             commands::get_custom_endpoints,
             commands::add_custom_endpoint,
             commands::remove_custom_endpoint,

@@ -154,6 +154,76 @@ pub async fn reset_core_circuit_breaker(
     Ok(Json(json!({ "ok": true })))
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RoutePolicyRequest {
+    policy: crate::route_selection::Policy,
+    revision: u64,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RouteProbeRequest {
+    #[serde(default)]
+    stream: bool,
+}
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RouteCancelRequest {
+    operation_id: String,
+}
+type RouteResult = Result<Json<crate::route_selection::Status>, (StatusCode, Json<Value>)>;
+fn route_error(error: &'static str) -> (StatusCode, Json<Value>) {
+    let status = match error {
+        "stale_revision" | "stale_operation" => StatusCode::CONFLICT,
+        "probe_too_frequent" => StatusCode::TOO_MANY_REQUESTS,
+        _ => StatusCode::INTERNAL_SERVER_ERROR,
+    };
+    (status, Json(json!({"error":error})))
+}
+fn route_control<'a>(
+    state: &'a ProxyState,
+    headers: &HeaderMap,
+) -> Result<&'a crate::core_daemon::CoreControl, (StatusCode, Json<Value>)> {
+    authorize_core_request(state, headers)
+        .map_err(|code| (code, Json(json!({"error":"core_unavailable"}))))
+}
+pub async fn get_core_routes(State(state): State<ProxyState>, headers: HeaderMap) -> RouteResult {
+    Ok(Json(route_control(&state, &headers)?.routes.status()))
+}
+pub async fn set_core_route_policy(
+    State(state): State<ProxyState>,
+    headers: HeaderMap,
+    Json(request): Json<RoutePolicyRequest>,
+) -> RouteResult {
+    route_control(&state, &headers)?
+        .routes
+        .set_policy(request.policy, request.revision)
+        .map(Json)
+        .map_err(route_error)
+}
+pub async fn probe_core_routes(
+    State(state): State<ProxyState>,
+    headers: HeaderMap,
+    Json(request): Json<RouteProbeRequest>,
+) -> RouteResult {
+    route_control(&state, &headers)?
+        .routes
+        .probe(request.stream, true)
+        .map(Json)
+        .map_err(route_error)
+}
+pub async fn cancel_core_route_probe(
+    State(state): State<ProxyState>,
+    headers: HeaderMap,
+    Json(request): Json<RouteCancelRequest>,
+) -> RouteResult {
+    route_control(&state, &headers)?
+        .routes
+        .cancel(&request.operation_id)
+        .map(Json)
+        .map_err(route_error)
+}
+
 fn authorize_core_request<'a>(
     state: &'a ProxyState,
     headers: &HeaderMap,

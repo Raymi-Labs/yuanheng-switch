@@ -51,6 +51,7 @@ pub(crate) struct CoreControl {
     pub command_tx: mpsc::UnboundedSender<CoreCommand>,
     pub binary_id: Arc<str>,
     pub config_dir: Arc<PathBuf>,
+    pub routes: Arc<crate::route_selection::Selector>,
 }
 
 #[derive(Clone)]
@@ -306,6 +307,53 @@ impl CoreSupervisor {
             }),
         )
         .await
+    }
+
+    pub(crate) async fn route_request(
+        &self,
+        db: &Database,
+        action: &str,
+        body: Option<serde_json::Value>,
+    ) -> Result<crate::route_selection::Status, String> {
+        let token =
+            read_admin_token(&self.config_dir).map_err(|_| "core_unavailable".to_string())?;
+        let config = db
+            .get_proxy_config()
+            .await
+            .map_err(|_| "core_unavailable".to_string())?;
+        let client = admin_client()?;
+        for (address, port) in candidate_ports(&self.config_dir, &config) {
+            let url = format!(
+                "{}{CORE_ADMIN_PREFIX}/routes{action}",
+                proxy_origin(&address, port)
+            );
+            let request = match &body {
+                Some(value) => client.post(url).json(value),
+                None => client.get(url),
+            };
+            // Mutations are not retried after any response: an acknowledgement may be lost.
+            match request.bearer_auth(&token).send().await {
+                Ok(response) if response.status().is_success() => {
+                    return response
+                        .json()
+                        .await
+                        .map_err(|_| "invalid_core_response".into())
+                }
+                Ok(response) => {
+                    if response.status() == reqwest::StatusCode::NOT_FOUND {
+                        return Err("core_update_required".into());
+                    }
+                    let value: serde_json::Value = response.json().await.unwrap_or_default();
+                    return Err(value["error"]
+                        .as_str()
+                        .unwrap_or("route_request_failed")
+                        .to_string());
+                }
+                Err(_) if body.is_some() => return Err("core_unavailable".into()),
+                Err(_) => continue,
+            }
+        }
+        Err("core_unavailable".into())
     }
 
     pub async fn restart(&self, db: &Database) -> Result<CoreInfo, String> {
@@ -569,8 +617,10 @@ async fn run_core(config_dir: PathBuf) -> Result<(), String> {
         command_tx,
         binary_id: Arc::from(binary_id.clone()),
         config_dir: Arc::new(config_dir.clone()),
+        routes: crate::route_selection::Selector::new(db.clone()),
     };
 
+    let routes = control.routes.clone();
     let server =
         ProxyServer::new_headless(config.clone(), db.clone(), control, auth_managers.clone());
     let info = server
@@ -595,6 +645,7 @@ async fn run_core(config_dir: PathBuf) -> Result<(), String> {
     loop {
         tokio::select! {
             _ = reload_interval.tick() => {
+                routes.tick();
                 if let Err(error) = reload_core_state(&server, &db, &auth_managers).await {
                     log::warn!("[Core] 周期热加载失败: {error}");
                 }

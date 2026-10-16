@@ -457,6 +457,10 @@ function App() {
               (app) => !isCoreApp(app) || visibleApps[app] !== false,
             )}
             onNavigate={navigate}
+            onOpenRoutes={() => {
+              setSettingsDefaultTab("proxy");
+              navigate("settings");
+            }}
           />
         );
       case "tools":

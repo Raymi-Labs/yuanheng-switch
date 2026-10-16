@@ -117,6 +117,7 @@ impl Drop for ActiveConnectionGuard {
 }
 
 pub struct RequestForwarder {
+    route: Option<crate::route_selection::RequestRoute>,
     /// 共享的 ProviderRouter（持有熔断器状态）
     router: Arc<ProviderRouter>,
     status: Arc<RwLock<ProxyStatus>>,
@@ -320,6 +321,7 @@ impl RequestForwarder {
         // saturating_add 防止 u32::MAX + 1 溢出。
         let max_attempts = (max_retries as usize).saturating_add(1);
         Self {
+            route: None,
             router,
             status,
             current_providers,
@@ -340,6 +342,14 @@ impl RequestForwarder {
             ),
             max_attempts,
         }
+    }
+
+    pub(crate) fn with_route(
+        mut self,
+        route: Option<crate::route_selection::RequestRoute>,
+    ) -> Self {
+        self.route = route;
+        self
     }
 
     async fn record_success_result(
@@ -468,6 +478,28 @@ impl RequestForwarder {
                 app_type, method, endpoint, body, headers, extensions, providers,
             )
             .await;
+        if let Some(route) = &self.route {
+            match &result {
+                Ok(result)
+                    if result.provider.id == crate::commands::MANAGED_PROVIDER_ID
+                        && result.provider.category.as_deref() == Some("managed") =>
+                {
+                    route.observe(true)
+                }
+                Err(result)
+                    if result.provider.as_ref().is_some_and(|p| {
+                        p.id == crate::commands::MANAGED_PROVIDER_ID
+                            && p.category.as_deref() == Some("managed")
+                    }) && matches!(
+                        result.error,
+                        ProxyError::ForwardFailed(_) | ProxyError::Timeout(_)
+                    ) =>
+                {
+                    route.observe(false)
+                }
+                _ => {}
+            }
+        }
         // 把 guard 注入到 Ok 结果，让它随响应一起流转到 response_processor，
         // 在流式 body 的 future 内才真正 drop。
         // Err 路径：guard 在函数 scope 内随返回值落地时自动 drop。
@@ -2283,6 +2315,16 @@ impl RequestForwarder {
         );
 
         reject_proxy_placeholder_for_managed_account_upstream(&url, &ordered_headers)?;
+        let routed_url = self
+            .route
+            .as_ref()
+            .and_then(|route| route.rewrite(provider, &url));
+        let is_first_party_route = routed_url.is_some();
+        let url = routed_url.unwrap_or(url);
+        if is_first_party_route {
+            ordered_headers.remove(http::header::COOKIE);
+            ordered_headers.remove(http::header::HOST);
+        }
 
         // 日志目标 URL 的脱敏分两种情形：
         // - 有已知密钥(log_secrets 非空)：记录脱敏后的完整 URL，剥 userinfo/query
@@ -2339,7 +2381,12 @@ impl RequestForwarder {
             log::debug!(
                 "[Forwarder] Using pooled reqwest client (preserve_exact_header_case={preserve_exact_header_case}, socks_proxy={is_socks_proxy})"
             );
-            let client = super::http_client::get();
+            let client = if is_first_party_route {
+                super::http_client::route_client()
+                    .map_err(|_| ProxyError::ForwardFailed("线路客户端初始化失败".into()))?
+            } else {
+                super::http_client::get()
+            };
             let mut request = client.request(method.clone(), &url);
             if request_is_streaming {
                 // reqwest 的 timeout 是整请求超时；流式请求交给 response_processor
@@ -3762,6 +3809,7 @@ mod tests {
         let db = Arc::new(Database::memory().expect("memory db"));
 
         RequestForwarder {
+            route: None,
             router: Arc::new(ProviderRouter::new(db.clone())),
             status: Arc::new(RwLock::new(ProxyStatus::default())),
             current_providers: Arc::new(RwLock::new(HashMap::new())),

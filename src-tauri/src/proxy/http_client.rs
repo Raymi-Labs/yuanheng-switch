@@ -7,7 +7,12 @@ use once_cell::sync::{Lazy, OnceCell};
 use reqwest::Client;
 use std::env;
 use std::net::IpAddr;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::RwLock;
+static GENERATION: AtomicU64 = AtomicU64::new(0);
+pub(crate) fn generation() -> u64 {
+    GENERATION.load(Ordering::Relaxed)
+}
 use std::time::Duration;
 
 /// 全局 HTTP 客户端实例
@@ -58,6 +63,7 @@ impl ClientConfig {
 #[derive(Default)]
 struct ClientState {
     configured: Option<(ClientConfig, Client)>,
+    route: Option<Client>,
 }
 
 impl ClientState {
@@ -71,7 +77,10 @@ impl ClientState {
         }
         // Build before replacing either field; failure leaves the working client intact.
         let client = build_client(config.proxy_url.as_deref())?;
+        let route = build_client_with_image_policy(config.proxy_url.as_deref(), true)?;
         self.configured = Some((config, client));
+        self.route = Some(route);
+        GENERATION.fetch_add(1, Ordering::Relaxed);
         Ok(true)
     }
 }
@@ -180,6 +189,19 @@ pub fn get() -> Client {
             log::warn!("[GlobalProxy] [GP-004] Client not initialized, using fallback");
             build_client(None).unwrap_or_default()
         })
+}
+
+/// Pooled first-party transport: no redirects and no implicit POST replay.
+pub(crate) fn route_client() -> Result<Client, String> {
+    if let Some(client) = GLOBAL_CLIENT.read().ok().and_then(|s| s.route.clone()) {
+        return Ok(client);
+    }
+    build_client_with_image_policy(get_current_proxy_url().as_deref(), true)
+}
+
+/// Separate per-round pool makes the first probe include connection setup.
+pub(crate) fn route_probe_client() -> Result<Client, String> {
+    build_client_with_image_policy(get_current_proxy_url().as_deref(), true)
 }
 
 /// 获取当前代理 URL

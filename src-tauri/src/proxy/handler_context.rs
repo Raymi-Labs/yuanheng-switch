@@ -259,6 +259,7 @@ impl RequestContext {
             self.copilot_optimizer_config.clone(),
             max_retries,
         )
+        .with_route(state.core_control.as_ref().map(|c| c.routes.snapshot()))
     }
 
     /// 获取 Provider 列表（用于故障转移）
