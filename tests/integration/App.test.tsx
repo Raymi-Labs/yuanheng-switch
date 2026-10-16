@@ -875,7 +875,7 @@ describe("App integration with MSW", { timeout: 15_000 }, () => {
     expect(screen.getAllByRole("button", { name: "启动 Codex" })).toHaveLength(
       1,
     );
-    // 首页新模块：焦点工具卡、今日速览统计带、账号用量
+    // 首页模块：当前工具卡、今日统计带
     expect(screen.getByText("当前工具")).toBeInTheDocument();
     expect(screen.queryByText("快捷切换")).not.toBeInTheDocument();
     expect(
@@ -885,7 +885,6 @@ describe("App integration with MSW", { timeout: 15_000 }, () => {
     expect(screen.getByLabelText(/当前工具令牌分组$/)).toBeInTheDocument();
     expect(screen.getByText("今日请求")).toBeInTheDocument();
     expect(screen.getByText("缓存命中率")).toBeInTheDocument();
-    expect(screen.getByText("账号用量")).toBeInTheDocument();
     expect(screen.getByText("128")).toBeInTheDocument();
     expect(screen.getByText("12.5 万")).toBeInTheDocument();
     expect(screen.getByText("≈ ⚡️3.45")).toBeInTheDocument();

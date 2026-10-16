@@ -230,7 +230,6 @@ export const DESKTOP_EN: Record<string, string> = {
   本地路由运行中: "Local routing is running",
   本地路由未启动: "Local routing is stopped",
   打开中: "Opening...",
-  账号用量: "Account Usage",
   余额与消费记录由元衡平台统一管理:
     "Balance and billing records are managed by YuanHeng.",
   查看详情: "View Details",
@@ -597,9 +596,6 @@ export const DESKTOP_EN: Record<string, string> = {
   检查客户端更新: "Check for App Updates",
   "↑↓ 选择 · Enter 执行 · Esc 关闭": "↑↓ Select · Enter Run · Esc Close",
 
-  "剩余额度 · 已用 {{amount}}": "Remaining · Used {{amount}}",
-  "已用 {{percent}}%": "{{percent}}% used",
-  "{{amount}} 总额": "{{amount}} total",
   "统一管理 {{v0}} 的 Skills、MCP、提示词与 Agent 能力。":
     "Manage Skills, MCP, prompts, and agent capabilities for {{v0}}.",
   发现能力: "Discover Capabilities",

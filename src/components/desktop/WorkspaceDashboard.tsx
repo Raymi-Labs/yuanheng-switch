@@ -2,7 +2,6 @@ import type { YuanhengToolId } from "@/lib/api";
 import type { DesktopView } from "./types";
 import { useModelSwitchCenter } from "./useModelSwitchCenter";
 import { FocusToolCard } from "./FocusToolCard";
-import { AccountUsageCard } from "./AccountUsageCard";
 import { TodayStatsBand } from "./TodayStatsBand";
 import { YuanhengHealthCard } from "./YuanhengHealthCard";
 import { dt } from "./desktopI18n";
@@ -26,7 +25,7 @@ export function WorkspaceDashboard({
     <div className="mx-auto flex h-full w-full max-w-[1120px] flex-col gap-3.5 overflow-y-auto px-7 pb-8 pt-4">
       <h1 className="sr-only">{dt("工作台")}</h1>
 
-      <div className="grid animate-rise-in items-start gap-4 lg:grid-cols-[1.58fr_1fr]">
+      <div className="animate-rise-in">
         <FocusToolCard
           switcher={switcher}
           focusApp={focusApp}
@@ -34,7 +33,6 @@ export function WorkspaceDashboard({
           onToolChange={onToolChange}
           onOpenTools={() => onNavigate("tools")}
         />
-        <AccountUsageCard onOpenUsage={() => onNavigate("usage")} />
       </div>
 
       <div className="animate-rise-in stagger-1">
