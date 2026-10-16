@@ -117,6 +117,12 @@ Claude diagnostic persistence uses a bounded background writer, not disk I/O on 
 
 恢复保留独立模型、分组、凭据和官方 auth.json；未知标记、非元衡拥有的错标记录、缺少凭据或外部端点继续拒绝。已应用状态仍检查真实文件，检测本身不迁移；官方模式继续要求官方登录，提示明确区分中转账号。回归与边界见[配置标记恢复笔记](../.agents/notes/implemented/bug-fix/2026-10-14-codex-surface-mode-repair.md)。
 
+## Codex 配置兼容与模型窗口（2026-10-16，本地）
+
+一键配置、重新配置及元衡模式应用复用 [yuanheng.rs](../src-tauri/src/commands/yuanheng.rs) 的两条独立路由。自有 GPT 目录不再统一写 200k；仅将符合完整旧模板的 200k 迁移到既有 921000 产品默认，非 GPT 未知模型保持 200000，显式模型额度及自定义元数据在刷新/重新配置时保留。逐模型 `context_window` 与 `max_context_window` 一致；旧 GPT 全局默认从实际路由移除，明确的自定义全局值继续生效。有效窗口比例仍由模板决定，默认不代表上游实际容量保证。
+
+所有 Codex 生成模板停止写入 `disable_response_storage`；[codex_config.rs](../src-tauri/src/codex_config.rs) 在目录准备和最终原子写入时清理该顶层键，防止共用片段重新带回，不修改请求 `store` 或登录文件。只读状态可提示旧配置需重新应用，不后台改用户文件。迁移、配置优先级和验收边界见[兼容性笔记](../.agents/notes/implemented/bug-fix/2026-10-16-codex-context-and-obsolete-setting.md)。
+
 ## 工具栏与主内容空间（2026-10-15）
 
 [App](../src/App.tsx) 移除“当前状态”按钮、窄窗口抽屉及宽窗口右侧常驻面板，主内容区统一填满侧栏之外的宽度。余额、当前工具、用量和连接状态仍使用原有页面及共享 API；不新增迁移或改变账户数据。工具栏依次为快捷操作、公告铃铛、语言、主题、设置；[LanguageSwitcher](../src/components/desktop/LanguageSwitcher.tsx) 保留文/A 翻译图标，使用与主题、设置相同的圆角方形按钮，复用五语言菜单、保存及失败回退。范围与验收见[状态面板精简笔记](../.agents/notes/implemented/simplification/2026-10-15-remove-context-panel.md)。

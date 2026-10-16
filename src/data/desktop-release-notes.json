@@ -2,14 +2,14 @@
   "schemaVersion": 1,
   "releases": [
     {
+      "version": "0.1.86",
+      "publishedAt": "2026-10-16T00:00:00Z",
+      "content": "【元衡客户端更新公告｜v0.1.86】\n\n• 修复 Codex 启动时提示旧配置项不识别的问题，重新应用配置后自动清理。\n• 修复部分 GPT 模型上下文窗口显示约 190k 的问题，同步模型目录与窗口设置；保留明确的自定义额度及其他模型配置。\n• 优化重新配置与模型列表刷新，避免已有模型额度被默认值覆盖。\n\n升级后请在元衡中重新应用 Codex 配置，并重新打开 Codex 或新建会话确认生效。窗口显示会扣除预留比例，实际可用长度仍取决于上游模型。\n\n提供 Windows x64、Apple 芯片 Mac 和 Intel Mac 安装包。"
+    },
+    {
       "version": "0.1.85",
       "publishedAt": "2026-10-14T21:53:35Z",
       "content": "【元衡客户端更新公告｜v0.1.85】\n\n• 左侧“日常使用”导航调整为：工作台、声音克隆、会话与用量、工具管理、能力中心，常用入口排列更顺手。\n\n提供 Windows x64、Apple 芯片 Mac 和 Intel Mac 安装包；macOS 继续使用 Apple Developer ID 签名和 Apple 公证。"
-    },
-    {
-      "version": "0.1.84",
-      "publishedAt": "2026-10-14T20:42:40Z",
-      "content": "【元衡客户端更新公告｜v0.1.84】\n\n• 工作台“智能体检”移到今日统计下方，集中展示体检结果，保留检查、修复和详情功能。\n• 移除工作台重复的“能力中心”和“工具管理”快捷卡片，继续通过左侧导航进入，让首页布局更简洁。\n\n提供 Windows x64、Apple 芯片 Mac 和 Intel Mac 安装包；macOS 继续使用 Apple Developer ID 签名和 Apple 公证。"
     }
   ]
 }

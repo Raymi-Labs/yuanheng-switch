@@ -2271,7 +2271,7 @@ fn switch_codex_syncs_shared_keys_from_live_into_common_config() {
     let _home = ensure_test_home();
 
     // A 激活状态下的 live：A 专属路由 + 已共享的 [tui] + 用户刚加的
-    // disable_response_storage + yuanheng-switch 注入产物 + MCP 同步投影
+    // hide_agent_reasoning + 已废弃字段 + yuanheng-switch 注入产物 + MCP 同步投影
     // + 顶层 wire_api（无 model_provider 时的 fallback 写法，属 A 的路由语义）
     // + 历史错误格式 [mcp.servers]（sync_all_enabled 清不掉的孤儿形态）
     let live_config = r#"model = "gpt-5.5"
@@ -2281,6 +2281,7 @@ experimental_bearer_token = "sk-a-live-secret"
 model_catalog_json = "yuanheng-switch-model-catalog.json"
 web_search = "disabled"
 disable_response_storage = true
+hide_agent_reasoning = true
 
 [tui]
 notifications = true
@@ -2354,9 +2355,10 @@ command = "ghost-cmd"
         .expect("read snippet")
         .expect("snippet present");
     assert!(
-        snippet.contains("disable_response_storage = true"),
-        "newly added shared key should be captured, got: {snippet}"
+        !snippet.contains("disable_response_storage"),
+        "obsolete key must not be recaptured from the cleaned live config, got: {snippet}"
     );
+    assert!(snippet.contains("hide_agent_reasoning = true"));
     assert!(
         snippet.contains("notifications = true"),
         "previously shared key should be preserved, got: {snippet}"
@@ -2382,9 +2384,10 @@ command = "ghost-cmd"
     let live_after = std::fs::read_to_string(yuanheng_switch_lib::get_codex_config_path())
         .expect("read config.toml after switch");
     assert!(
-        live_after.contains("disable_response_storage = true"),
-        "shared key should propagate to the next provider's live, got: {live_after}"
+        !live_after.contains("disable_response_storage"),
+        "obsolete shared key must be removed at the final live write, got: {live_after}"
     );
+    assert!(live_after.contains("hide_agent_reasoning = true"));
     assert!(
         live_after.contains("model_provider = \"bprov\""),
         "live should be provider B's own config, got: {live_after}"
@@ -2428,6 +2431,7 @@ command = "ghost-cmd"
     );
     for forbidden in [
         "disable_response_storage",
+        "hide_agent_reasoning",
         "notifications",
         "mcp_servers",
         "experimental_bearer_token",
