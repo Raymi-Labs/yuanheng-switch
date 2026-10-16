@@ -185,11 +185,6 @@ describe("FocusToolCard", () => {
     render(<FocusToolCard switcher={switcher} onOpenTools={vi.fn()} />);
 
     expect(screen.getByText("OpenAI 官方账号")).toBeInTheDocument();
-    expect(
-      screen.getByText(
-        "模型与推理等级由 Codex 官方账号管理；切回元衡后会恢复上次选择。",
-      ),
-    ).toBeInTheDocument();
     expect(screen.queryByText("1 · 模型供应商")).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Codex 推理等级")).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "元衡中转" }));

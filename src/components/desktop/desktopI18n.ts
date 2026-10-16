@@ -331,8 +331,6 @@ export const DESKTOP_EN: Record<string, string> = {
     "Use YuanHeng models, token groups, and local secure routing",
   元衡中转: "YuanHeng Relay",
   "OpenAI 官方": "OpenAI Official",
-  "模型与推理等级由 Codex 官方账号管理；切回元衡后会恢复上次选择。":
-    "Models and reasoning are managed by the official Codex account. Your previous YuanHeng selection will be restored when you switch back.",
   使用元衡模型与令牌分组: "Use YuanHeng models and token groups",
   "当前使用 OpenAI 官方账号，模型由 Codex 管理":
     "The OpenAI official account is active. Codex manages the model.",

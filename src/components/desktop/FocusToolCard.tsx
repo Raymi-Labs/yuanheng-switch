@@ -506,14 +506,8 @@ export function FocusToolCard({
         />
       </div>
 
-      <div className="relative mt-4 rounded-xl border border-white/10 bg-black/10 p-3">
-        {usesOfficialCodexAccount ? (
-          <div className="rounded-lg border border-emerald-300/15 bg-emerald-300/[0.06] px-3 py-2 text-[10px] leading-4 text-emerald-100/80">
-            {dt(
-              "模型与推理等级由 Codex 官方账号管理；切回元衡后会恢复上次选择。",
-            )}
-          </div>
-        ) : (
+      {!usesOfficialCodexAccount && (
+        <div className="relative mt-4 rounded-xl border border-white/10 bg-black/10 p-3">
           <div
             className={`grid gap-2 ${showReasoning ? "sm:grid-cols-2" : "sm:grid-cols-[minmax(116px,.8fr)_minmax(0,1.35fr)_minmax(108px,.8fr)]"}`}
           >
@@ -598,8 +592,8 @@ export function FocusToolCard({
               </label>
             )}
           </div>
-        )}
-      </div>
+        </div>
+      )}
     </section>
   );
 }

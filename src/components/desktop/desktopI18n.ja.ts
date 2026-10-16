@@ -330,8 +330,6 @@ export const DESKTOP_JA: Record<string, string> = {
     "YuanHengのモデル、トークングループ、ローカル安全ルートを使用",
   元衡中转: "YuanHeng中継",
   "OpenAI 官方": "OpenAI公式",
-  "模型与推理等级由 Codex 官方账号管理；切回元衡后会恢复上次选择。":
-    "モデルと推論レベルはCodex公式アカウントが管理します。YuanHengに戻すと以前の選択が復元されます。",
   使用元衡模型与令牌分组: "YuanHengのモデルとトークングループを使用",
   "当前使用 OpenAI 官方账号，模型由 Codex 管理":
     "OpenAI公式アカウントを使用中です。モデルはCodexが管理します。",
