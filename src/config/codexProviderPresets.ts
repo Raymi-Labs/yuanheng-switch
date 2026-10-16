@@ -68,7 +68,6 @@ export function generateThirdPartyConfig(
   return syncCodexGptContextWindow(`model_provider = "custom"
 model = ${tomlString(modelName)}
 model_reasoning_effort = "high"
-disable_response_storage = true
 
 [model_providers.custom]
 name = ${tomlString(providerName)}
@@ -414,7 +413,6 @@ const codexProviderPresetDefinitions: CodexProviderPreset[] = [
     config: `model_provider = "custom"
 model = "gpt-5.5"
 model_reasoning_effort = "high"
-disable_response_storage = true
 
 [model_providers.custom]
 name = "Azure OpenAI"
@@ -1188,7 +1186,6 @@ requires_openai_auth = true`,
 model = "gpt-5.5"
 review_model = "gpt-5.5"
 model_reasoning_effort = "high"
-disable_response_storage = true
 
 [model_providers.custom]
 name = "APIKEY.FUN"
@@ -1214,7 +1211,6 @@ requires_openai_auth = true`,
 model = "gpt-5.5"
 review_model = "gpt-5.5"
 model_reasoning_effort = "high"
-disable_response_storage = true
 
 [model_providers.custom]
 name = "APINebula"
@@ -1235,7 +1231,6 @@ requires_openai_auth = true`,
     auth: generateThirdPartyAuth(""),
     config: `model_provider = "custom"
 model = "zai-org/glm-5.1"
-disable_response_storage = true
 
 [model_providers.custom]
 name = "AtlasCloud"
@@ -1266,7 +1261,6 @@ requires_openai_auth = true`,
 model = "gpt-5.6-sol"
 review_model = "gpt-5.6-sol"
 model_reasoning_effort = "high"
-disable_response_storage = true
 
 [model_providers.custom]
 name = "SudoCode"
@@ -1289,7 +1283,6 @@ requires_openai_auth = true`,
 model = "gpt-5.5"
 review_model = "gpt-5.5"
 model_reasoning_effort = "high"
-disable_response_storage = true
 model_verbosity = "high"
 
 [model_providers.custom]
@@ -1538,7 +1531,6 @@ requires_openai_auth = true`,
     config: `model_provider = "custom"
 model = "gpt-5.5"
 model_reasoning_effort = "high"
-disable_response_storage = true
 personality = "pragmatic"
 
 [model_providers.custom]
@@ -1561,7 +1553,6 @@ requires_openai_auth = true`,
     config: `model_provider = "custom"
 model = "gpt-5.5"
 model_reasoning_effort = "medium"
-disable_response_storage = true
 
 [model_providers.custom]
 name = "PIPELLM"

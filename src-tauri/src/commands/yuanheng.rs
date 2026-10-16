@@ -1774,7 +1774,7 @@ fn managed_provider_with_models(
         AppType::Codex => json!({
             "auth": { "OPENAI_API_KEY": token },
             "config": format!(
-                "model_provider = \"custom\"\nmodel = {}\n{}disable_response_storage = true\n\n[model_providers.custom]\nname = {}\nbase_url = {}\nwire_api = \"responses\"\nrequires_openai_auth = true\n",
+                "model_provider = \"custom\"\nmodel = {}\n{}\n[model_providers.custom]\nname = {}\nbase_url = {}\nwire_api = \"responses\"\nrequires_openai_auth = true\n",
                 toml_string(model),
                 if reasoning == "auto" {
                     String::new()
@@ -1785,12 +1785,8 @@ fn managed_provider_with_models(
                 toml_string(OPENAI_BASE_URL)
             ),
             "modelCatalog": {
-                "models": catalog_models.iter().map(|catalog_model| json!({
-                    "model": catalog_model,
-                    "displayName": catalog_model,
-                    "contextWindow": 200_000,
-                    "apiFormat": yuanheng_model_api_format(catalog_model)
-                })).collect::<Vec<_>>()
+                "models": catalog_models.iter().map(|model| managed_codex_catalog_entry(model))
+                    .collect::<Vec<_>>()
             }
         }),
         AppType::Gemini => json!({
@@ -2380,13 +2376,109 @@ fn save_managed_codex_provider(
 }
 
 fn codex_provider_catalog_settings(provider: &Provider) -> Value {
-    json!({
+    let mut settings = json!({
         "modelCatalog": provider
             .settings_config
             .get("modelCatalog")
             .cloned()
             .unwrap_or_else(|| json!({ "models": [] }))
+    });
+    if provider.id != MANAGED_PROVIDER_ID || provider.category.as_deref() != Some("managed") {
+        return settings;
+    }
+    let config = provider
+        .settings_config
+        .get("config")
+        .and_then(Value::as_str)
+        .and_then(|text| text.parse::<toml::Value>().ok());
+    let selected = config
+        .as_ref()
+        .and_then(|doc| doc.get("model"))
+        .and_then(toml::Value::as_str);
+    let explicit_window = config
+        .as_ref()
+        .and_then(|doc| doc.get("model_context_window"))
+        .and_then(toml::Value::as_integer)
+        .filter(|value| *value > 0)
+        // These two values were automatically written by YuanHeng. They must
+        // not override a per-model limit or leak into a different vendor.
+        .filter(|value| {
+            !selected.is_some_and(crate::codex_config::codex_model_is_gpt)
+                || ![crate::codex_config::CODEX_GPT_CONTEXT_WINDOW, 1_000_000].contains(value)
+        });
+    if let Some(models) = settings
+        .pointer_mut("/modelCatalog/models")
+        .and_then(Value::as_array_mut)
+    {
+        for entry in models {
+            let Some(model) = entry
+                .get("model")
+                .and_then(Value::as_str)
+                .map(str::to_string)
+            else {
+                continue;
+            };
+            let current = entry
+                .get("contextWindow")
+                .or_else(|| entry.get("context_window"))
+                .and_then(|value| value.as_u64().or_else(|| value.as_str()?.parse().ok()))
+                .filter(|value| *value > 0);
+            let legacy_gpt_default = current == Some(200_000)
+                // Only migrate the exact shape emitted by the old managed
+                // generator. An imported/custom 200k row is not sufficient.
+                && entry.as_object().is_some_and(|object| object.len() == 4)
+                && entry.get("displayName").and_then(Value::as_str) == Some(model.as_str())
+                && entry.get("apiFormat").and_then(Value::as_str) == Some(yuanheng_model_api_format(&model))
+                && crate::codex_config::codex_model_is_gpt(&model);
+            if current.is_none() || legacy_gpt_default {
+                entry["contextWindow"] = json!(managed_codex_context_default(&model));
+                entry["contextWindowSource"] = json!("yuanheng-default");
+            }
+            if selected == Some(model.as_str()) {
+                if let Some(window) = explicit_window {
+                    entry["contextWindow"] = json!(window);
+                    entry["contextWindowSource"] = json!("config");
+                }
+            }
+        }
+    }
+    settings
+}
+
+fn managed_codex_context_default(model: &str) -> u64 {
+    if crate::codex_config::codex_model_is_gpt(model) {
+        crate::codex_config::CODEX_GPT_CONTEXT_WINDOW as u64
+    } else {
+        // No authoritative per-model limits arrive with the current model-ID
+        // list. Keep the existing conservative fallback for other vendors.
+        200_000
+    }
+}
+
+fn managed_codex_catalog_entry(model: &str) -> Value {
+    json!({
+        "model": model,
+        "displayName": model,
+        "contextWindow": managed_codex_context_default(model),
+        "contextWindowSource": "yuanheng-default",
+        "apiFormat": yuanheng_model_api_format(model)
     })
+}
+
+fn remove_managed_global_context_default(doc: &mut DocumentMut) {
+    if doc
+        .get("model")
+        .and_then(toml_edit::Item::as_str)
+        .is_some_and(crate::codex_config::codex_model_is_gpt)
+        && doc
+            .get("model_context_window")
+            .and_then(toml_edit::Item::as_integer)
+            .is_some_and(|value| {
+                [crate::codex_config::CODEX_GPT_CONTEXT_WINDOW, 1_000_000].contains(&value)
+            })
+    {
+        doc.as_table_mut().remove("model_context_window");
+    }
 }
 
 /// Change only the selected managed provider's legacy endpoint, never tokens,
@@ -2472,13 +2564,20 @@ fn codex_surface_route_config(
         }
     };
     let config_text = set_codex_reasoning_field(&config_text, reasoning_override)?;
-    crate::codex_config::prepare_codex_config_text_with_named_model_catalog(
+    let prepared = crate::codex_config::prepare_codex_config_text_with_named_model_catalog(
         catalog_settings,
         &config_text,
         crate::codex_config::CodexCatalogToolProfile::ProxyChat,
         surface.catalog_filename(),
     )
-    .map_err(|error| error.to_string())
+    .map_err(|error| error.to_string())?;
+    // The catalog carries per-model limits. Keep deliberate global overrides,
+    // but do not pin every row to YuanHeng's former global GPT default.
+    let mut doc = prepared
+        .parse::<DocumentMut>()
+        .map_err(|error| error.to_string())?;
+    remove_managed_global_context_default(&mut doc);
+    Ok(doc.to_string())
 }
 
 fn write_codex_surface_config_at_origin(
@@ -2486,13 +2585,58 @@ fn write_codex_surface_config_at_origin(
     surface: CodexSurface,
     proxy_origin: &str,
 ) -> Result<(), String> {
-    let provider =
-        managed_codex_provider_for_namespace(state, surface.namespace())?.ok_or_else(|| {
-            match surface {
-                CodexSurface::Terminal => "Codex 终端配置不存在".to_string(),
-                CodexSurface::Desktop => "ChatGPT Desktop 配置不存在".to_string(),
-            }
+    let mut provider = managed_codex_provider_for_namespace(state, surface.namespace())?
+        .ok_or_else(|| match surface {
+            CodexSurface::Terminal => "Codex 终端配置不存在".to_string(),
+            CodexSurface::Desktop => "ChatGPT Desktop 配置不存在".to_string(),
         })?;
+    // Preserve a manually configured global budget on this same managed route.
+    // Never copy official/foreign config or a different model's override.
+    let existing = match surface {
+        CodexSurface::Terminal => std::fs::read_to_string(codex_terminal_profile_path()).ok(),
+        CodexSurface::Desktop => crate::codex_config::read_codex_config_text().ok(),
+    };
+    if let Some(existing) = existing.as_deref() {
+        let owned = crate::codex_config::extract_codex_base_url(existing)
+            .and_then(|url| url::Url::parse(&url).ok())
+            .is_some_and(|url| {
+                url.host_str() == Some("127.0.0.1")
+                    && url.path() == format!("/{}/v1", surface.route_prefix())
+            });
+        if owned {
+            if let (Ok(current), Some(config)) = (
+                existing.parse::<DocumentMut>(),
+                provider
+                    .settings_config
+                    .get("config")
+                    .and_then(Value::as_str),
+            ) {
+                let mut doc = config
+                    .parse::<DocumentMut>()
+                    .map_err(|error| error.to_string())?;
+                if current.get("model").and_then(toml_edit::Item::as_str)
+                    == doc.get("model").and_then(toml_edit::Item::as_str)
+                {
+                    if let Some(value) = current
+                        .get("model_context_window")
+                        .and_then(toml_edit::Item::as_integer)
+                        .filter(|value| {
+                            *value > 0
+                                && (!current
+                                    .get("model")
+                                    .and_then(toml_edit::Item::as_str)
+                                    .is_some_and(crate::codex_config::codex_model_is_gpt)
+                                    || ![crate::codex_config::CODEX_GPT_CONTEXT_WINDOW, 1_000_000]
+                                        .contains(value))
+                        })
+                    {
+                        doc["model_context_window"] = toml_edit::value(value);
+                        provider.settings_config["config"] = json!(doc.to_string());
+                    }
+                }
+            }
+        }
+    }
     let catalog_settings = codex_provider_catalog_settings(&provider);
     let route = codex_surface_route_config(
         &provider,
@@ -2511,18 +2655,36 @@ fn write_codex_surface_config_at_origin(
         }
         CodexSurface::Desktop => {
             let current_live = crate::codex_config::read_codex_config_text().unwrap_or_default();
+            // Strip the OLD model's automatic global budget before merging so
+            // switching from GPT to another vendor cannot inherit it.
+            let mut current_doc = current_live
+                .parse::<DocumentMut>()
+                .map_err(|error| error.to_string())?;
+            remove_managed_global_context_default(&mut current_doc);
             let merged = crate::services::provider::update_toml_common_config_snippet(
-                &current_live,
+                &current_doc.to_string(),
                 &route,
                 true,
             )
             .map_err(|error| error.to_string())?;
             let reasoning = provider_reasoning(&provider).unwrap_or_else(|| "auto".to_string());
-            let merged = if reasoning == "auto" {
+            let mut merged = if reasoning == "auto" {
                 set_codex_reasoning_field(&merged, None)?
             } else {
                 merged
             };
+            if catalog_settings
+                .pointer("/modelCatalog/models")
+                .and_then(Value::as_array)
+                .is_some_and(|models| !models.is_empty())
+            {
+                // Shared snippets may carry an old global override back in.
+                let mut doc = merged
+                    .parse::<DocumentMut>()
+                    .map_err(|error| error.to_string())?;
+                remove_managed_global_context_default(&mut doc);
+                merged = doc.to_string();
+            }
 
             crate::codex_config::write_codex_live_config_atomic(Some(&merged))
                 .map_err(|error| format!("写入 ChatGPT Desktop 独立配置失败: {error}"))?;
@@ -2542,15 +2704,23 @@ async fn write_codex_surface_config(state: &AppState, surface: CodexSurface) -> 
 }
 
 fn set_codex_available_models(provider: &mut Provider, selected: &str, models: &[String]) {
+    let settings = codex_provider_catalog_settings(provider);
+    let previous = settings
+        .pointer("/modelCatalog/models")
+        .and_then(Value::as_array);
     let entries = terminal_catalog_models(selected, models)
         .iter()
         .map(|model| {
-            json!({
-                "model": model,
-                "displayName": model,
-                "contextWindow": 200_000,
-                "apiFormat": yuanheng_model_api_format(model)
-            })
+            let mut entry = previous
+                .and_then(|entries| {
+                    entries.iter().find(|entry| {
+                        entry.get("model").and_then(Value::as_str) == Some(model.as_str())
+                    })
+                })
+                .cloned()
+                .unwrap_or_else(|| managed_codex_catalog_entry(model));
+            entry["apiFormat"] = json!(yuanheng_model_api_format(model));
+            entry
         })
         .collect::<Vec<_>>();
     provider.settings_config["modelCatalog"] = json!({ "models": entries });
@@ -2585,10 +2755,18 @@ async fn configure_codex_surface(
         group,
         reasoning,
     )?;
-    set_codex_available_models(&mut selected, model, available_models);
     selected.settings_config["yuanhengSurface"] = json!(surface.marker());
     let terminal_before = managed_codex_provider_for_namespace(state, AppType::Codex.as_str())?;
     let desktop_before = managed_codex_provider_for_namespace(state, CHATGPT_DESKTOP_NAMESPACE)?;
+    let previous_selected = match surface {
+        CodexSurface::Terminal => terminal_before.as_ref(),
+        CodexSurface::Desktop => desktop_before.as_ref(),
+    };
+    if let Some(previous) = previous_selected {
+        selected.settings_config["modelCatalog"] =
+            codex_provider_catalog_settings(previous)["modelCatalog"].clone();
+    }
+    set_codex_available_models(&mut selected, model, available_models);
 
     let mut terminal = if surface == CodexSurface::Terminal {
         selected.clone()
@@ -2752,7 +2930,18 @@ fn provider_schema_current(provider: &Provider, app: &AppType) -> bool {
                                 == Some(yuanheng_model_api_format(catalog_model))
                         })
                 });
-            api_format_current && display_name_current && catalog_is_current
+            let compatibility_current = provider
+                .settings_config
+                .get("config")
+                .and_then(Value::as_str)
+                .and_then(|text| text.parse::<toml::Value>().ok())
+                .is_some_and(|doc| doc.get("disable_response_storage").is_none())
+                && codex_provider_catalog_settings(provider)["modelCatalog"]
+                    == provider.settings_config["modelCatalog"];
+            api_format_current
+                && display_name_current
+                && catalog_is_current
+                && compatibility_current
         }
         AppType::GrokBuild => provider
             .settings_config
@@ -5710,6 +5899,279 @@ mod tests {
     use crate::database::Database;
     use serial_test::serial;
     use std::sync::Arc;
+
+    #[test]
+    fn managed_codex_context_migration_preserves_custom_and_foreign_limits() {
+        let mut provider = managed_provider_with_models(
+            &AppType::Codex,
+            "test",
+            "gpt-6-test",
+            &[
+                "gpt-6-test".into(),
+                "deepseek-test".into(),
+                "gpt-other".into(),
+            ],
+            "default",
+            "auto",
+        )
+        .unwrap();
+        provider.settings_config["modelCatalog"]["models"] = json!([
+            {"model":"gpt-6-test", "displayName":"gpt-6-test", "contextWindow":200000, "apiFormat":"openai_responses"},
+            {"model":"deepseek-test", "contextWindow":200000},
+            {"model":"gpt-other", "contextWindow":64000, "displayName":"Custom label"}
+        ]);
+        let migrated = codex_provider_catalog_settings(&provider);
+        let rows = migrated["modelCatalog"]["models"].as_array().unwrap();
+        assert_eq!(rows[0]["contextWindow"], json!(921000));
+        assert_eq!(rows[1]["contextWindow"], json!(200000));
+        assert_eq!(rows[2]["contextWindow"], json!(64000));
+        let original = provider.settings_config.clone();
+        provider.id = "external-provider".into();
+        assert_eq!(
+            codex_provider_catalog_settings(&provider)["modelCatalog"],
+            original["modelCatalog"]
+        );
+        provider.id = MANAGED_PROVIDER_ID.into();
+        let config = provider.settings_config["config"].as_str().unwrap();
+        provider.settings_config["config"] =
+            json!(format!("model_context_window = 272000\n{config}"));
+        set_codex_available_models(
+            &mut provider,
+            "gpt-6-test",
+            &[
+                "gpt-6-test".into(),
+                "gpt-other".into(),
+                "deepseek-test".into(),
+                "gpt-new".into(),
+            ],
+        );
+        let rows = provider.settings_config["modelCatalog"]["models"]
+            .as_array()
+            .unwrap();
+        assert_eq!(
+            rows.iter()
+                .find(|row| row["model"] == "gpt-6-test")
+                .unwrap()["contextWindow"],
+            json!(272000)
+        );
+        let custom = rows.iter().find(|row| row["model"] == "gpt-other").unwrap();
+        assert_eq!(custom["contextWindow"], json!(64000));
+        assert_eq!(custom["displayName"], "Custom label");
+        assert_eq!(
+            rows.iter().find(|row| row["model"] == "gpt-new").unwrap()["contextWindow"],
+            json!(921000)
+        );
+        let once = provider.settings_config.clone();
+        set_codex_available_models(
+            &mut provider,
+            "gpt-6-test",
+            &[
+                "gpt-6-test".into(),
+                "gpt-other".into(),
+                "deepseek-test".into(),
+                "gpt-new".into(),
+            ],
+        );
+        assert_eq!(provider.settings_config, once);
+    }
+
+    #[test]
+    fn codex_context_migration_does_not_guess_custom_200k_or_non_gpt_million() {
+        let mut provider =
+            managed_provider(&AppType::Codex, "test", "deepseek-test", "default", "auto").unwrap();
+        let config = provider.settings_config["config"].as_str().unwrap();
+        provider.settings_config["config"] =
+            json!(format!("model_context_window = 1000000\n{config}"));
+        provider.settings_config["modelCatalog"]["models"] = json!([
+            {"model":"deepseek-test", "contextWindow":200000},
+            {"model":"gpt-custom", "displayName":"My custom limit", "contextWindow":200000, "apiFormat":"openai_responses"},
+            {"model":"gpt-marked", "displayName":"gpt-marked", "contextWindow":200000, "apiFormat":"openai_responses", "contextWindowSource":"config"}
+        ]);
+        let normalized = codex_provider_catalog_settings(&provider);
+        assert_eq!(
+            normalized["modelCatalog"]["models"][0]["contextWindow"],
+            json!(1000000)
+        );
+        assert_eq!(
+            normalized["modelCatalog"]["models"][1]["contextWindow"],
+            json!(200000)
+        );
+        assert_eq!(
+            normalized["modelCatalog"]["models"][2]["contextWindow"],
+            json!(200000)
+        );
+        let mut doc = provider.settings_config["config"]
+            .as_str()
+            .unwrap()
+            .parse::<DocumentMut>()
+            .unwrap();
+        remove_managed_global_context_default(&mut doc);
+        assert_eq!(doc["model_context_window"].as_integer(), Some(1000000));
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn codex_reconfigure_keeps_per_model_custom_context_limits() {
+        let (_home, state) = isolated_state();
+        let mut proxy_config = state.db.get_proxy_config().await.unwrap();
+        proxy_config.listen_port = 0;
+        state.db.update_proxy_config(proxy_config).await.unwrap();
+        state.proxy_service.start().await.unwrap();
+        let mut previous = managed_provider_with_models(
+            &AppType::Codex,
+            "old",
+            "gpt-6-test",
+            &["gpt-6-test".into(), "deepseek-test".into()],
+            "default",
+            "auto",
+        )
+        .unwrap();
+        normalize_managed_codex_surface(&mut previous, CodexSurface::Desktop);
+        previous.settings_config["modelCatalog"]["models"][0]["contextWindow"] = json!(64000);
+        previous.settings_config["modelCatalog"]["models"][1]["contextWindow"] = json!(256000);
+        save_managed_codex_provider(&state, CHATGPT_DESKTOP_NAMESPACE, &previous).unwrap();
+        let result = configure_codex_surface(
+            &state,
+            CodexSurface::Desktop,
+            "new",
+            "deepseek-test",
+            &[
+                "gpt-6-test".into(),
+                "deepseek-test".into(),
+                "gpt-new".into(),
+            ],
+            "default",
+            "auto",
+        )
+        .await;
+        state.proxy_service.stop().await.unwrap();
+        result.unwrap();
+        let saved = managed_codex_provider_for_namespace(&state, CHATGPT_DESKTOP_NAMESPACE)
+            .unwrap()
+            .unwrap();
+        let rows = saved.settings_config["modelCatalog"]["models"]
+            .as_array()
+            .unwrap();
+        assert_eq!(
+            rows.iter()
+                .find(|row| row["model"] == "gpt-6-test")
+                .unwrap()["contextWindow"],
+            json!(64000)
+        );
+        assert_eq!(
+            rows.iter()
+                .find(|row| row["model"] == "deepseek-test")
+                .unwrap()["contextWindow"],
+            json!(256000)
+        );
+        assert_eq!(
+            rows.iter().find(|row| row["model"] == "gpt-new").unwrap()["contextWindow"],
+            json!(921000)
+        );
+        assert!(provider_schema_current(&saved, &AppType::Codex));
+    }
+
+    #[test]
+    #[serial]
+    fn codex_context_and_storage_migrate_both_surfaces_without_touching_auth() {
+        let (_home, state) = isolated_state();
+        let auth_path = crate::codex_config::get_codex_auth_path();
+        crate::config::write_json_file(
+            &auth_path,
+            &json!({"tokens":{"access_token":"test-official"}}),
+        )
+        .unwrap();
+        let auth_before = std::fs::read(&auth_path).unwrap();
+        for surface in [CodexSurface::Terminal, CodexSurface::Desktop] {
+            let mut provider = managed_provider_with_models(
+                &AppType::Codex,
+                "test",
+                "gpt-6-test",
+                &["gpt-6-test".into(), "deepseek-test".into()],
+                "default",
+                "auto",
+            )
+            .unwrap();
+            normalize_managed_codex_surface(&mut provider, surface);
+            provider.settings_config["modelCatalog"]["models"] = json!([
+                {"model":"gpt-6-test", "displayName":"gpt-6-test", "contextWindow":200000, "apiFormat":"openai_responses"},
+                {"model":"deepseek-test", "contextWindow":200000, "apiFormat":"openai_chat"}
+            ]);
+            let config = provider.settings_config["config"].as_str().unwrap();
+            provider.settings_config["config"] = json!(format!(
+                "disable_response_storage = true\nmodel_context_window = 921000\n{config}"
+            ));
+            assert!(!provider_schema_current(&provider, &AppType::Codex));
+            save_managed_codex_provider(&state, surface.namespace(), &provider).unwrap();
+            let profile_path = match surface {
+                CodexSurface::Terminal => codex_terminal_profile_path(),
+                CodexSurface::Desktop => crate::codex_config::get_codex_config_path(),
+            };
+            crate::config::write_text_file(&profile_path, "disable_response_storage = true\nmodel_context_window = 921000\n[mcp_servers.test]\ncommand = \"test-only\"\n").unwrap();
+            write_codex_surface_config_at_origin(&state, surface, "http://127.0.0.1:15721")
+                .unwrap();
+            let first = std::fs::read_to_string(&profile_path).unwrap();
+            let doc = first.parse::<toml::Value>().unwrap();
+            assert!(doc.get("disable_response_storage").is_none());
+            assert!(doc.get("model_context_window").is_none());
+            let catalog_path = crate::codex_config::get_codex_named_model_catalog_path(
+                doc["model_catalog_json"].as_str().unwrap(),
+            );
+            let catalog: Value = crate::config::read_json_file(&catalog_path).unwrap();
+            let rows = catalog["models"].as_array().unwrap();
+            let gpt = rows.iter().find(|row| row["slug"] == "gpt-6-test").unwrap();
+            assert_eq!(gpt["context_window"], json!(921000));
+            assert_eq!(gpt["max_context_window"], json!(921000));
+            assert_eq!(gpt["effective_context_window_percent"], json!(95));
+            assert_eq!(
+                rows.iter()
+                    .find(|row| row["slug"] == "deepseek-test")
+                    .unwrap()["max_context_window"],
+                json!(200000)
+            );
+            if surface == CodexSurface::Desktop {
+                assert_eq!(
+                    doc["mcp_servers"]["test"]["command"].as_str(),
+                    Some("test-only")
+                );
+            }
+            write_codex_surface_config_at_origin(&state, surface, "http://127.0.0.1:15721")
+                .unwrap();
+            assert_eq!(std::fs::read_to_string(&profile_path).unwrap(), first);
+            // A deliberate global override survives two applications, and the
+            // matching model catalog agrees with it rather than capping at 200k.
+            crate::config::write_text_file(
+                &profile_path,
+                &format!("model_context_window = 272000\n{first}"),
+            )
+            .unwrap();
+            for _ in 0..2 {
+                write_codex_surface_config_at_origin(&state, surface, "http://127.0.0.1:15721")
+                    .unwrap();
+                let config = std::fs::read_to_string(&profile_path)
+                    .unwrap()
+                    .parse::<toml::Value>()
+                    .unwrap();
+                assert_eq!(config["model_context_window"].as_integer(), Some(272000));
+                let catalog: Value = crate::config::read_json_file(
+                    &crate::codex_config::get_codex_named_model_catalog_path(
+                        config["model_catalog_json"].as_str().unwrap(),
+                    ),
+                )
+                .unwrap();
+                assert_eq!(
+                    catalog["models"]
+                        .as_array()
+                        .unwrap()
+                        .iter()
+                        .find(|row| row["slug"] == "gpt-6-test")
+                        .unwrap()["context_window"],
+                    json!(272000)
+                );
+            }
+        }
+        assert_eq!(std::fs::read(&auth_path).unwrap(), auth_before);
+    }
 
     #[tokio::test]
     #[serial]

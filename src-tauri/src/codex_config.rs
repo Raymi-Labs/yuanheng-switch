@@ -92,7 +92,7 @@ fn codex_top_level_model(config_text: &str) -> Option<String> {
         .filter(|value| !value.is_empty())
 }
 
-fn codex_model_is_gpt(model: &str) -> bool {
+pub(crate) fn codex_model_is_gpt(model: &str) -> bool {
     model
         .trim()
         .rsplit('/')
@@ -100,6 +100,24 @@ fn codex_model_is_gpt(model: &str) -> bool {
         .unwrap_or_default()
         .to_ascii_lowercase()
         .starts_with("gpt-")
+}
+
+/// Codex ignores this obsolete top-level option. Clean it at preparation AND
+/// final writes, because shared snippets can otherwise merge it back in.
+/// This is not a replacement for the Responses API's request-level `store`.
+pub(crate) fn remove_obsolete_codex_settings(config_text: &str) -> Result<String, AppError> {
+    let mut doc = config_text
+        .parse::<DocumentMut>()
+        .map_err(|e| AppError::Message(format!("Invalid Codex config.toml: {e}")))?;
+    if doc
+        .as_table_mut()
+        .remove("disable_response_storage")
+        .is_some()
+    {
+        Ok(doc.to_string())
+    } else {
+        Ok(config_text.to_string())
+    }
 }
 
 /// Add YuanHeng Switch's GPT context-window default to a Codex config without
@@ -498,7 +516,8 @@ pub fn write_codex_live_config_atomic(config_text_opt: Option<&str>) -> Result<(
 }
 
 fn prepare_codex_history_live_write(previous: &str, next: &str) -> Result<String, AppError> {
-    let prepared = crate::codex_history_routes::prepare(previous, next)?;
+    let next = remove_obsolete_codex_settings(next)?;
+    let prepared = crate::codex_history_routes::prepare(previous, &next)?;
     if prepared != previous
         && !previous.is_empty()
         && (crate::codex_history_routes::manages(&prepared)?
@@ -1433,7 +1452,8 @@ pub fn prepare_codex_config_text_with_named_model_catalog(
     profile: CodexCatalogToolProfile,
     catalog_filename: &str,
 ) -> Result<String, AppError> {
-    let config_text = apply_codex_gpt_context_window_default(config_text)?;
+    let config_text = remove_obsolete_codex_settings(config_text)?;
+    let config_text = apply_codex_gpt_context_window_default(&config_text)?;
 
     if let Some(catalog) = codex_model_catalog_from_settings(settings, &config_text, profile)? {
         // Codex caches the catalog by the filename in config.toml. A stable filename
@@ -2419,6 +2439,23 @@ pub fn remove_codex_toml_base_url_if(toml_str: &str, predicate: impl Fn(&str) ->
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn obsolete_storage_option_cleanup_is_narrow_and_idempotent() {
+        let input = "# keep comment\nmodel = \"gpt-test\"\ndisable_response_storage = true\nmodel_context_window = 272000\n[custom]\ndisable_response_storage = false\n";
+        let cleaned = remove_obsolete_codex_settings(input).unwrap();
+        let doc = cleaned.parse::<toml::Value>().unwrap();
+        assert!(doc.get("disable_response_storage").is_none());
+        assert_eq!(
+            doc["custom"]["disable_response_storage"].as_bool(),
+            Some(false)
+        );
+        assert_eq!(doc["model_context_window"].as_integer(), Some(272000));
+        assert!(cleaned.contains("# keep comment"));
+        assert_eq!(remove_obsolete_codex_settings(&cleaned).unwrap(), cleaned);
+        assert!(remove_obsolete_codex_settings("model = [").is_err());
+        assert_eq!(remove_obsolete_codex_settings("").unwrap(), "");
+    }
 
     #[test]
     fn gpt_context_window_default_is_added_and_legacy_value_is_migrated() {
