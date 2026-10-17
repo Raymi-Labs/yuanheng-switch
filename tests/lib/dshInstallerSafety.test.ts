@@ -14,6 +14,35 @@ import { describe, expect, it } from "vitest";
 describe.skipIf(process.platform === "win32")(
   "real POSIX installer rejection paths",
   () => {
+    it.each([
+      "",
+      "latest",
+      "0.3.0; touch EXECUTED",
+      "$(touch EXECUTED)",
+      "../other",
+    ])("rejects invalid version %s before download or execution", (version) => {
+      const root = mkdtempSync(join(tmpdir(), "yuanheng-dsh-version-"));
+      try {
+        const result = spawnSync(
+          "/bin/bash",
+          [resolve("src-tauri/scripts/install-dsh.sh")],
+          {
+            env: {
+              ...process.env,
+              YUANHENG_DSH_STAGE: root,
+              YUANHENG_DSH_VERSION: version,
+            },
+            timeout: 5000,
+          },
+        );
+        expect(result.status).not.toBe(0);
+        expect(result.stderr.toString()).toContain("[DSH_VERSION_INVALID]");
+        expect(existsSync(join(root, "phase"))).toBe(false);
+        expect(existsSync(join(root, "EXECUTED"))).toBe(false);
+      } finally {
+        rmSync(root, { recursive: true, force: true });
+      }
+    });
     it.each(["download", "checksum"])(
       "stops at %s and never extracts or executes rejected bytes",
       (phase) => {
@@ -46,6 +75,7 @@ describe.skipIf(process.platform === "win32")(
                 ...process.env,
                 PATH: `${bin}:/usr/bin:/bin`,
                 YUANHENG_DSH_STAGE: root,
+                YUANHENG_DSH_VERSION: "0.2.0-rc.2",
               },
               timeout: 5000,
             },

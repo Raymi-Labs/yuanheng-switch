@@ -1,4 +1,4 @@
-//! Private, pinned DSH runtime. Existing source trees and global runtimes are never changed.
+//! Private DSH installation following the official npm latest channel. Existing source trees and global runtimes are never changed.
 use std::{
     fs,
     io::Write,
@@ -7,7 +7,64 @@ use std::{
     time::Duration,
 };
 
-pub(super) const VERSION: &str = "0.2.0-rc.2";
+const PACKAGE: &str = "@deepseek-ai/dsh";
+const LATEST_URL: &str = "https://registry.npmjs.org/@deepseek-ai%2Fdsh/latest";
+const RELEASE_ERROR: &str =
+    "无法获取 DSH 官方发布版本，请检查 registry.npmjs.org 的连接后重试；原安装保持不变。";
+
+fn valid_version(raw: &str) -> Option<semver::Version> {
+    if raw.len() > 80 || raw.trim() != raw {
+        return None;
+    }
+    semver::Version::parse(raw).ok()
+}
+
+fn release_version(value: &serde_json::Value) -> Result<String, String> {
+    let version = value["version"].as_str().ok_or(RELEASE_ERROR)?;
+    if value["name"] != PACKAGE || valid_version(version).is_none() {
+        return Err(RELEASE_ERROR.into());
+    }
+    Ok(version.into())
+}
+
+/// Read only the publisher's latest tag, never infer a prerelease channel.
+pub(super) async fn latest_version() -> Result<String, String> {
+    let client = crate::proxy::http_client::get();
+    let mut response = client
+        .get(LATEST_URL)
+        .timeout(Duration::from_secs(15))
+        .send()
+        .await
+        .map_err(|_| RELEASE_ERROR)?;
+    if !response.status().is_success()
+        || response.url().scheme() != "https"
+        || response.url().host_str() != Some("registry.npmjs.org")
+        || response.content_length().is_some_and(|size| size > 262_144)
+    {
+        return Err(RELEASE_ERROR.into());
+    }
+    let mut bytes = Vec::new();
+    while let Some(chunk) = response.chunk().await.map_err(|_| RELEASE_ERROR)? {
+        if bytes.len() + chunk.len() > 262_144 {
+            return Err(RELEASE_ERROR.into());
+        }
+        bytes.extend_from_slice(&chunk);
+    }
+    let value = serde_json::from_slice(&bytes).map_err(|_| RELEASE_ERROR)?;
+    release_version(&value)
+}
+
+pub(super) fn version_at(dir: &Path) -> Option<String> {
+    let manifest = fs::read(dir.join("package/node_modules/@deepseek-ai/dsh/package.json")).ok()?;
+    release_version(&serde_json::from_slice(&manifest).ok()?).ok()
+}
+
+fn at_least(current: &str, target: &str) -> bool {
+    match (valid_version(current), valid_version(target)) {
+        (Some(current), Some(target)) => current.cmp_precedence(&target).is_ge(),
+        _ => false,
+    }
+}
 const CLI: &str = "package/node_modules/@deepseek-ai/dsh/lib/bin.js";
 const INSTALL_ERROR: &str =
     "DSH 安装或验证失败，原安装未替换。请检查 nodejs.org 与 registry.npmjs.org 的网络连接、磁盘空间后重试。";
@@ -49,11 +106,8 @@ pub(super) fn installed_at(base: &Path) -> Option<PathBuf> {
     {
         return None;
     }
-    let manifest: serde_json::Value = serde_json::from_slice(
-        &fs::read(dir.join("package/node_modules/@deepseek-ai/dsh/package.json")).ok()?,
-    )
-    .ok()?;
-    (manifest["name"] == "@deepseek-ai/dsh" && manifest["version"] == VERSION).then_some(dir)
+    version_at(&dir)?;
+    Some(dir)
 }
 
 pub(super) fn installed() -> Option<PathBuf> {
@@ -62,6 +116,9 @@ pub(super) fn installed() -> Option<PathBuf> {
 
 /// Bounded read-only readiness check. File presence alone is not "can run".
 pub(super) fn verify(dir: &Path) -> bool {
+    let Some(expected) = version_at(dir) else {
+        return false;
+    };
     let Ok(output) = tempfile::tempfile() else {
         return false;
     };
@@ -118,20 +175,36 @@ pub(super) fn verify(dir: &Path) -> bool {
     let mut output = output;
     let _ = output.rewind();
     let mut text = String::new();
-    success && output.take(128).read_to_string(&mut text).is_ok() && text.trim() == VERSION
+    success && output.take(128).read_to_string(&mut text).is_ok() && text.trim() == expected
 }
 
-pub(super) async fn install(cancelled: Arc<AtomicBool>) -> Result<(), String> {
+pub(super) async fn install(cancelled: Arc<AtomicBool>, update: bool) -> Result<(), String> {
     if cancelled.load(std::sync::atomic::Ordering::SeqCst) {
         return Err(super::tool_install_process::CANCELLED.into());
     }
     let base = root();
     fs::create_dir_all(&base).map_err(|_| "无法创建 DSH 安装目录")?;
-    // Reuse a verified installation; this entry point is installation, not an updater.
-    if let Some(dir) = installed_at(&base) {
-        if tokio::task::spawn_blocking(move || verify(&dir))
-            .await
-            .unwrap_or(false)
+    let current = installed_at(&base);
+    if update && current.is_none() {
+        return Err("未找到元衡托管的 DSH，请先安装；外部安装请从原渠道更新。".into());
+    }
+    let target = latest_version().await;
+    if cancelled.load(std::sync::atomic::Ordering::SeqCst) {
+        return Err(super::tool_install_process::CANCELLED.into());
+    }
+    let mut target = target?;
+    // Never downgrade a newer local version, even if the publisher moves latest back.
+    if let Some(dir) = current {
+        let current_version =
+            version_at(&dir).ok_or("DSH 安装在检查期间发生变化，请重新检测后重试")?;
+        let reusable = at_least(&current_version, &target);
+        if reusable {
+            target = current_version;
+        }
+        if reusable
+            && tokio::task::spawn_blocking(move || verify(&dir))
+                .await
+                .unwrap_or(false)
         {
             if cancelled.load(std::sync::atomic::Ordering::SeqCst) {
                 return Err(super::tool_install_process::CANCELLED.into());
@@ -175,7 +248,8 @@ pub(super) async fn install(cancelled: Arc<AtomicBool>) -> Result<(), String> {
     }
     command
         .current_dir(stage.path())
-        .env("YUANHENG_DSH_STAGE", stage.path());
+        .env("YUANHENG_DSH_STAGE", stage.path())
+        .env("YUANHENG_DSH_VERSION", &target);
     let output = match super::tool_install_process::run(
         command,
         cancelled.clone(),
@@ -198,7 +272,7 @@ pub(super) async fn install(cancelled: Arc<AtomicBool>) -> Result<(), String> {
             "download" => "DSH 的 Node.js 下载失败，请检查 nodejs.org 的连接后重试。",
             "checksum" => "DSH 的 Node.js 文件哈希不匹配，已拒绝解压和执行，请重新下载。",
             "extract" => "DSH 的 Node.js 解压失败，请检查磁盘空间和目录权限。",
-            "package" => "DSH 官方 npm 包安装失败，请检查 registry.npmjs.org 的连接和磁盘空间。",
+            "package" => "DSH 官方 npm 包安装失败，请检查网络、磁盘空间或新版 Node.js 兼容要求；原安装未替换。",
             "verify" => "DSH 已下载但无法通过运行检查，原安装未替换，请重新安装或反馈诊断。",
             _ => INSTALL_ERROR,
         }
@@ -223,13 +297,33 @@ pub(super) async fn install(cancelled: Arc<AtomicBool>) -> Result<(), String> {
     if cancelled.load(std::sync::atomic::Ordering::SeqCst) {
         return Err(super::tool_install_process::CANCELLED.into());
     }
+    tokio::task::spawn_blocking(move || publish_install(&base, stage, &target, &cancelled))
+        .await
+        .map_err(|_| "DSH 发布检查失败，原安装未替换".to_string())?
+}
+
+fn publish_install(
+    base: &Path,
+    stage: tempfile::TempDir,
+    target: &str,
+    cancelled: &AtomicBool,
+) -> Result<(), String> {
+    if version_at(stage.path()).as_deref() != Some(target) || !verify(stage.path()) {
+        return Err("DSH 新版本运行验证失败，原安装未替换。".into());
+    }
+    if cancelled.load(std::sync::atomic::Ordering::SeqCst) {
+        return Err(super::tool_install_process::CANCELLED.into());
+    }
     let name = format!("install-{}", uuid::Uuid::new_v4());
     let destination = base.join(&name);
     fs::rename(stage.path(), &destination).map_err(|_| "DSH 安装保存失败，原安装未替换")?;
-    let mut marker = tempfile::NamedTempFile::new_in(&base).map_err(|_| "DSH 安装标记创建失败")?;
+    let mut marker = tempfile::NamedTempFile::new_in(base).map_err(|_| "DSH 安装标记创建失败")?;
     marker
         .write_all(name.as_bytes())
         .map_err(|_| "DSH 安装标记写入失败")?;
+    if cancelled.load(std::sync::atomic::Ordering::SeqCst) {
+        return Err(super::tool_install_process::CANCELLED.into());
+    }
     marker
         .persist(base.join("current"))
         .map_err(|_| "DSH 安装标记保存失败")?;
@@ -290,6 +384,101 @@ pub(super) fn managed_command(dir: &Path) -> String {
 mod tests {
     use super::*;
     #[test]
+    fn official_metadata_accepts_exact_versions_only() {
+        for version in ["0.2.0-rc.2", "0.2.0-rc.10", "1.0.0", "2.1.0+build.1"] {
+            assert_eq!(
+                release_version(&serde_json::json!({"name": PACKAGE, "version": version})).unwrap(),
+                version
+            );
+        }
+        for version in [
+            "latest",
+            "../other",
+            "0.3.0; touch /tmp/x",
+            "0.3.0\n",
+            "v0.3.0",
+            "1.0",
+            "01.0.0",
+            "1.0.0-01",
+            "1.0.0-",
+            "https://evil.invalid/pkg.tgz",
+        ] {
+            assert!(
+                release_version(&serde_json::json!({"name": PACKAGE, "version": version})).is_err()
+            );
+        }
+        assert!(
+            release_version(&serde_json::json!({"name": "other", "version": "1.0.0"})).is_err()
+        );
+        assert!(release_version(&serde_json::json!({"name": PACKAGE})).is_err());
+    }
+
+    #[test]
+    fn semantic_order_never_downgrades_or_confuses_release_candidates() {
+        assert!(at_least("0.2.0-rc.10", "0.2.0-rc.2"));
+        assert!(at_least("0.2.0", "0.2.0-rc.10"));
+        assert!(at_least("0.3.0", "0.2.0"));
+        assert!(at_least("0.2.0+build.1", "0.2.0+build.2"));
+        assert!(!at_least("0.2.0-rc.2", "0.2.0"));
+        assert!(!at_least("unknown", "0.2.0"));
+    }
+
+    #[cfg(unix)]
+    fn fake_install(dir: &Path, manifest_version: &str, actual_version: &str) {
+        use std::os::unix::fs::PermissionsExt;
+        fs::create_dir_all(node(dir).parent().unwrap()).unwrap();
+        fs::create_dir_all(dir.join(CLI).parent().unwrap()).unwrap();
+        fs::write(dir.join(CLI), "fixture").unwrap();
+        fs::write(
+            dir.join("package/node_modules/@deepseek-ai/dsh/package.json"),
+            serde_json::json!({"name": PACKAGE, "version": manifest_version}).to_string(),
+        )
+        .unwrap();
+        fs::write(
+            node(dir),
+            format!("#!/bin/sh\nprintf '%s\\n' '{actual_version}'\n"),
+        )
+        .unwrap();
+        fs::set_permissions(node(dir), fs::Permissions::from_mode(0o700)).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn publication_verifies_target_and_preserves_previous_install_on_failure_or_cancel() {
+        let base = tempfile::tempdir().unwrap();
+        let name = format!("install-{}", uuid::Uuid::new_v4());
+        let old = base.path().join(&name);
+        fake_install(&old, "0.2.0-rc.2", "0.2.0-rc.2");
+        fs::write(base.path().join("current"), &name).unwrap();
+        fs::write(base.path().join("session-fixture"), "untouched").unwrap();
+        for (manifest, actual, cancelled) in [
+            ("0.3.0", "0.2.0-rc.2", false),
+            ("0.2.0-rc.2", "0.2.0-rc.2", false),
+            ("0.3.0", "0.3.0", true),
+        ] {
+            let stage = tempfile::tempdir_in(base.path()).unwrap();
+            fake_install(stage.path(), manifest, actual);
+            assert!(
+                publish_install(base.path(), stage, "0.3.0", &AtomicBool::new(cancelled)).is_err()
+            );
+            assert_eq!(installed_at(base.path()), Some(old.clone()));
+            assert!(verify(&old));
+        }
+        let stage = tempfile::tempdir_in(base.path()).unwrap();
+        fake_install(stage.path(), "0.3.0", "0.3.0");
+        publish_install(base.path(), stage, "0.3.0", &AtomicBool::new(false)).unwrap();
+        let new = installed_at(base.path()).unwrap();
+        assert_ne!(new, old);
+        assert_eq!(version_at(&new).as_deref(), Some("0.3.0"));
+        assert!(verify(&new));
+        assert!(verify(&old));
+        assert_eq!(
+            fs::read_to_string(base.path().join("session-fixture")).unwrap(),
+            "untouched"
+        );
+    }
+
+    #[test]
     fn refuses_unpublished_partial_install_and_path_escape() {
         let temp = tempfile::tempdir().unwrap();
         for marker in [
@@ -314,7 +503,7 @@ mod tests {
         let manifest = dir.join("package/node_modules/@deepseek-ai/dsh/package.json");
         fs::write(
             &manifest,
-            format!(r#"{{"name":"@deepseek-ai/dsh","version":"{VERSION}"}}"#),
+            r#"{"name":"@deepseek-ai/dsh","version":"0.2.0-rc.2"}"#,
         )
         .unwrap();
         fs::write(temp.path().join("current"), &name).unwrap();

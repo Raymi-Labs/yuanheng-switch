@@ -145,6 +145,7 @@ export interface ToolVersionInfo {
   wsl_distro: string | null;
   install_path: string | null;
   detection_source:
+    | "managed"
     | "automatic"
     | "registry"
     | "microsoft_store"
@@ -431,13 +432,17 @@ export const settingsApi = {
       { wslShell?: string | null; wslShellFlag?: string | null }
     >,
   ): Promise<void> {
+    // DSH updates install into staging with the same supervision and verification.
+    // Other tools keep their existing update behavior.
+    const supervised =
+      action === "install" || (tools.length === 1 && tools[0] === "dsh");
     await runToolLifecycleJob(
       tools,
-      action,
+      supervised ? "install" : action,
       async (setCancel) => {
         const operationId = crypto.randomUUID();
         const native =
-          action === "install" &&
+          supervised &&
           (await invoke<boolean>("native_tool_install_supported", { tools }));
         const execution = invoke<void>("run_tool_lifecycle_action", {
           tools,
@@ -445,7 +450,7 @@ export const settingsApi = {
           wslShellByTool,
           operationId,
         });
-        if (action === "install") {
+        if (supervised) {
           setCancel(
             native
               ? () =>
@@ -460,7 +465,7 @@ export const settingsApi = {
           invalidateToolDetection();
         }
       },
-      action === "install"
+      supervised
         ? async () => {
             invalidateToolDetection();
             const versions = await settingsApi.getInstalledToolVersions(

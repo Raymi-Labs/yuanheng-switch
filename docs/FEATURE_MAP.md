@@ -21,9 +21,11 @@ Fresh macOS password, registration and two-factor sign-ins use [credential sessi
 
 pnpm remains the application package manager. Existing Tauri/Rust checks and signed release workflows remain unchanged.
 
-## DSH 安装与本机 Web（2026-10-11，本地）
+## DSH 安装、更新与本机 Web（2026-10-17，本地）
 
-DSH 安装由工具管理 `ToolSetupGrid` 提供，工作台未就绪状态引导到工具管理；`useModelSwitchCenter` 保留既有生命周期实现，检测目标不等于安装能力。`settingsApi.runToolLifecycleAction` → `misc.rs` 的 DSH 专用分支 → `dsh_install.rs`，复用任务 ID、锁、取消与进程组/Windows Job 监督。Node 24.14.0 按平台固定 SHA256，官方 npm DSH 固定 0.2.0-rc.2，独立目录安装、不执行 npm lifecycle scripts、不改全局 Node。成功验证后原子发布安装标记，取消/失败不替换旧安装；安装后配置成功才请求启动。
+DSH 安装由工作台 `FocusToolCard` 和工具管理 `ToolSetupGrid` 直接触发，复用 `useModelSwitchCenter` 与共享生命周期。已安装工具在两处通过 `DshUpdateControl` 显示当前版和官方版、检查及更新入口。`settingsApi.runToolLifecycleAction` → `misc.rs` 的 DSH 专用分支 → `dsh_install.rs`，复用任务 ID、锁、取消与进程组/Windows Job 监督。Node 24.14.0 按平台固定 SHA256，DSH 每次安装/更新先读取官方 npm latest 元数据，再以经过严格校验的精确版本安装；独立目录、不执行 npm lifecycle scripts、不改全局 Node，engine-strict 拒绝不兼容运行时。成功验证后原子发布安装标记，取消/失败不替换旧安装；安装后配置成功才请求启动。
+
+更新仅替换元衡托管安装，不降级，不修改自选目录或外部安装；实际 manifest 与运行版本一致才接受，不再锁定某一个 DSH 版本。查询失败明确提示重试；更新完成后提示用户重新打开 DSH，不自动改配置、终止旧进程或调用模型。决定见[官方 DSH 更新](../.agents/notes/implemented/feature/2026-10-17-dsh-official-updates.md)。
 
 识别及启动复用 `desktop_app_detection` 与 `launch_tool`：优先明确选择的应用/源码，否则使用托管运行时或已有 CLI。CLI/Web 源码不要求 `apps/desktop`；源码缺依赖/构建明确报错，不自动更新工作树。托管运行时检测执行有界版本检查，启动 Web 固定 loopback、随机空闲端口、明确 DSH_HOME，并关闭会话遥测。配置仍归 `yuanheng/dsh.rs` 的事务与拥有权逻辑。`useInstallContinuation` 阻止安装完成后跨页面卸载/账号切换继续应用旧意图。
 

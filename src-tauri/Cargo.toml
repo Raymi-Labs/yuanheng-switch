@@ -1,6 +1,6 @@
 [package]
 name = "yuanheng-switch"
-version = "0.1.95"
+version = "0.1.96"
 description = "YuanHeng API desktop companion for local AI coding tools"
 authors = ["nanashiwang"]
 license = "MIT"
@@ -91,6 +91,7 @@ indexmap = { version = "2", features = ["serde"] }
 rust_decimal = "1.33"
 uuid = { version = "1.11", features = ["v4"] }
 sha2 = "0.10"
+semver = "1"
 hmac = "0.12"
 json5 = "0.4"
 json-five = "0.3.1"

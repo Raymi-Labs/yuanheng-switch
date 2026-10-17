@@ -3,6 +3,8 @@ $ErrorActionPreference = 'Stop'
 if ([Console]::ReadLine() -ne 'YUANHENG_GO') { exit 1 }
 try {
     Set-Location -LiteralPath $env:YUANHENG_DSH_STAGE
+    $targetVersion = $env:YUANHENG_DSH_VERSION
+    if (!$targetVersion -or $targetVersion.Length -gt 80 -or $targetVersion -notmatch '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$') { throw 'Invalid version' }
     $arch = [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString()
     switch ($arch) {
         'X64' { $archive = 'node-v24.14.0-win-x64'; $checksum = '313fa40c0d7b18575821de8cb17483031fe07d95de5994f6f435f3b345f85c66' }
@@ -31,11 +33,11 @@ try {
     Set-Content -LiteralPath phase -Value package -Encoding ASCII
     & $node runtime/node_modules/npm/bin/npm-cli.js install --prefix (Join-Path $PWD 'package') `
         --cache (Join-Path $PWD 'npm-cache') --registry=https://registry.npmjs.org `
-        --ignore-scripts --no-audit --no-fund --fetch-retries=1 '@deepseek-ai/dsh@0.2.0-rc.2'
+        --ignore-scripts --engine-strict --no-audit --no-fund --fetch-retries=1 "@deepseek-ai/dsh@$targetVersion"
     if ($LASTEXITCODE -ne 0) { throw 'Package install failed' }
     Set-Content -LiteralPath phase -Value verify -Encoding ASCII
     $version = & $node package/node_modules/@deepseek-ai/dsh/lib/bin.js --version
-    if ($LASTEXITCODE -ne 0 -or $version.Trim() -ne '0.2.0-rc.2') { throw 'Version check failed' }
+    if ($LASTEXITCODE -ne 0 -or $version.Trim() -ne $targetVersion) { throw 'Version check failed' }
     & $node package/node_modules/@deepseek-ai/dsh/lib/bin.js --profile web --help
     if ($LASTEXITCODE -ne 0) { throw 'Web command check failed' }
 } catch {

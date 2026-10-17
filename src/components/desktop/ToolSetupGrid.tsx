@@ -30,6 +30,7 @@ import {
   useToolLifecycleState,
 } from "@/lib/toolLifecycleState";
 import { showToolInstallError, toolInstallLabel } from "./toolInstallFeedback";
+import { DshUpdateControl } from "./DshUpdateControl";
 import { ToolInstallCancel } from "./ToolInstallCancel";
 import {
   type YuanhengConnectionStatus,
@@ -333,6 +334,10 @@ function ToolSetupGridContent({
     apps: YuanhengToolId[],
     canContinue = () => true,
   ) => {
+    if (
+      apps.some((app) => isToolLifecycleBusy(TOOL_VERSION_TARGETS[app] ?? app))
+    )
+      return false;
     if (!beginAction()) return false;
     try {
       await preflightApps(apps);
@@ -750,6 +755,9 @@ function ToolSetupGridContent({
           disabled={
             !connection?.connected ||
             selected.length === 0 ||
+            selected.some((app) =>
+              cliLifecycle.has(TOOL_VERSION_TARGETS[app] ?? app),
+            ) ||
             busy ||
             !statuses.data ||
             statuses.isError
@@ -1260,7 +1268,10 @@ function ToolSetupGridContent({
                         variant="outline"
                         size="sm"
                         disabled={
-                          busy || !connection?.connected || !status?.supported
+                          busy ||
+                          installing ||
+                          !connection?.connected ||
+                          !status?.supported
                         }
                         onClick={() => {
                           void configureApps(["dsh"])
@@ -1296,8 +1307,12 @@ function ToolSetupGridContent({
                 </p>
               )}
 
+              {app === "dsh" && installed && <DshUpdateControl busy={busy} />}
+
               <div className="mt-auto flex gap-2 pt-3">
-                <ToolInstallCancel tool={versionTarget ?? ""} />
+                {!(app === "dsh" && installed) && (
+                  <ToolInstallCancel tool={versionTarget ?? ""} />
+                )}
                 {!installed && canInstall ? (
                   <Button
                     size="sm"
@@ -1340,6 +1355,7 @@ function ToolSetupGridContent({
                       !connection?.connected ||
                       !status?.supported ||
                       busy ||
+                      installing ||
                       !statuses.data ||
                       statuses.isError
                     }
@@ -1367,6 +1383,7 @@ function ToolSetupGridContent({
                     !connection?.connected ||
                     !status?.supported ||
                     busy ||
+                    installing ||
                     !statuses.data ||
                     statuses.isError
                   }

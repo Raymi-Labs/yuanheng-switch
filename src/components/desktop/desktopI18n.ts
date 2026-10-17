@@ -6,6 +6,26 @@ import { DESKTOP_ZH_TW } from "./desktopI18n.zhTW";
 type Values = Record<string, string | number | null | undefined>;
 
 export const DESKTOP_EN: Record<string, string> = {
+  "DSH 版本更新": "DSH updates",
+  "当前版本 {{version}}": "Current version {{version}}",
+  检查更新: "Check for updates",
+  "正在停止更新…": "Stopping update…",
+  "正在验证 DSH 更新…": "Verifying DSH update…",
+  "正在下载并更新 DSH…": "Downloading and updating DSH…",
+  "正在检查 DSH 官方版本…": "Checking the official DSH version…",
+  "无法检查 DSH 官方版本，请稍后重试。":
+    "Could not check the official DSH version. Try again later.",
+  "官方 latest：{{version}}": "Official latest: {{version}}",
+  "此 DSH 来自自选路径或外部安装，请通过原渠道更新。":
+    "This DSH uses a custom path or external installation. Update it through its original channel.",
+  当前版本无需更新: "No update needed",
+  "更新 DSH": "Update DSH",
+  取消更新: "Cancel update",
+  "DSH 更新完成并已验证；重新打开 DSH 后使用新版本。":
+    "DSH updated and verified. Reopen DSH to use the new version.",
+  "DSH 更新已取消，原安装保持不变。":
+    "DSH update cancelled. The previous installation is unchanged.",
+
   本机登录信息需要恢复访问: "Access to saved sign-in needs to be restored",
   "macOS 暂时无法读取旧登录信息。你可以直接使用账号密码重新登录，无需恢复旧条目；也可以点击下方按钮，按系统提示恢复原来的登录。":
     "macOS cannot read the previous sign-in. You can sign in again with your username and password without restoring old entries, or use the button below to restore your previous sign-in with system authorization.",

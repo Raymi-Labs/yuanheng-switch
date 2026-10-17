@@ -31,3 +31,5 @@ Status: implemented
 ## Consequences
 
 点击工作台当前未安装工具即可开始原有安装流程，不再强制跳页；任务状态和取消跨入口保持一致。下载失败仍由既有提示说明，当前网络下 DSH 实际安装未验收完成；模拟 IPC 通过不等于第三方包已安装或真实渠道可用。macOS 本机测试不能证明 Windows 真机安装。导航离开原入口继续安装但取消旧账号的自动配置/启动意图，沿用既有约定。
+
+DSH official version selection and managed updates supersede only the fixed DSH version policy; see [official updates](../feature/2026-10-17-dsh-official-updates.md). Existing installation, entry-point and supervision boundaries remain in effect.

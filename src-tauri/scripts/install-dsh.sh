@@ -2,6 +2,9 @@
 # Runs only in the supervisor-owned staging directory. No global installation.
 set -eu
 cd "$YUANHENG_DSH_STAGE"
+# Exact version resolved and validated by the backend; never execute a shell fragment.
+version=${YUANHENG_DSH_VERSION:-}
+[[ ${#version} -le 80 && "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$ ]] || { echo '[DSH_VERSION_INVALID]' >&2; exit 1; }
 case "$(uname -s)-$(uname -m)" in
   Darwin-arm64) archive=node-v24.14.0-darwin-arm64; checksum=a1a54f46a750d2523d628d924aab61758a51c9dad3e0238beb14141be9615dd3 ;;
   Darwin-x86_64) archive=node-v24.14.0-darwin-x64; checksum=f2879eb810e25993a0578e5d878930266fd2eafcffe9f2839b3d8db354d4879e ;;
@@ -33,7 +36,7 @@ export NPM_CONFIG_GLOBALCONFIG="$PWD/empty-global.npmrc"
 echo package > phase
 node runtime/lib/node_modules/npm/bin/npm-cli.js install --prefix "$PWD/package" \
   --cache "$PWD/npm-cache" --registry=https://registry.npmjs.org \
-  --ignore-scripts --no-audit --no-fund --fetch-retries=1 @deepseek-ai/dsh@0.2.0-rc.2
+  --ignore-scripts --engine-strict --no-audit --no-fund --fetch-retries=1 "@deepseek-ai/dsh@$version"
 echo verify > phase
-[ "$(node package/node_modules/@deepseek-ai/dsh/lib/bin.js --version)" = "0.2.0-rc.2" ]
+[ "$(node package/node_modules/@deepseek-ai/dsh/lib/bin.js --version)" = "$version" ]
 node package/node_modules/@deepseek-ai/dsh/lib/bin.js --profile web --help >/dev/null

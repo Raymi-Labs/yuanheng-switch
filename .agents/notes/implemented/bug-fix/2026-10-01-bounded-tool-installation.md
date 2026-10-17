@@ -37,3 +37,5 @@ Status: implemented
 原生安装不再无限占用输出内存或无限执行，取消按实际进程所有权收敛；代价是超过十分钟的慢速下载也会停止，部分安装文件须用户重新检测处理。清理失败保留后端工具锁，宁可提示重启检查也不允许未知写入者与新安装重叠。后台任务到验证阶段才释放取消能力，验证完成前仍保持原来的互斥状态。
 
 Unix 恶意主动 setsid 脱离任务组不在可信官方安装器约束内；Windows Job 绑定失败时拒绝启动安装脚本。取消不能回滚第三方已写文件，提示重新检测。WSL、升级与整段版本验证的有界化保留为独立工作，不声称干净 Windows 真机安装已经验收。环境支持查询只判断能否安全监督本次安装，并非网络、权限或依赖的全面通过证明。
+
+DSH official version selection and managed updates supersede only the fixed DSH version policy; see [official updates](../feature/2026-10-17-dsh-official-updates.md). Existing installation, entry-point and supervision boundaries remain in effect.

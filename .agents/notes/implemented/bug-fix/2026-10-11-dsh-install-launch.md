@@ -39,3 +39,5 @@ Status: implemented
 ## Consequences
 
 用户无需先装 Node 或手动构建源码；代价是独立运行时的下载和磁盘占用。DSH 仍为预览版，后续 schema 变化需要显式更新版本并复验。官方下载不可达时报告失败并保留重试入口。Windows 安装脚本和完整用户链路仍待真机验收，Linux 下载路径未实机运行；本机模拟回复不代表任何真实渠道可用。旧第三方桌面应用的独立数据路径不因本次改动迁移。旧受损托管目录保留，不自动删除用户可能持有的会话；后续若增加卸载/回收必须另核对所有权。
+
+DSH official version selection and managed updates supersede only the fixed DSH version policy; see [official updates](../feature/2026-10-17-dsh-official-updates.md). Existing installation, entry-point and supervision boundaries remain in effect.

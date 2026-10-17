@@ -33,6 +33,7 @@ import { groupModelsByVendor, modelVendorOf } from "./modelVendors";
 import { dt } from "./desktopI18n";
 import { launchDirectoryLabel } from "./useToolLaunchDirectories";
 import { ToolActivationProgress } from "./ToolActivationProgress";
+import { DshUpdateControl } from "./DshUpdateControl";
 import { ToolInstallCancel } from "./ToolInstallCancel";
 import { toolInstallLabel } from "./toolInstallFeedback";
 import { useToolLifecycleState } from "@/lib/toolLifecycleState";
@@ -313,7 +314,7 @@ export function FocusToolCard({
     );
   }
 
-  const pending = pendingApps.has(app);
+  const pending = pendingApps.has(app) || switcher.installingApps.has(app);
   const isCodexSurface = app === "codex" || app === "chatgpt-desktop";
   const usesOfficialCodexAccount =
     isCodexSurface && codexAccountMode.data?.mode === "official";
@@ -447,6 +448,8 @@ export function FocusToolCard({
           {restartRequired ? dt("重启并应用") : dt("启动")}
         </button>
       </div>
+
+      {app === "dsh" && <DshUpdateControl busy={pendingApps.has(app)} onDark />}
 
       <div className="relative mt-4 flex flex-wrap items-baseline gap-x-3 gap-y-1">
         <span className="text-[11px] text-white/55">{dt("当前模型")}</span>

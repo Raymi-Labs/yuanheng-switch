@@ -357,15 +357,21 @@ pub async fn run_tool_lifecycle_action(
 ) -> Result<(), String> {
     let action = ToolLifecycleAction::from_str(&action)?;
     if tools.iter().any(|tool| tool == "dsh") {
-        if tools != ["dsh"] || !matches!(action, ToolLifecycleAction::Install) {
-            return Err("DSH 请单独安装；当前不支持通过通用工具更新入口升级".into());
+        if tools != ["dsh"] {
+            return Err("DSH 请单独安装或更新".into());
         }
         let guard = ToolLifecycleGuard::acquire(&["dsh"])?;
         let operation = super::tool_install_process::Operation::register(
             operation_id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string()),
         )?;
         let original_path = crate::app_store::get_desktop_app_path_from_store(&app, "dsh");
-        let result = super::dsh_install::install(operation.cancelled.clone()).await;
+        let update = matches!(action, ToolLifecycleAction::Update);
+        if update && original_path.is_some() {
+            return Err(
+                "当前使用自选 DSH 路径，请从原安装渠道更新；元衡不会修改源码或外部安装。".into(),
+            );
+        }
+        let result = super::dsh_install::install(operation.cancelled.clone(), update).await;
         if result
             .as_ref()
             .err()
@@ -1198,9 +1204,11 @@ fn get_single_local_tool_version_impl(
             if let Some(dir) = super::dsh_install::installed() {
                 let mut result = desktop_app_version(tool, None);
                 let runnable = super::dsh_install::verify(&dir);
-                result.version = runnable.then(|| super::dsh_install::VERSION.into());
+                result.version = runnable
+                    .then(|| super::dsh_install::version_at(&dir))
+                    .flatten();
                 result.install_path = Some(dir.to_string_lossy().into_owned());
-                result.detection_source = Some("automatic".into());
+                result.detection_source = Some("managed".into());
                 result.error = (!runnable).then(|| "DSH 独立运行环境已损坏，请重新安装".into());
                 result.installed_but_broken = !runnable;
                 return result;
@@ -1267,6 +1275,13 @@ fn cli_local_tool_version(
 async fn enrich_remote_tool_version(mut result: ToolVersion) -> ToolVersion {
     let name = result.name.clone();
     let tool = name.as_str();
+    if tool == "dsh" {
+        match super::dsh_install::latest_version().await {
+            Ok(version) => result.latest_version = Some(version),
+            Err(error) => result.error = Some(error),
+        }
+        return result;
+    }
     if matches!(
         tool,
         "claude-desktop" | "chatgpt-desktop" | "workbuddy" | "dsh"

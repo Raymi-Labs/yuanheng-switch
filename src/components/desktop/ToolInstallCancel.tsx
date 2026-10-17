@@ -8,7 +8,13 @@ import {
 import { dt } from "./desktopI18n";
 
 /** Same operation and cancel state across dashboard, tools and settings. */
-export function ToolInstallCancel({ tool }: { tool: string }) {
+export function ToolInstallCancel({
+  tool,
+  label,
+}: {
+  tool: string;
+  label?: string;
+}) {
   const phases = useToolLifecycleState();
   const phase = phases.get(tool);
   if (phase === "external-install") {
@@ -37,7 +43,7 @@ export function ToolInstallCancel({ tool }: { tool: string }) {
           });
       }}
     >
-      {phase === "cancelling" ? dt("正在停止安装…") : dt("取消安装")}
+      {phase === "cancelling" ? dt("正在停止安装…") : (label ?? dt("取消安装"))}
     </Button>
   );
 }
