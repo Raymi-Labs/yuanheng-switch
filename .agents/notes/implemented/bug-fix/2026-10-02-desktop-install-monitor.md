@@ -27,3 +27,5 @@ Status: implemented
 ## Existing notes audit
 
 安装状态和原生安装监督笔记部分重叠，桌面应用监测是独立链路，不改变 CLI 取消机制；上轮响应校验本地改动保留。
+
+安装阶段、下载量与等待可见性由[共享安装进度](../feature/2026-10-18-tool-install-progress.md)扩展，本文的取消、超时和观察所有权继续生效。

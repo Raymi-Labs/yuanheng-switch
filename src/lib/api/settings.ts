@@ -1,4 +1,4 @@
-import { invoke } from "@tauri-apps/api/core";
+import { Channel, invoke } from "@tauri-apps/api/core";
 import type {
   Settings,
   WebDavSyncSettings,
@@ -11,7 +11,10 @@ import {
   invalidateToolDetection,
   toolDetectionEpoch,
 } from "@/lib/toolDetectionEpoch";
-import { runToolLifecycleJob } from "@/lib/toolLifecycleState";
+import {
+  runToolLifecycleJob,
+  type ToolInstallProgress,
+} from "@/lib/toolLifecycleState";
 
 const toolDetectionFlight = createSingleFlight();
 function detectionKey(
@@ -439,16 +442,19 @@ export const settingsApi = {
     await runToolLifecycleJob(
       tools,
       supervised ? "install" : action,
-      async (setCancel) => {
+      async (setCancel, reportProgress) => {
         const operationId = crypto.randomUUID();
         const native =
           supervised &&
           (await invoke<boolean>("native_tool_install_supported", { tools }));
+        const progress = new Channel<ToolInstallProgress>();
+        progress.onmessage = reportProgress;
         const execution = invoke<void>("run_tool_lifecycle_action", {
           tools,
           action,
           wslShellByTool,
           operationId,
+          progress,
         });
         if (supervised) {
           setCancel(
@@ -461,6 +467,7 @@ export const settingsApi = {
         try {
           await execution;
         } finally {
+          progress.onmessage = () => {};
           // Partial writes after failure/cancel invalidate negative detection cache too.
           invalidateToolDetection();
         }

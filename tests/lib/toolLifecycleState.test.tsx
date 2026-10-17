@@ -4,12 +4,18 @@ import {
   isToolLifecycleBusy,
   runToolLifecycleJob,
   useToolLifecycleState,
+  useToolInstallProgress,
   cancelToolInstall,
 } from "@/lib/toolLifecycleState";
 import { settingsApi } from "@/lib/api/settings";
 
 const invoke = vi.hoisted(() => vi.fn());
-vi.mock("@tauri-apps/api/core", () => ({ invoke }));
+vi.mock("@tauri-apps/api/core", () => ({
+  invoke,
+  Channel: class {
+    onmessage = (_value: unknown) => {};
+  },
+}));
 const deferred = () => {
   let resolve!: () => void;
   const promise = new Promise<void>((done) => {
@@ -19,6 +25,56 @@ const deferred = () => {
 };
 
 describe("shared tool installation lifecycle", () => {
+  it("routes IPC progress only to its active job and clears the callback on failure", async () => {
+    let channel!: { onmessage: (value: unknown) => void };
+    let rejectExecution!: (value: Error) => void;
+    invoke.mockImplementation(async (command, payload) => {
+      if (command === "native_tool_install_supported") return true;
+      if (command === "run_tool_lifecycle_action") {
+        channel = payload.progress;
+        return new Promise<void>((_, reject) => {
+          rejectExecution = reject;
+        });
+      }
+    });
+    const view = renderHook(useToolInstallProgress);
+    let task!: Promise<void>;
+    act(() => {
+      task = settingsApi.runToolLifecycleAction(["dsh"], "install");
+    });
+    const failed = expect(task).rejects.toThrow("download failed");
+    await act(async () => {
+      await Promise.resolve();
+    });
+    const stale = channel.onmessage;
+    act(() =>
+      channel.onmessage({
+        stage: "download",
+        downloadedBytes: 40,
+        totalBytes: 100,
+        activity: true,
+      }),
+    );
+    expect(view.result.current.get("dsh")?.downloadedBytes).toBe(40);
+    await act(async () => {
+      rejectExecution(new Error("download failed"));
+      await failed;
+    });
+    expect(view.result.current.size).toBe(0);
+    const next = deferred();
+    let retry!: Promise<void>;
+    act(() => {
+      retry = runToolLifecycleJob(["dsh"], "install", () => next.promise);
+    });
+    act(() => stale({ stage: "download", downloadedBytes: 99 }));
+    expect(view.result.current.get("dsh")?.stage).toBe("preparing");
+    await act(async () => {
+      next.resolve();
+      await retry;
+    });
+    view.unmount();
+  });
+
   it("cancels by operation ID and does not verify or report success after cancellation", async () => {
     let rejectExecution!: (error: Error) => void;
     let operationId = "";

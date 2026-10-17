@@ -6,6 +6,30 @@ export type ToolLifecyclePhase =
   | "verifying"
   | "cancelling"
   | "external-install";
+export interface ToolInstallProgress {
+  stage:
+    | "preparing"
+    | "resolving"
+    | "download"
+    | "checksum"
+    | "extract"
+    | "package"
+    | "verify"
+    | "publishing"
+    | "executing";
+  downloadedBytes?: number | null;
+  totalBytes?: number | null;
+  activity?: boolean;
+}
+export interface ToolInstallDetails extends ToolInstallProgress {
+  startedAt: number;
+  lastActivityAt: number;
+}
+let progressSnapshot: ReadonlyMap<string, ToolInstallDetails> = new Map();
+const getProgressSnapshot = () => progressSnapshot;
+export const useToolInstallProgress = () =>
+  useSyncExternalStore(subscribe, getProgressSnapshot, getProgressSnapshot);
+
 let snapshot: ReadonlyMap<string, ToolLifecyclePhase> = new Map();
 const listeners = new Set<() => void>();
 const cancelHandlers = new Map<string, () => Promise<boolean>>();
@@ -35,6 +59,7 @@ export async function runToolLifecycleJob(
   action: "install" | "update",
   execute: (
     setCancel: (cancel?: () => Promise<boolean>) => void,
+    reportProgress: (progress: ToolInstallProgress) => void,
   ) => Promise<void>,
   verify?: () => Promise<void>,
 ) {
@@ -43,16 +68,53 @@ export async function runToolLifecycleJob(
     throw new Error("该工具正在安装或更新，请等待当前任务完成");
   const publish = (phase?: ToolLifecyclePhase) => {
     const next = new Map(snapshot);
+    const details = new Map(progressSnapshot);
+    const now = Date.now();
     for (const tool of targets) {
-      if (phase) next.set(tool, phase);
-      else next.delete(tool);
+      if (phase) {
+        next.set(tool, phase);
+        const previous = details.get(tool);
+        details.set(
+          tool,
+          previous
+            ? {
+                ...previous,
+                lastActivityAt:
+                  snapshot.get(tool) === phase ? previous.lastActivityAt : now,
+              }
+            : { stage: "preparing", startedAt: now, lastActivityAt: now },
+        );
+      } else {
+        next.delete(tool);
+        details.delete(tool);
+      }
     }
     snapshot = next;
+    progressSnapshot = details;
     listeners.forEach((listener) => listener());
   };
   publish(action === "install" ? "installing" : "updating");
   let active = true;
   let cancelling = false;
+  const reportProgress = (progress: ToolInstallProgress) => {
+    if (!active || cancelling) return;
+    const next = new Map(progressSnapshot);
+    for (const tool of targets) {
+      const previous = next.get(tool);
+      if (!previous) continue;
+      const changed =
+        previous.stage !== progress.stage ||
+        previous.downloadedBytes !== progress.downloadedBytes;
+      next.set(tool, {
+        ...progress,
+        startedAt: previous.startedAt,
+        lastActivityAt:
+          progress.activity || changed ? Date.now() : previous.lastActivityAt,
+      });
+    }
+    progressSnapshot = next;
+    listeners.forEach((listener) => listener());
+  };
   const clearCancel = () =>
     targets.forEach((tool) => cancelHandlers.delete(tool));
   const setCancel = (cancel?: () => Promise<boolean>) => {
@@ -86,7 +148,7 @@ export async function runToolLifecycleJob(
     publish("installing");
   };
   try {
-    await execute(setCancel);
+    await execute(setCancel, reportProgress);
     clearCancel();
     active = false;
     if (verify) {

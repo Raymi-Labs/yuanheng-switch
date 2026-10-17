@@ -1,3 +1,4 @@
+import { ToolInstallProgress } from "@/components/desktop/ToolInstallProgress";
 import claudeWindowsInstaller from "../../../src-tauri/scripts/install-claude-windows.ps1?raw";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
@@ -1214,6 +1215,7 @@ export function AboutSection({ isPortable }: AboutSectionProps) {
                   </div>
                 )}
 
+                <ToolInstallProgress tool={toolName} />
                 <div className="mt-auto flex items-center justify-end">
                   <ToolInstallCancel tool={toolName} />
                   {isToolVersionLoading ? (

@@ -178,7 +178,11 @@ pub(super) fn verify(dir: &Path) -> bool {
     success && output.take(128).read_to_string(&mut text).is_ok() && text.trim() == expected
 }
 
-pub(super) async fn install(cancelled: Arc<AtomicBool>, update: bool) -> Result<(), String> {
+pub(super) async fn install(
+    cancelled: Arc<AtomicBool>,
+    update: bool,
+    progress: super::tool_install_process::ProgressReporter,
+) -> Result<(), String> {
     if cancelled.load(std::sync::atomic::Ordering::SeqCst) {
         return Err(super::tool_install_process::CANCELLED.into());
     }
@@ -188,6 +192,7 @@ pub(super) async fn install(cancelled: Arc<AtomicBool>, update: bool) -> Result<
     if update && current.is_none() {
         return Err("未找到元衡托管的 DSH，请先安装；外部安装请从原渠道更新。".into());
     }
+    progress.stage("resolving");
     let target = latest_version().await;
     if cancelled.load(std::sync::atomic::Ordering::SeqCst) {
         return Err(super::tool_install_process::CANCELLED.into());
@@ -250,10 +255,12 @@ pub(super) async fn install(cancelled: Arc<AtomicBool>, update: bool) -> Result<
         .current_dir(stage.path())
         .env("YUANHENG_DSH_STAGE", stage.path())
         .env("YUANHENG_DSH_VERSION", &target);
-    let output = match super::tool_install_process::run(
+    let output = match super::tool_install_process::run_with_progress(
         command,
         cancelled.clone(),
         Duration::from_secs(600),
+        progress.clone(),
+        Some(stage.path()),
     )
     .await
     {
@@ -288,7 +295,7 @@ pub(super) async fn install(cancelled: Arc<AtomicBool>, update: bool) -> Result<
             fs::remove_dir_all(path).map_err(|_| "DSH 安装临时文件清理失败")?;
         }
     }
-    for name in ["runtime.tar.gz", "runtime.zip"] {
+    for name in ["runtime.tar.gz", "runtime.zip", "download.headers"] {
         let path = stage.path().join(name);
         if path.is_file() {
             fs::remove_file(path).map_err(|_| "DSH 安装临时文件清理失败")?;
@@ -297,6 +304,7 @@ pub(super) async fn install(cancelled: Arc<AtomicBool>, update: bool) -> Result<
     if cancelled.load(std::sync::atomic::Ordering::SeqCst) {
         return Err(super::tool_install_process::CANCELLED.into());
     }
+    progress.stage("publishing");
     tokio::task::spawn_blocking(move || publish_install(&base, stage, &target, &cancelled))
         .await
         .map_err(|_| "DSH 发布检查失败，原安装未替换".to_string())?

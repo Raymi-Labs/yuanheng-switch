@@ -5,6 +5,9 @@ import { server } from "./server";
 const TAURI_ENDPOINT = "http://tauri.local";
 
 vi.mock("@tauri-apps/api/core", () => ({
+  Channel: class {
+    onmessage = (_value: unknown) => {};
+  },
   invoke: async (command: string, payload: Record<string, unknown> = {}) => {
     const response = await fetch(`${TAURI_ENDPOINT}/${command}`, {
       method: "POST",

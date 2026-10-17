@@ -39,3 +39,5 @@ Status: implemented
 Unix 恶意主动 setsid 脱离任务组不在可信官方安装器约束内；Windows Job 绑定失败时拒绝启动安装脚本。取消不能回滚第三方已写文件，提示重新检测。WSL、升级与整段版本验证的有界化保留为独立工作，不声称干净 Windows 真机安装已经验收。环境支持查询只判断能否安全监督本次安装，并非网络、权限或依赖的全面通过证明。
 
 DSH official version selection and managed updates supersede only the fixed DSH version policy; see [official updates](../feature/2026-10-17-dsh-official-updates.md). Existing installation, entry-point and supervision boundaries remain in effect.
+
+安装阶段、下载量与等待可见性由[共享安装进度](../feature/2026-10-18-tool-install-progress.md)扩展，本文的取消、超时和观察所有权继续生效。

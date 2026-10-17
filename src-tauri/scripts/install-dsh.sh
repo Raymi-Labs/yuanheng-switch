@@ -13,7 +13,7 @@ case "$(uname -s)-$(uname -m)" in
   *) echo '[DSH_PLATFORM_UNSUPPORTED]' >&2; exit 1 ;;
 esac
 echo download > phase
-curl --fail --silent --show-error --proto '=https' --connect-timeout 20 --max-time 240 \
+curl --fail --silent --show-error --proto '=https' --connect-timeout 20 --max-time 240 --dump-header download.headers \
   "https://nodejs.org/dist/v24.14.0/$archive.tar.gz" -o runtime.tar.gz
 echo checksum > phase
 if command -v shasum >/dev/null 2>&1; then

@@ -6,6 +6,26 @@ import { DESKTOP_ZH_TW } from "./desktopI18n.zhTW";
 type Values = Record<string, string | number | null | undefined>;
 
 export const DESKTOP_EN: Record<string, string> = {
+  "正在准备安装…": "Preparing installation…",
+  "正在检查官方最新版本…": "Checking the latest official version…",
+  "正在下载运行环境…": "Downloading the runtime…",
+  "正在校验下载文件…": "Verifying the download…",
+  "正在解压运行环境…": "Extracting the runtime…",
+  "正在下载并安装 DSH…": "Downloading and installing DSH…",
+  "正在验证工具能否运行…": "Checking that the tool runs…",
+  "正在保存并验证安装…": "Saving and verifying the installation…",
+  "正在运行官方安装程序…": "Running the official installer…",
+  "等待完成官网安装，正在自动检测…":
+    "Waiting for installation; checking automatically…",
+  安装进度: "Installation progress",
+  "已用时 {{time}}": "Elapsed {{time}}",
+  "已下载 {{size}}": "Downloaded {{size}}",
+  "距上次进展 {{time}}": "Last activity {{time}} ago",
+  "请在官网下载并运行安装包；元衡每 3 秒检测一次，最多等待 5 分钟。":
+    "Download and run the official installer. YuanHeng checks every 3 seconds for up to 5 minutes.",
+  "暂未收到新的进度，安装可能仍在进行。请检查网络或系统安装提示。":
+    "No new progress yet; installation may still be running. Check your network or system installer prompts.",
+
   "DSH 版本更新": "DSH updates",
   "当前版本 {{version}}": "Current version {{version}}",
   检查更新: "Check for updates",

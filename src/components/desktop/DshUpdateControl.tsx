@@ -1,3 +1,4 @@
+import { ToolInstallProgress } from "./ToolInstallProgress";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Loader2, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
@@ -103,6 +104,7 @@ export function DshUpdateControl({
                   version: info?.latest_version,
                 })}
       </p>
+      <ToolInstallProgress tool="dsh" onDark={onDark} />
       {info && !managed && (
         <p className="mt-1 leading-5">
           {dt("此 DSH 来自自选路径或外部安装，请通过原渠道更新。")}

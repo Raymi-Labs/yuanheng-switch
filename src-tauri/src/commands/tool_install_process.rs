@@ -13,6 +13,85 @@ pub(super) const CANCELLED: &str =
     "[INSTALL_CANCELLED] 安装已停止；已写入的文件不会回滚，请先重新检测工具再决定是否重试。";
 pub(super) const TIMED_OUT: &str = "[INSTALL_TIMEOUT] 安装超过 10 分钟，已停止本次安装进程。请检查网络与依赖，重新检测工具后再决定是否重试。";
 const OUTPUT_LIMIT: usize = 64 * 1024;
+// Only structured, non-sensitive progress crosses IPC; never installer output.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InstallProgress {
+    pub stage: &'static str,
+    pub downloaded_bytes: Option<u64>,
+    pub total_bytes: Option<u64>,
+    pub activity: bool,
+}
+
+#[derive(Clone)]
+pub(super) struct ProgressReporter(pub Option<tauri::ipc::Channel<InstallProgress>>);
+impl ProgressReporter {
+    pub fn stage(&self, stage: &'static str) {
+        self.send(InstallProgress {
+            stage,
+            downloaded_bytes: None,
+            total_bytes: None,
+            activity: true,
+        });
+    }
+    fn send(&self, progress: InstallProgress) {
+        if let Some(channel) = &self.0 {
+            let _ = channel.send(progress);
+        }
+    }
+}
+
+fn read_small(path: &std::path::Path, limit: u64) -> String {
+    use std::io::Read;
+    let mut value = String::new();
+    if let Ok(file) = std::fs::File::open(path) {
+        let _ = file.take(limit).read_to_string(&mut value);
+    }
+    value
+}
+
+fn download_total(headers: &str) -> Option<u64> {
+    let mut total = None;
+    for line in headers.lines() {
+        if line.starts_with("HTTP/") {
+            total = None;
+        }
+        if let Some((name, value)) = line.split_once(':') {
+            if name.eq_ignore_ascii_case("content-length") {
+                total = value.trim().parse::<u64>().ok().filter(|n| *n > 0);
+            }
+        }
+    }
+    total
+}
+
+fn progress_snapshot(stage_dir: Option<&std::path::Path>, activity: bool) -> InstallProgress {
+    let mut result = InstallProgress {
+        stage: "executing",
+        downloaded_bytes: None,
+        total_bytes: None,
+        activity,
+    };
+    if let Some(dir) = stage_dir {
+        result.stage = match read_small(&dir.join("phase"), 64).trim() {
+            "download" => "download",
+            "checksum" => "checksum",
+            "extract" => "extract",
+            "package" => "package",
+            "verify" => "verify",
+            _ => "preparing",
+        };
+        if result.stage == "download" {
+            result.downloaded_bytes = ["runtime.tar.gz", "runtime.zip"]
+                .iter()
+                .find_map(|name| std::fs::metadata(dir.join(name)).ok().map(|m| m.len()));
+            result.total_bytes = download_total(&read_small(&dir.join("download.headers"), 8192))
+                .filter(|total| result.downloaded_bytes.unwrap_or(0) <= *total);
+        }
+    }
+    result
+}
+
 static OPERATIONS: Lazy<Mutex<HashMap<String, Arc<AtomicBool>>>> =
     Lazy::new(|| Mutex::new(HashMap::new()));
 
@@ -63,13 +142,19 @@ fn append_tail(tail: &mut Vec<u8>, bytes: &[u8]) {
         tail.extend_from_slice(bytes);
     }
 }
-async fn drain(mut reader: impl tokio::io::AsyncRead + Unpin) -> Vec<u8> {
+async fn drain(
+    mut reader: impl tokio::io::AsyncRead + Unpin,
+    activity: Arc<AtomicBool>,
+) -> Vec<u8> {
     let mut tail = Vec::new();
     let mut chunk = [0u8; 8192];
     loop {
         match reader.read(&mut chunk).await {
             Ok(0) | Err(_) => return tail,
-            Ok(n) => append_tail(&mut tail, &chunk[..n]),
+            Ok(n) => {
+                append_tail(&mut tail, &chunk[..n]);
+                activity.store(true, Ordering::Relaxed);
+            }
         }
     }
 }
@@ -182,10 +267,21 @@ impl Drop for Tree {
 
 /// Windows command must start with our stdin gate; callers never supply commands via IPC.
 /// Unix creates the group before exec. Always kill remaining descendants, even on success.
+#[cfg(test)]
 pub(super) async fn run(
+    command: tokio::process::Command,
+    cancelled: Arc<AtomicBool>,
+    timeout: Duration,
+) -> Result<Output, String> {
+    run_with_progress(command, cancelled, timeout, ProgressReporter(None), None).await
+}
+
+pub(super) async fn run_with_progress(
     mut command: tokio::process::Command,
     cancelled: Arc<AtomicBool>,
     timeout: Duration,
+    progress: ProgressReporter,
+    stage_dir: Option<&std::path::Path>,
 ) -> Result<Output, String> {
     if cancelled.load(Ordering::SeqCst) {
         return Err(CANCELLED.to_string());
@@ -225,14 +321,30 @@ pub(super) async fn run(
             return Err("无法启动受控安装任务".to_string());
         }
     }
+    let activity = Arc::new(AtomicBool::new(false));
     let mut stdout = PipeReader(tokio::spawn(drain(
         child.stdout.take().expect("piped stdout"),
+        activity.clone(),
     )));
     let mut stderr = PipeReader(tokio::spawn(drain(
         child.stderr.take().expect("piped stderr"),
+        activity.clone(),
     )));
     let deadline = tokio::time::Instant::now() + timeout;
+    let mut last_report = tokio::time::Instant::now() - Duration::from_secs(1);
+    let mut previous = None;
     let outcome = loop {
+        if last_report.elapsed() >= Duration::from_millis(500) {
+            let mut next = progress_snapshot(stage_dir, false);
+            let changed = previous.as_ref() != Some(&next);
+            let output_activity = activity.swap(false, Ordering::Relaxed);
+            previous = Some(next.clone());
+            if changed || output_activity {
+                next.activity = true;
+                progress.send(next);
+            }
+            last_report = tokio::time::Instant::now();
+        }
         if cancelled.load(Ordering::SeqCst) {
             break Err(CANCELLED.to_string());
         }
@@ -315,6 +427,110 @@ mod tests {
             command
         };
         (dir, command)
+    }
+
+    #[test]
+    fn progress_reads_only_known_stages_and_actual_download_sizes() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path();
+        std::fs::write(path.join("phase"), "download\n").unwrap();
+        std::fs::write(path.join("runtime.tar.gz"), [0; 25]).unwrap();
+        std::fs::write(path.join("download.headers"), "HTTP/1.1 200 Connection established\r\nContent-Length: 500\r\n\r\nHTTP/2 200\r\ncontent-length: 100\r\nx-private: secret\r\n").unwrap();
+        let progress = progress_snapshot(Some(path), false);
+        assert_eq!(progress.downloaded_bytes, Some(25));
+        assert_eq!(progress.total_bytes, Some(100));
+        assert!(!serde_json::to_string(&progress).unwrap().contains("secret"));
+        std::fs::write(path.join("phase"), "package").unwrap();
+        let progress = progress_snapshot(Some(path), false);
+        assert_eq!(progress.stage, "package");
+        assert_eq!(progress.downloaded_bytes, None);
+        assert_eq!(progress.total_bytes, None);
+        std::fs::write(path.join("phase"), "secret-path").unwrap();
+        assert_eq!(progress_snapshot(Some(path), false).stage, "preparing");
+        assert_eq!(
+            download_total("HTTP/1.1 200\nContent-Length: 500\nHTTP/2 200\n"),
+            None
+        );
+        assert_eq!(download_total("Content-Length: 0"), None);
+        assert_eq!(download_total("Content-Length: nonsense"), None);
+    }
+
+    #[tokio::test]
+    async fn live_child_download_and_stage_changes_reach_the_channel() {
+        #[cfg(unix)]
+        let script = "echo download > phase; echo bytes > runtime.tar.gz; sleep 1; echo extract > phase; sleep 1";
+        #[cfg(windows)]
+        let script = "echo download>phase\r\necho bytes>runtime.zip\r\nping -n 2 127.0.0.1 >nul\r\necho extract>phase\r\nping -n 2 127.0.0.1 >nul";
+        let (dir, cmd) = command(script);
+        std::fs::write(
+            dir.path().join("download.headers"),
+            "HTTP/2 200\r\nContent-Length: 100\r\n",
+        )
+        .unwrap();
+        let messages = Arc::new(Mutex::new(Vec::new()));
+        let recorded = messages.clone();
+        let channel = tauri::ipc::Channel::new(move |body| {
+            if let tauri::ipc::InvokeResponseBody::Json(json) = body {
+                recorded
+                    .lock()
+                    .unwrap()
+                    .push(serde_json::from_str::<serde_json::Value>(&json).unwrap());
+            }
+            Ok(())
+        });
+        run_with_progress(
+            cmd,
+            Arc::new(AtomicBool::new(false)),
+            Duration::from_secs(5),
+            ProgressReporter(Some(channel)),
+            Some(dir.path()),
+        )
+        .await
+        .unwrap();
+        let messages = messages.lock().unwrap();
+        assert!(messages.iter().any(|m| m["stage"] == "download"
+            && m["downloadedBytes"].as_u64().unwrap_or(0) > 0
+            && m["totalBytes"] == 100));
+        assert!(messages
+            .iter()
+            .any(|m| m["stage"] == "extract" && m["totalBytes"].is_null()));
+    }
+
+    #[tokio::test]
+    async fn output_activity_is_reported_without_exposing_output() {
+        let (mut writer, reader) = tokio::io::duplex(1024);
+        let activity = Arc::new(AtomicBool::new(false));
+        use tokio::io::AsyncWriteExt;
+        writer.write_all(b"private-token-and-path").await.unwrap();
+        drop(writer);
+        assert_eq!(
+            drain(reader, activity.clone()).await,
+            b"private-token-and-path"
+        );
+        assert!(activity.load(Ordering::Relaxed));
+        let messages = Arc::new(Mutex::new(Vec::new()));
+        let recorded = messages.clone();
+        let channel = tauri::ipc::Channel::new(move |body| {
+            if let tauri::ipc::InvokeResponseBody::Json(json) = body {
+                recorded.lock().unwrap().push(json);
+            }
+            Ok(())
+        });
+        let (_dir, cmd) = command("echo private-token-and-path");
+        run_with_progress(
+            cmd,
+            Arc::new(AtomicBool::new(false)),
+            Duration::from_secs(5),
+            ProgressReporter(Some(channel)),
+            None,
+        )
+        .await
+        .unwrap();
+        let messages = messages.lock().unwrap();
+        assert!(!messages.is_empty());
+        assert!(messages
+            .iter()
+            .all(|m| !m.contains("private-token-and-path")));
     }
 
     #[tokio::test]

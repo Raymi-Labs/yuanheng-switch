@@ -330,3 +330,22 @@ html[data-ui-density="compact"] .settings-section-content > div {
   padding-top: 0.75rem;
   padding-bottom: 0.75rem;
 }
+
+@keyframes install-progress-slide {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(386%);
+  }
+}
+.install-progress-indeterminate {
+  animation: install-progress-slide 1.8s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .install-progress-indeterminate {
+    animation: none;
+    width: 100% !important;
+    opacity: 0.6;
+  }
+}

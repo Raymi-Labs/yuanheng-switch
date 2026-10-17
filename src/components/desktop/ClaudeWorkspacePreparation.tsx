@@ -1,3 +1,4 @@
+import { ToolInstallProgress } from "./ToolInstallProgress";
 import { useEffect, useId, useState, useSyncExternalStore } from "react";
 import { Loader2, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -75,6 +76,7 @@ export function ClaudeWorkspacePreparation({
               {state?.message ?? dt("正在检查 Windows 运行环境…")}
             </p>
           </div>
+          <ToolInstallProgress tool="claude-desktop" />
           {state?.phase === "restart_required" && (
             <p className="text-sm text-muted-foreground">
               {dt(

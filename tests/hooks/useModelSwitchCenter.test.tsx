@@ -21,6 +21,9 @@ vi.mock("sonner", () => ({
 }));
 
 vi.mock("@tauri-apps/api/core", () => ({
+  Channel: class {
+    onmessage = (_value: unknown) => {};
+  },
   invoke: (...args: unknown[]) => invokeMock(...args),
 }));
 

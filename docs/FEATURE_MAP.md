@@ -47,11 +47,17 @@ Claude diagnostic persistence uses a bounded background writer, not disk I/O on 
 
 环境未就绪提示下提供“不再提醒”，通过独立本机偏好关闭启动弹窗、自动复查和闲置恢复按钮；任务标记及系统环境检查保留。主动安装、配置或启动仍检查并可重新打开提示，手动重试不清除偏好，取消勾选恢复提醒；存储失败显示错误且保持原值。回归入口：`ClaudeWorkspacePreparation.test.tsx`、`claudeWorkspaceSetup.test.ts`。见[提醒偏好笔记](../.agents/notes/implemented/feature/2026-10-13-claude-preparation-reminder.md)。
 
+## 安装进度（2026-10-18）
+
+`settingsApi.runToolLifecycleAction` 为每个任务建立 Tauri Channel，`tool_install_process` 在受控进程生命周期内最多每 500ms 报告阶段/字节/输出活动。`toolLifecycleState` 保存原生任务开始和最近活动时间，工作台、工具页、关于页和 DSH 更新复用 `ToolInstallProgress`。只展示有依据的下载百分比；不传终端原文、路径、HTTP 头或凭据。取消、失败、验证结束清理；迟到回调不能覆盖新任务。官网下载安装保持观察语义，窗口/页面入口显示等待说明。
+
+决策与验证边界见[共享安装进度](../.agents/notes/implemented/feature/2026-10-18-tool-install-progress.md)。
+
 ## 安装与模型选择连续性（2026-10-01）
 
 | 能力/入口 | 复用链路 | 不变量与边界 |
 |---|---|---|
-| 工作台当前工具、工具页、关于页 CLI 安装 | `settingsApi.runToolLifecycleAction` → `toolLifecycleState` → `commands/misc.rs` | 立即发布执行/验证状态，同工具互斥；安装后本机版本探测确认可运行才成功。第三方安装器不提供统一字节进度，不展示虚假百分比。 |
+| 工作台当前工具、工具页、关于页 CLI 安装 | `settingsApi.runToolLifecycleAction` → `toolLifecycleState` → `commands/misc.rs` | 立即发布执行/验证状态，同工具互斥；安装后本机版本探测确认可运行才成功。共享 `ToolInstallProgress` 展示阶段、耗时和最近活动；DSH 按真实字节与可用总量显示下载百分比，其他阶段使用不确定进度，静默一分钟提醒检查网络/系统提示。官网安装明确显示等待与自动检测，Claude Windows 准备复用系统阶段。 |
 | 纯净环境安装 | Windows Claude 原生 PowerShell 安装器；POSIX/WSL 原生优先；npm 分支依赖检查 | npm 安装在实际执行环境检查 Node/npm；缺失给出 Node.js LTS 指引，不静默修改全局运行时。WSL 依赖不由 Windows 主机检测代替。 |
 | 模型下拉与后台刷新 | `ModelPicker` → `useRefreshYuanheng` → `useYuanhengToolStatuses` | 工具状态缓存按地址/账号/连接状态隔离，不按同步时间重建。刷新保留已知状态与弹层；选择、Esc、外部点击仍正常关闭。 |
 

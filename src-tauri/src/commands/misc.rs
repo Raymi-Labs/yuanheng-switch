@@ -354,7 +354,10 @@ pub async fn run_tool_lifecycle_action(
     action: String,
     wsl_shell_by_tool: Option<HashMap<String, WslShellPreferenceInput>>,
     operation_id: Option<String>,
+    progress: tauri::ipc::Channel<super::tool_install_process::InstallProgress>,
 ) -> Result<(), String> {
+    let progress = super::tool_install_process::ProgressReporter(Some(progress));
+    progress.stage("preparing");
     let action = ToolLifecycleAction::from_str(&action)?;
     if tools.iter().any(|tool| tool == "dsh") {
         if tools != ["dsh"] {
@@ -371,7 +374,8 @@ pub async fn run_tool_lifecycle_action(
                 "当前使用自选 DSH 路径，请从原安装渠道更新；元衡不会修改源码或外部安装。".into(),
             );
         }
-        let result = super::dsh_install::install(operation.cancelled.clone(), update).await;
+        let result =
+            super::dsh_install::install(operation.cancelled.clone(), update, progress).await;
         if result
             .as_ref()
             .err()
@@ -417,7 +421,8 @@ pub async fn run_tool_lifecycle_action(
         // Install command construction never probes existing CLI versions.
         let command_line =
             build_tool_lifecycle_command(&requested, action, wsl_shell_by_tool.as_ref())?;
-        let result = run_supervised_install(&command_line, operation.cancelled.clone()).await;
+        let result =
+            run_supervised_install(&command_line, operation.cancelled.clone(), progress).await;
         if result
             .as_ref()
             .err()
@@ -428,6 +433,7 @@ pub async fn run_tool_lifecycle_action(
         }
         result
     } else {
+        progress.stage("executing");
         tokio::task::spawn_blocking(move || {
             let _guard = guard;
             let command_line =
@@ -469,6 +475,7 @@ pub fn cancel_tool_installation(operation_id: String) -> Result<bool, String> {
 async fn run_supervised_install(
     command_line: &str,
     cancelled: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    progress: super::tool_install_process::ProgressReporter,
 ) -> Result<(), String> {
     #[cfg(not(windows))]
     let command = {
@@ -496,10 +503,12 @@ async fn run_supervised_install(
         command.args(["/D", "/C"]).arg(script.path());
         (script, command)
     };
-    let output = super::tool_install_process::run(
+    let output = super::tool_install_process::run_with_progress(
         command,
         cancelled,
         std::time::Duration::from_secs(10 * 60),
+        progress,
+        None,
     )
     .await?;
     finish_lifecycle_output(&output)

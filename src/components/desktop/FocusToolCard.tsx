@@ -1,3 +1,4 @@
+import { ToolInstallProgress } from "./ToolInstallProgress";
 import { CodexHistoryHint } from "./CodexHistoryHint";
 import { useMemo, useState, type ReactNode } from "react";
 import {
@@ -191,6 +192,13 @@ function FocusToolStateCard({
                   : dt("安装与配置")}
           </button>
           {target && <ToolInstallCancel tool={target} />}
+        </div>
+        <div className="w-full max-w-lg">
+          <ToolInstallProgress
+            tool={target ?? ""}
+            waitingForDesktop={Boolean(busy && download)}
+            onDark
+          />
         </div>
       </div>
     </section>

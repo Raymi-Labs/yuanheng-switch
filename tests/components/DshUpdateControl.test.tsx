@@ -13,7 +13,12 @@ import { cancelToolInstall } from "@/lib/toolLifecycleState";
 import { toast } from "sonner";
 
 const invoke = vi.hoisted(() => vi.fn());
-vi.mock("@tauri-apps/api/core", () => ({ invoke }));
+vi.mock("@tauri-apps/api/core", () => ({
+  Channel: class {
+    onmessage = (_value: unknown) => {};
+  },
+  invoke,
+}));
 vi.mock("sonner", () => ({
   toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() },
 }));

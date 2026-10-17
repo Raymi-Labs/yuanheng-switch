@@ -1,3 +1,4 @@
+import { ToolInstallProgress } from "./ToolInstallProgress";
 import {
   useEffect,
   useMemo,
@@ -1309,6 +1310,12 @@ function ToolSetupGridContent({
 
               {app === "dsh" && installed && <DshUpdateControl busy={busy} />}
 
+              {!(app === "dsh" && installed) && (
+                <ToolInstallProgress
+                  tool={versionTarget ?? ""}
+                  waitingForDesktop={desktopInstall.monitoringApps.has(app)}
+                />
+              )}
               <div className="mt-auto flex gap-2 pt-3">
                 {!(app === "dsh" && installed) && (
                   <ToolInstallCancel tool={versionTarget ?? ""} />
