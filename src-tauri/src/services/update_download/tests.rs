@@ -132,14 +132,25 @@ async fn run(sources: &[&Server], policy: Policy, expected: &[u8]) -> Result<Vec
 fn only_exact_project_assets_have_an_alternative() {
     let known = "https://meta-api.vip/desktop/update/releases/0.1.76/YuanHeng.Desktop_0.1.76_aarch64.app.tar.gz";
     let sources = official_sources(&Url::parse(known).unwrap(), "0.1.76").unwrap();
-    assert_eq!(sources.len(), 2);
-    assert_eq!(sources[0].host_str(), Some("download.meta-api.vip"));
-    assert_eq!(sources[1].host_str(), Some("github.com"));
+    assert_eq!(sources.len(), 3);
+    assert_eq!(sources[0].as_str(), format!("{known}?origin=1"));
+    assert_eq!(sources[1].host_str(), Some("download.meta-api.vip"));
+    assert_eq!(sources[2].host_str(), Some("github.com"));
+    for suffix in ["x64.app.tar.gz", "x64-setup.exe"] {
+        let raw = known.replace("aarch64.app.tar.gz", suffix);
+        let candidates = official_sources(&Url::parse(&raw).unwrap(), "0.1.76").unwrap();
+        assert_eq!(candidates.len(), 3);
+        assert_eq!(candidates[0].query(), Some("origin=1"));
+        assert!(candidates.iter().all(|url| url.path().ends_with(suffix)));
+    }
     for source in &sources {
         assert_eq!(official_sources(source, "0.1.76").unwrap(), sources);
     }
     for raw in [
         format!("{known}?token=private"),
+        format!("{known}?origin=1&token=private"),
+        format!("{known}?origin=1&origin=1"),
+        format!("{known}?origin=0"),
         known.replace("https:", "http:"),
         known.replace("meta-api.vip", "meta-api.vip.evil.test"),
         known.replace("meta-api.vip", "user@meta-api.vip"),
@@ -189,23 +200,40 @@ async fn races_prefixes_and_cancels_the_slow_probe() {
         r
     })
     .await;
+    let also_slow = server(|request, _| {
+        let mut r = reply(request, b"abcdefgh");
+        r.delay = Duration::from_secs(2);
+        r
+    })
+    .await;
     let fast = server(|request, _| reply(request, b"abcdefgh")).await;
     assert_eq!(
-        run(&[&slow, &fast], policy(), b"abcdefgh").await.unwrap(),
+        run(&[&slow, &also_slow, &fast], policy(), b"abcdefgh")
+            .await
+            .unwrap(),
         b"abcdefgh"
     );
     assert_eq!(slow.requests.lock().unwrap().len(), 1);
+    assert_eq!(also_slow.requests.lock().unwrap().len(), 1);
     assert!(fast.requests.lock().unwrap()[1].contains("bytes=4-"));
 }
 
 #[tokio::test]
-async fn resumes_after_disconnect_on_the_other_source() {
+async fn resumes_on_third_source_after_disconnect_and_unavailable_backup() {
     let broken = server(|request, n| {
         let mut r = reply(request, b"abcdefgh");
         if n > 1 {
             r.body.truncate(2);
         }
         r
+    })
+    .await;
+    let unavailable = server(|_, _| Reply {
+        status: 503,
+        headers: "Content-Length: 0\r\n".into(),
+        body: vec![],
+        delay: Duration::from_millis(20),
+        chunk_delay: Duration::ZERO,
     })
     .await;
     let backup = server(|request, _| {
@@ -215,11 +243,12 @@ async fn resumes_after_disconnect_on_the_other_source() {
     })
     .await;
     assert_eq!(
-        run(&[&broken, &backup], policy(), b"abcdefgh")
+        run(&[&broken, &unavailable, &backup], policy(), b"abcdefgh")
             .await
             .unwrap(),
         b"abcdefgh"
     );
+    assert_eq!(unavailable.requests.lock().unwrap().len(), 2);
     assert!(backup
         .requests
         .lock()
@@ -395,8 +424,18 @@ async fn live_signed_release_download() {
         version,
     )
     .unwrap();
-    // Opt in to isolate CDN or old-client redirects; racing can succeed via GitHub.
+    // Isolate each delivery path so racing cannot conceal a broken source.
     match std::env::var("YUANHENG_SMOKE_SOURCE").as_deref() {
+        Ok("direct") => {
+            sources.retain(|url| url.host_str() == Some("meta-api.vip"));
+            assert_eq!(
+                sources.len(),
+                1,
+                "Expected exactly one official direct source"
+            );
+            assert_eq!(sources[0].query(), Some("origin=1"));
+            println!("Live download constrained to the official direct source");
+        }
         Ok("r2") => {
             sources.retain(|url| url.host_str() == Some("download.meta-api.vip"));
             assert_eq!(sources.len(), 1, "Expected exactly one official R2 source");
@@ -409,7 +448,7 @@ async fn live_signed_release_download() {
             println!("Live download constrained to the legacy mirror redirect");
         }
         Err(std::env::VarError::NotPresent) => {}
-        _ => panic!("YUANHENG_SMOKE_SOURCE must be r2 or legacy-mirror when set"),
+        _ => panic!("YUANHENG_SMOKE_SOURCE must be direct, r2 or legacy-mirror when set"),
     }
     let config: serde_json::Value =
         serde_json::from_str(include_str!("../../../tauri.conf.json")).unwrap();

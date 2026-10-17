@@ -1,4 +1,4 @@
-//! Bounded, resumable downloads of the same signed release from R2 and GitHub.
+//! Bounded, resumable downloads of the same signed release from the direct mirror, R2 and GitHub.
 //! The Tauri installer is only called after verification with its configured key.
 use base64::{engine::general_purpose::STANDARD, Engine};
 use futures::{stream::FuturesUnordered, StreamExt};
@@ -34,7 +34,7 @@ impl Default for Policy {
     }
 }
 
-/// Derive an alternative only for an exact, versioned asset belonging to us.
+/// Derive candidates only for an exact, versioned asset belonging to us.
 /// Unknown URLs keep the standard updater behavior and are never rewritten.
 fn official_sources(url: &Url, version: &str) -> Option<Vec<Url>> {
     let parts: Vec<_> = version.split('.').collect();
@@ -59,8 +59,10 @@ fn official_sources(url: &Url, version: &str) -> Option<Vec<Url>> {
             "https://download.meta-api.vip/desktop/update/releases/{version}/{name}"
         ))
         .ok()?;
-        if *url == mirror || *url == github || *url == cdn {
-            return Some(vec![cdn, github]);
+        let mut direct = mirror.clone();
+        direct.set_query(Some("origin=1"));
+        if *url == mirror || *url == direct || *url == github || *url == cdn {
+            return Some(vec![direct, cdn, github]);
         }
     }
     None
@@ -236,6 +238,17 @@ async fn transfer(
     .await
     .map_err(|_| "下载连接超时".to_string())?
     .map_err(|_| "下载连接失败".to_string())?;
+    // An unavailable source has supplied no file bytes: keep the prefix for
+    // the next source. A 416 still resets it, as the saved range may be stale.
+    if !matches!(
+        response.status(),
+        StatusCode::OK | StatusCode::PARTIAL_CONTENT | StatusCode::RANGE_NOT_SATISFIABLE
+    ) {
+        return Err(format!(
+            "下载服务器暂不可用（HTTP {}）",
+            response.status().as_u16()
+        ));
+    }
     let end = match prepare_response(&response, partial, sample) {
         Ok(end) => end,
         Err(error) => {
@@ -306,7 +319,7 @@ async fn download_from_sources(
         let mut partial = Partial::default();
         let mut selected = 0;
         // Only sample a small prefix. Dropping the remaining futures closes the
-        // losing streams, rather than downloading two complete installers.
+        // losing streams, rather than downloading multiple complete installers.
         let mut probes = FuturesUnordered::new();
         for (index, url) in sources.iter().enumerate() {
             probes.push(async move {

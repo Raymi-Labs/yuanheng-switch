@@ -2,14 +2,14 @@
   "schemaVersion": 1,
   "releases": [
     {
+      "version": "0.1.94",
+      "publishedAt": "2026-10-17T07:51:59Z",
+      "content": "【元衡客户端更新公告｜v0.1.94】\n\n• 应用内更新新增 meta-api.vip 新线路，与 R2、GitHub 自动试下载择优，无需手动选择。\n• 下载持续低速或断开时自动尝试其他线路；备用线路暂时不可用时保留已下载进度，完整安装包仍须通过原公钥签名校验。\n• 保留现有用户代理设置和旧版更新入口兼容。升级至本版后，后续应用内更新使用三线路下载。\n\n提供 Windows x64、Apple 芯片 Mac 和 Intel Mac 安装包；macOS 继续使用 Apple Developer ID 签名和 Apple 公证。"
+    },
+    {
       "version": "0.1.93",
       "publishedAt": "2026-10-16T22:36:10Z",
       "content": "【元衡客户端更新公告｜v0.1.93】\n\n• 移除工作台 Codex 官方账号模式底部的重复说明框及占位，让当前工具卡片更紧凑。\n• 保留使用方式切换、工具启动及中转模式的模型、分组与推理等级设置。\n\n提供 Windows x64、Apple 芯片 Mac 和 Intel Mac 安装包；macOS 继续使用 Apple Developer ID 签名和 Apple 公证。"
-    },
-    {
-      "version": "0.1.92",
-      "publishedAt": "2026-10-16T22:09:35Z",
-      "content": "【元衡客户端更新公告｜v0.1.92】\n\n• 新增连接线路设置：支持自动推荐、固定跳板和固定 Cloudflare 线路，展示接口响应与检测结果。\n• 本地 Core 在启动、网络变化、连接异常及活跃使用期间自动检测，优先选择可用、稳定的线路；检测不调用计费模型。\n• 支持手动短流检查和停止检测；切换仅影响后续新请求，正在生成的回答保持原连接。\n• 首版覆盖经过本地路由的托管文本模型请求。服务端需提供配套探测接口；未就绪时保留原线路并显示提示。图片、WebSocket、官方账号及外部直连不参与自动选择。\n\n提供 Windows x64、Apple 芯片 Mac 和 Intel Mac 安装包；macOS 继续使用 Apple Developer ID 签名和 Apple 公证。"
     }
   ]
 }

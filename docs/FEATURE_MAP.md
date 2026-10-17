@@ -97,7 +97,7 @@ Claude diagnostic persistence uses a bounded background writer, not disk I/O on 
 
 ## 更新下载择源与断流恢复（2026-10-12）
 
-现有所有更新入口 → [安装命令](../src-tauri/src/commands/settings.rs) → [签名下载器](../src-tauri/src/services/update_download.rs)，固定版本 R2/GitHub 先小量试下载择源，兼容原官方镜像 URL，异常时有界切源并在本次操作内 Range 续传。不持久化部分包、不修改外部代理、未知下载地址仍使用原 Tauri 下载；完整文件通过同一公钥/签名后才安装。[UpdateContext](../src/contexts/UpdateContext.tsx) 使用明确阶段，后端互斥防止重复安装。回归覆盖本地真实 HTTP 故障和签名，手动网络 smoke 只下载不安装。服务端缓存配置与用户网络速度独立验收，参见[下载分发说明](guides/desktop-download-delivery.md)。
+现有所有更新入口 → [安装命令](../src-tauri/src/commands/settings.rs) → [签名下载器](../src-tauri/src/services/update_download.rs)，固定版本 meta-api.vip 直链（origin=1）/R2/GitHub 先小量试下载择源，兼容原官方镜像 URL，异常时有界切源并在本次操作内 Range 续传，备用源 HTTP 不可用时保留已有进度。不持久化部分包、不修改外部代理、未知下载地址仍使用原 Tauri 下载；完整文件通过同一公钥/签名后才安装。[UpdateContext](../src/contexts/UpdateContext.tsx) 使用明确阶段，后端互斥防止重复安装。回归覆盖本地真实 HTTP 故障和签名，手动网络 smoke 只下载不安装。服务端缓存配置与用户网络速度独立验收，参见[下载分发说明](guides/desktop-download-delivery.md)。
 
 ## 全局帮助抽屉（2026-10-13）
 
@@ -105,7 +105,7 @@ Claude diagnostic persistence uses a bounded background writer, not disk I/O on 
 
 ## R2 安装包分发（2026-10-13）
 
-现有 Desktop Release → [下载分发工作流](../.github/workflows/desktop-delivery.yml) → [R2 同步和公开摘要校验](../scripts/sync-desktop-r2.py) → 原平台镜像及 latest 发布；缺少凭据或任一验证失败时停止。新下载器精确识别 R2/原镜像/GitHub 官方更新包，候选改为 R2/GitHub；未知地址、续传和原公钥签名协议保持不变。旧下载 URL 的兼容由[源站临时跳转片段](../deploy/nginx/desktop-r2-download-location.conf)承接，镜像探测用 `origin=1` 核对平台本地包。桶级凭据已配置、12 版历史资产已回填，生产旧链接跳转及当前版完整自动分发已验证；生产验收与回滚方式见[分发说明](guides/desktop-download-delivery.md#r2-正式接入代码与上线步骤)。
+现有 Desktop Release → [下载分发工作流](../.github/workflows/desktop-delivery.yml) → [R2 同步和公开摘要校验](../scripts/sync-desktop-r2.py) → 原平台镜像及 latest 发布；缺少凭据或任一验证失败时停止。新下载器精确识别 R2/原镜像/GitHub 官方更新包，候选为新入口直链/R2/GitHub；未知地址、续传和原公钥签名协议保持不变。旧下载 URL 的兼容由[源站临时跳转片段](../deploy/nginx/desktop-r2-download-location.conf)承接，镜像探测用 `origin=1` 核对平台本地包。桶级凭据已配置、12 版历史资产已回填，生产旧链接跳转及当前版完整自动分发已验证；生产验收与回滚方式见[分发说明](guides/desktop-download-delivery.md#r2-正式接入代码与上线步骤)。
 
 ## 公告铃铛与当前工具选择（2026-10-13）
 
