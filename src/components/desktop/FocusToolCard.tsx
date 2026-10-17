@@ -17,7 +17,14 @@ import {
 import { ModelPicker } from "./ModelPicker";
 import { CompactSelectPicker } from "./CompactSelectPicker";
 import { GroupPicker } from "./GroupPicker";
-import { pickPreferredGroup, reasoningLabel, toolLabel } from "./ToolSetupGrid";
+import {
+  canInstallTool,
+  DESKTOP_DOWNLOAD_URLS,
+  TOOL_VERSION_TARGETS,
+  pickPreferredGroup,
+  reasoningLabel,
+  toolLabel,
+} from "./ToolSetupGrid";
 import {
   providerIconOf,
   type ModelSwitchCenterState,
@@ -26,6 +33,9 @@ import { groupModelsByVendor, modelVendorOf } from "./modelVendors";
 import { dt } from "./desktopI18n";
 import { launchDirectoryLabel } from "./useToolLaunchDirectories";
 import { ToolActivationProgress } from "./ToolActivationProgress";
+import { ToolInstallCancel } from "./ToolInstallCancel";
+import { toolInstallLabel } from "./toolInstallFeedback";
+import { useToolLifecycleState } from "@/lib/toolLifecycleState";
 
 interface FocusToolCardProps {
   switcher: ModelSwitchCenterState;
@@ -99,6 +109,8 @@ function FocusToolStateCard({
   onRetry,
   refreshing,
   toolPicker,
+  onInstall,
+  installing = false,
 }: {
   error?: boolean;
   selectedTool?: YuanhengToolId;
@@ -106,7 +118,14 @@ function FocusToolStateCard({
   onRetry: () => Promise<void>;
   refreshing: boolean;
   toolPicker?: ReactNode;
+  onInstall?: () => void;
+  installing?: boolean;
 }) {
+  const lifecycle = useToolLifecycleState();
+  const target = selectedTool ? TOOL_VERSION_TARGETS[selectedTool] : undefined;
+  const phase = lifecycle.get(target ?? "");
+  const busy = installing || Boolean(phase);
+  const download = selectedTool && DESKTOP_DOWNLOAD_URLS[selectedTool];
   const Icon = error ? AlertTriangle : Wrench;
   return (
     <section className={focusCardShell}>
@@ -128,10 +147,10 @@ function FocusToolStateCard({
             ? dt("没有将检测失败误判为未安装，你可以重新检测或进入工具管理。")
             : dt("安装或配置工具后，这里会显示当前工具、模型和令牌分组。")}
         </p>
-        <div className="mt-4 flex items-center gap-2">
+        <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
           <button
             type="button"
-            disabled={refreshing}
+            disabled={refreshing || busy}
             onClick={() => void onRetry()}
             className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-white/15 bg-white/[0.08] px-3 text-[11px] font-semibold transition-colors hover:bg-white/[0.13] disabled:opacity-50"
           >
@@ -142,12 +161,35 @@ function FocusToolStateCard({
           </button>
           <button
             type="button"
-            onClick={onOpenTools}
-            className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-[#e9b67c] px-3 text-[11px] font-semibold text-[#163a36] transition-colors hover:bg-[#f3c995]"
+            disabled={busy}
+            onClick={onInstall ?? onOpenTools}
+            aria-label={
+              onInstall && selectedTool && !busy
+                ? download
+                  ? dt("打开 {{v0}} 官方下载页", {
+                      v0: toolLabel(selectedTool),
+                    })
+                  : dt("一键安装 {{v0}}", { v0: toolLabel(selectedTool) })
+                : undefined
+            }
+            className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-[#e9b67c] px-3 text-[11px] font-semibold text-[#163a36] transition-colors hover:bg-[#f3c995] disabled:opacity-50"
           >
-            <Wrench className="h-3.5 w-3.5" />
-            {error ? dt("打开工具管理") : dt("安装与配置")}
+            {busy ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Wrench className="h-3.5 w-3.5" />
+            )}
+            {busy
+              ? phase
+                ? toolInstallLabel(phase)
+                : dt("等待安装")
+              : error || !onInstall
+                ? dt("打开工具管理")
+                : download
+                  ? dt("官方下载")
+                  : dt("安装与配置")}
           </button>
+          {target && <ToolInstallCancel tool={target} />}
         </div>
       </div>
     </section>
@@ -251,10 +293,19 @@ export function FocusToolCard({
     );
   }
   if (!app || !runnableRows.includes(app)) {
+    const canInstall =
+      app && !switcher.installedApps.has(app) && canInstallTool(app);
     return (
       <FocusToolStateCard
+        error={inventoryRefreshFailed}
         selectedTool={app}
         onOpenTools={onOpenTools}
+        onInstall={
+          canInstall && !inventoryRefreshFailed
+            ? () => void switcher.install(app)
+            : undefined
+        }
+        installing={app ? switcher.installingApps.has(app) : false}
         onRetry={retryBootstrap}
         refreshing={bootstrapRefreshing}
         toolPicker={toolPicker}

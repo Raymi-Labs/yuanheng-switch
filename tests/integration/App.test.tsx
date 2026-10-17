@@ -1094,64 +1094,77 @@ describe("App integration with MSW", { timeout: 15_000 }, () => {
     );
   });
 
-  it("installs and configures DSH from tool management before launching its local Web UI", async () => {
-    setSettings({ firstRunNoticeConfirmed: true });
-    setYuanhengConnection({ connected: true, models: ["gpt-5.6"] });
-    setYuanhengToolStatus("dsh", {
-      supported: true,
-      configured: false,
-      recommendedModel: "gpt-5.6",
-    });
-    let installed = false;
-    server.use(
-      http.post("http://tauri.local/native_tool_install_supported", () =>
-        HttpResponse.json(true),
-      ),
-      http.post(
-        "http://tauri.local/run_tool_lifecycle_action",
-        async ({ request }) => {
-          const payload = (await request.json()) as {
-            tools: string[];
-            action: string;
-          };
-          expect(payload.tools).toEqual(["dsh"]);
-          expect(payload.action).toBe("install");
-          expect(getConfiguredToolCalls()).toHaveLength(0);
-          installed = true;
-          return HttpResponse.json(null);
-        },
-      ),
-      http.post(
-        "http://tauri.local/get_installed_tool_versions",
-        async ({ request }) => {
-          const { tools = [] } = (await request.json()) as { tools: string[] };
-          return HttpResponse.json(
-            tools.map((name) => ({
-              name,
-              version: name === "dsh" && !installed ? null : "0.2.0-rc.2",
-              latest_version: null,
-              error: null,
-              installed_but_broken: false,
-              env_type: "macos",
-              wsl_distro: null,
-            })),
-          );
-        },
-      ),
-    );
-    const { default: App } = await import("@/App");
-    renderApp(App);
-    await screen.findByRole("heading", { name: "工作台" });
-    fireEvent.click(screen.getByRole("button", { name: "工具管理" }));
-    const title = await screen.findByRole("heading", { name: "DSH" });
-    const card = title.closest("article")!;
-    fireEvent.click(within(card).getByRole("button", { name: "一键安装 DSH" }));
-    await waitFor(() =>
-      expect(getConfiguredToolCalls()).toContainEqual(["dsh"]),
-    );
-    await waitFor(() => expect(getLaunchedToolCalls()).toContain("dsh"));
-    expect(toastErrorMock).not.toHaveBeenCalled();
-  });
+  it.each(["tools", "home"] as const)(
+    "installs and configures DSH from %s before launching its local Web UI",
+    async (entry) => {
+      localStorage.setItem("yuanheng-switch-last-app", "dsh");
+      setSettings({ firstRunNoticeConfirmed: true });
+      setYuanhengConnection({ connected: true, models: ["gpt-5.6"] });
+      setYuanhengToolStatus("dsh", {
+        supported: true,
+        configured: false,
+        recommendedModel: "gpt-5.6",
+      });
+      let installed = false;
+      server.use(
+        http.post("http://tauri.local/native_tool_install_supported", () =>
+          HttpResponse.json(true),
+        ),
+        http.post(
+          "http://tauri.local/run_tool_lifecycle_action",
+          async ({ request }) => {
+            const payload = (await request.json()) as {
+              tools: string[];
+              action: string;
+            };
+            expect(payload.tools).toEqual(["dsh"]);
+            expect(payload.action).toBe("install");
+            expect(getConfiguredToolCalls()).toHaveLength(0);
+            installed = true;
+            return HttpResponse.json(null);
+          },
+        ),
+        http.post(
+          "http://tauri.local/get_installed_tool_versions",
+          async ({ request }) => {
+            const { tools = [] } = (await request.json()) as {
+              tools: string[];
+            };
+            return HttpResponse.json(
+              tools.map((name) => ({
+                name,
+                version: name === "dsh" && !installed ? null : "0.2.0-rc.2",
+                latest_version: null,
+                error: null,
+                installed_but_broken: false,
+                env_type: "macos",
+                wsl_distro: null,
+              })),
+            );
+          },
+        ),
+      );
+      const { default: App } = await import("@/App");
+      renderApp(App);
+      await screen.findByRole("heading", { name: "工作台" });
+      if (entry === "tools") {
+        fireEvent.click(screen.getByRole("button", { name: "工具管理" }));
+      }
+      fireEvent.click(
+        await screen.findByRole("button", { name: "一键安装 DSH" }),
+      );
+      expect(
+        screen.getByRole("heading", {
+          name: entry === "home" ? "工作台" : "工具管理",
+        }),
+      ).toBeInTheDocument();
+      await waitFor(() =>
+        expect(getConfiguredToolCalls()).toContainEqual(["dsh"]),
+      );
+      await waitFor(() => expect(getLaunchedToolCalls()).toContain("dsh"));
+      expect(toastErrorMock).not.toHaveBeenCalled();
+    },
+  );
 
   it.each([
     ["chatgpt-desktop", "Codex Desktop"],
@@ -1216,7 +1229,7 @@ describe("App integration with MSW", { timeout: 15_000 }, () => {
       await screen.findByRole("heading", { name: "WorkBuddy" }),
     ).toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: "安装与配置" }),
+      screen.getByRole("button", { name: "打开工具管理" }),
     ).toBeInTheDocument();
     expect(getConfiguredToolCalls()).toEqual([]);
   });

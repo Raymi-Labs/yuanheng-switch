@@ -1,5 +1,6 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
+import { runToolLifecycleJob } from "@/lib/toolLifecycleState";
 import { FocusToolCard } from "@/components/desktop/FocusToolCard";
 import type {
   ModelSwitchBootstrapPhase,
@@ -115,8 +116,114 @@ describe("FocusToolCard", () => {
     expect(screen.getByText("尚未检测到已安装的 AI 工具")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "重新检测" }));
     expect(switcher.retryBootstrap).toHaveBeenCalledTimes(1);
-    fireEvent.click(screen.getByRole("button", { name: "安装与配置" }));
+    fireEvent.click(screen.getByRole("button", { name: "打开工具管理" }));
     expect(onOpenTools).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(["dsh", "codex", "claude"] as const)(
+    "直接安装选中的 %s，不跳转工具管理",
+    (app) => {
+      const switcher = createSwitcher("ready");
+      const onOpenTools = vi.fn();
+      render(
+        <FocusToolCard
+          switcher={switcher}
+          focusApp={app}
+          onOpenTools={onOpenTools}
+        />,
+      );
+      fireEvent.click(screen.getByText("安装与配置"));
+      expect(switcher.install).toHaveBeenCalledWith(app);
+      expect(onOpenTools).not.toHaveBeenCalled();
+    },
+  );
+
+  it("桌面工具明确显示官方下载入口并复用安装观察", () => {
+    const switcher = createSwitcher("ready");
+    render(
+      <FocusToolCard
+        switcher={switcher}
+        focusApp="workbuddy"
+        onOpenTools={vi.fn()}
+      />,
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "打开 WorkBuddy 官方下载页" }),
+    );
+    expect(switcher.install).toHaveBeenCalledWith("workbuddy");
+  });
+
+  it.each(["installed", "error", "stale"])("%s 状态不触发重复安装", (state) => {
+    const switcher = createSwitcher(state === "error" ? "error" : "ready");
+    if (state === "installed") switcher.installedApps.add("dsh");
+    if (state === "stale") switcher.inventoryRefreshFailed = true;
+    const onOpenTools = vi.fn();
+    render(
+      <FocusToolCard
+        switcher={switcher}
+        focusApp="dsh"
+        onOpenTools={onOpenTools}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "打开工具管理" }));
+    expect(switcher.install).not.toHaveBeenCalled();
+    expect(onOpenTools).toHaveBeenCalledOnce();
+  });
+
+  it("共享安装任务状态，阻止重复点击并支持取消、验证及失败后重试", async () => {
+    const switcher = createSwitcher("ready");
+    render(
+      <FocusToolCard
+        switcher={switcher}
+        focusApp="dsh"
+        onOpenTools={vi.fn()}
+      />,
+    );
+    let finish!: () => void;
+    let verify!: () => void;
+    const cancel = vi.fn().mockResolvedValue(true);
+    let job!: Promise<void>;
+    act(() => {
+      job = runToolLifecycleJob(
+        ["dsh"],
+        "install",
+        (setCancel) => {
+          setCancel(cancel);
+          return new Promise((resolve) => {
+            finish = resolve;
+          });
+        },
+        () =>
+          new Promise((resolve) => {
+            verify = resolve;
+          }),
+      );
+    });
+    expect(
+      screen.getByRole("button", { name: "正在安装，请稍候…" }),
+    ).toBeDisabled();
+    expect(screen.getByRole("button", { name: "重新检测" })).toBeDisabled();
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "取消安装" }));
+    });
+    expect(cancel).toHaveBeenCalledOnce();
+    expect(
+      screen
+        .getAllByRole("button", { name: "正在停止安装…" })
+        .every((button) => button.hasAttribute("disabled")),
+    ).toBe(true);
+    await act(async () => {
+      finish();
+    });
+    expect(
+      screen.getByRole("button", { name: "正在验证安装…" }),
+    ).toBeDisabled();
+    await act(async () => {
+      verify();
+      await job;
+    });
+    fireEvent.click(screen.getByRole("button", { name: "一键安装 DSH" }));
+    expect(switcher.install).toHaveBeenCalledOnce();
   });
 
   it("检测失败时提供重试而不是显示未安装", () => {
