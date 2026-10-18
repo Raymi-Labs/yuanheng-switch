@@ -1,9 +1,11 @@
 """Package development archives with explicit labels, never mislabel them as installable IPAs."""
 import json
+import os
 from pathlib import Path
 import plistlib
 import subprocess
 import sys
+import tempfile
 
 root = Path(__file__).resolve().parents[1]
 kind = sys.argv[1]
@@ -28,7 +30,21 @@ if kind == 'simulator':
     # --no-sign leaves only a linker signature, without the bundle resource seal.
     # Ad-hoc signing is sufficient for the simulator and uses no Apple identity.
     for app in (archive / 'Products/Applications').glob('*.app'):
-        subprocess.run(['codesign', '--force', '--sign', '-', '--timestamp=none', str(app)], check=True)
+        with (app / 'Info.plist').open('rb') as handle:
+            identifier = plistlib.load(handle)['CFBundleIdentifier']
+        team = os.environ.get('APPLE_DEVELOPMENT_TEAM') or 'YUANHENGCI'
+        application = f'{team}.{identifier}'
+        # Simulator securityd still requires an application/keychain identity.
+        # These ad-hoc entitlements apply only to the simulator, never the device archive.
+        entitlements = {'application-identifier': application,
+            'com.apple.developer.team-identifier': team,
+            'keychain-access-groups': [application], 'get-task-allow': True}
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'Simulator.entitlements'
+            with path.open('wb') as handle:
+                plistlib.dump(entitlements, handle)
+            subprocess.run(['codesign', '--force', '--sign', '-', '--timestamp=none',
+                '--entitlements', str(path), str(app)], check=True)
         subprocess.run(['codesign', '--verify', '--strict', '--verbose=2', str(app)], check=True)
     signing = 'adhoc'
 out = root / 'artifacts'
