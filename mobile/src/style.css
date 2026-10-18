@@ -1096,8 +1096,7 @@ select {
   }
   .primary,
   .send,
-  .brand-symbol,
-  .message.user {
+  .brand-symbol {
     color: #142b21;
   }
   .wallet-card {
