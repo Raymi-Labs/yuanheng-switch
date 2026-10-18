@@ -1,4 +1,4 @@
-//! DSH desktop and local Web profile integration. Only owned blocks are replaced.
+//! DSH desktop and local Web integration. Only owned profiles and credential references are replaced.
 use super::*;
 use sha2::{Digest, Sha256};
 use std::{
@@ -76,6 +76,141 @@ fn block(body: &str) -> String {
 // Errors deliberately omit YAML source snippets, which may contain credentials.
 fn yaml(text: &str) -> Result<serde_yaml::Value, String> {
     serde_yaml::from_str(text).map_err(|_| "DSH 配置 YAML 无法解析，原文件未更改".into())
+}
+
+// DSH migrates flat credentials into version/refs and writes browser-session
+// records to the same file. Ownership belongs to our reference, not its YAML.
+fn credentials_document(text: &str) -> Result<serde_yaml::Value, String> {
+    let mut value = yaml(text)?;
+    if value.is_null() {
+        value = yaml("version: 1\nrefs: {}\n")?;
+    }
+    let fields = value.as_mapping().ok_or("DSH 凭据文件必须是 YAML 对象")?;
+    if !fields.contains_key(serde_yaml::Value::from("version")) {
+        if !fields
+            .values()
+            .all(|v| v.as_str().is_some_and(|s| !s.is_empty()))
+        {
+            return Err("DSH 旧凭据格式无法安全迁移，原文件未更改".into());
+        }
+        return Ok(serde_yaml::to_value(json!({"version": 1, "refs": value}))
+            .map_err(|_| "生成 DSH 凭据失败")?);
+    }
+    if value["version"].as_u64() != Some(1)
+        || fields
+            .keys()
+            .any(|k| !matches!(k.as_str(), Some("version" | "refs" | "records")))
+        || value.get("refs").is_some_and(|v| {
+            !v.is_mapping()
+                || !v
+                    .as_mapping()
+                    .unwrap()
+                    .values()
+                    .all(|v| v.as_str().is_some_and(|s| !s.is_empty()))
+        })
+        || value.get("records").is_some_and(|v| !v.is_mapping())
+    {
+        return Err("DSH 凭据格式无法识别，原文件未更改".into());
+    }
+    if value.get("refs").is_none() {
+        value["refs"] = serde_yaml::Value::Mapping(Default::default());
+    }
+    Ok(value)
+}
+
+fn credential_hash(value: &serde_yaml::Value) -> Option<String> {
+    let token = value["refs"][KEY].as_str()?;
+    // Retain the original fingerprint so existing installations migrate without
+    // trusting a new credential or storing another copy of its plaintext.
+    Some(digest(&block(&format!(
+        "{KEY}: {}\n",
+        serde_json::to_string(token).ok()?
+    ))))
+}
+
+fn hash_matches(r: &Record, index: usize, hash: Option<&String>) -> bool {
+    hash == r.hashes.get(index)
+        || (r.pending
+            && r.previous_hashes
+                .get(index)
+                .is_some_and(|old| old.as_ref() == hash))
+}
+
+fn empty_document_comments(original: &str) -> Result<String, String> {
+    let parsed = yaml(original)?;
+    if parsed.as_sequence().is_some_and(|v| v.is_empty())
+        || parsed.as_mapping().is_some_and(|v| v.is_empty())
+    {
+        return Ok(original
+            .lines()
+            .map(|line| {
+                if matches!(line.trim(), "[]" | "{}") {
+                    format!("# {line}\n")
+                } else {
+                    format!("{line}\n")
+                }
+            })
+            .collect());
+    }
+    Ok(original.into())
+}
+
+// DSH's own settings writer reformats YAML and appends settings before our end
+// comment. Prove ownership by reconstructing our original writer output. Only a
+// default-model change within the recorded catalog is allowed; endpoints,
+// credentials, provider options and unknown models remain protected.
+fn trusted_profile(
+    text: &str,
+    r: &Record,
+    index: usize,
+) -> Result<(String, Option<String>), String> {
+    let (original, owned) = split(text)?;
+    if hash_matches(r, index, owned.as_ref().map(|s| digest(s)).as_ref()) {
+        return Ok((original, owned));
+    }
+    let error = "DSH 托管供应商或默认模型已被修改，已保留配置；请核对接口和模型设置";
+    let value = yaml(owned.as_deref().ok_or(error)?)?;
+    let rows = value.as_sequence().ok_or(error)?;
+    let mut managed = Vec::new();
+    let mut extra = Vec::new();
+    for row in rows {
+        match row["id"].as_str() {
+            Some("llm-pi-ai" | "agent-default-model") => managed.push(row.clone()),
+            Some("credentials") => return Err(error.into()),
+            _ => extra.push(row.clone()),
+        }
+    }
+    if managed.len() != 2
+        || managed[0]["id"].as_str() != Some("llm-pi-ai")
+        || managed[1]["id"].as_str() != Some("agent-default-model")
+    {
+        return Err(error.into());
+    }
+    let actual = block(&serde_yaml::to_string(&managed).map_err(|_| error)?);
+    let mut expected = managed.clone();
+    let default = &mut expected[1]["config"];
+    let model = default["model"].as_str().ok_or(error)?;
+    if !r.models.iter().any(|known| known == model)
+        || default["provider"].as_str() != Some(route(model).0)
+    {
+        return Err(error.into());
+    }
+    default["model"] = serde_yaml::Value::from(r.model.clone());
+    default["provider"] = serde_yaml::Value::from(route(&r.model).0);
+    let canonical = block(&serde_yaml::to_string(&expected).map_err(|_| error)?);
+    if !hash_matches(r, index, Some(&digest(&actual)))
+        && !hash_matches(r, index, Some(&digest(&canonical)))
+    {
+        return Err(error.into());
+    }
+    let mut original = empty_document_comments(&original)?;
+    if !extra.is_empty() {
+        if !original.is_empty() && !original.ends_with('\n') {
+            original.push('\n');
+        }
+        original.push_str(&serde_yaml::to_string(&extra).map_err(|_| error)?);
+    }
+    Ok((original, Some(actual)))
 }
 
 fn route(model: &str) -> (&'static str, &'static str) {
@@ -260,43 +395,34 @@ pub(super) fn configure(
     let mut after = Vec::new();
     let mut hashes = Vec::new();
     for (index, text) in before.iter().enumerate() {
-        let (mut original, owned) = split(text)?;
-        if owned.as_ref().map(|s| digest(s))
-            != previous.as_ref().and_then(|r| r.hashes.get(index)).cloned()
-        {
-            return Err("DSH 托管配置已被外部修改，已保留原文件；请先核对并恢复配置".into());
-        }
-        // Empty flow documents cannot be followed by block YAML. Preserve comments.
-        let parsed_original = yaml(&original)?;
-        if parsed_original.as_sequence().is_some_and(|v| v.is_empty())
-            || parsed_original.as_mapping().is_some_and(|v| v.is_empty())
-        {
-            original = original
-                .lines()
-                .map(|line| {
-                    if matches!(line.trim(), "[]" | "{}") {
-                        format!("# {line}\n")
-                    } else {
-                        format!("{line}\n")
-                    }
-                })
-                .collect();
-        }
-        let body = if index == 0 {
-            let existing = yaml(&original)?;
-            if !existing.is_null() && !existing.is_mapping() {
-                return Err("DSH 凭据文件必须是 YAML 对象".into());
+        if index == 0 {
+            let mut document = credentials_document(text)?;
+            let hash = credential_hash(&document);
+            if hash.as_ref() != previous.as_ref().and_then(|r| r.hashes.first()) {
+                return Err("DSH 托管凭据已被修改或存在同名凭据，原文件未更改".into());
             }
-            if existing.get(KEY).is_some() {
-                return Err("DSH 已有同名非托管凭据，原文件未更改".into());
-            }
-            format!(
-                "{KEY}: {}\n",
-                serde_json::to_string(token).map_err(|_| "无效凭据")?
-            )
+            document["refs"][KEY] = serde_yaml::Value::from(token);
+            hashes.push(credential_hash(&document).ok_or("生成 DSH 凭据失败")?);
+            after.push(serde_yaml::to_string(&document).map_err(|_| "生成 DSH 凭据失败")?);
+            continue;
+        }
+        let (original, owned) = if let Some(r) = &previous {
+            trusted_profile(text, r, index)?
         } else {
-            profile_body(&original, model, &models)?
+            let parts = split(text)?;
+            if parts.1.is_some() {
+                return Err("DSH 已有来源不明的托管配置，原文件未更改".into());
+            }
+            parts
         };
+        if owned
+            .as_ref()
+            .is_some_and(|s| !effective_matches(&paths[index], s))
+        {
+            return Err("DSH 配置存在外部覆盖，原文件未更改".into());
+        }
+        let original = empty_document_comments(&original)?;
+        let body = profile_body(&original, model, &models)?;
         let managed = block(&body);
         hashes.push(digest(&managed));
         let separator = if original.is_empty() || original.ends_with('\n') {
@@ -362,11 +488,15 @@ fn intact(r: &Record) -> bool {
         && check_global(&r.home).is_ok()
         && r.hashes.len() == 3
         && paths(&r.home).iter().enumerate().all(|(i, p)| {
-            read(p)
+            let Ok(text) = read(p) else { return false };
+            if i == 0 {
+                return credentials_document(&text)
+                    .is_ok_and(|v| credential_hash(&v).as_ref() == r.hashes.first());
+            }
+            trusted_profile(&text, r, i)
                 .ok()
-                .and_then(|s| split(&s).ok())
-                .and_then(|(_, block)| block)
-                .is_some_and(|s| digest(&s) == r.hashes[i] && effective_matches(p, &s, i))
+                .and_then(|(_, owned)| owned)
+                .is_some_and(|s| effective_matches(p, &s))
         })
 }
 
@@ -406,22 +536,25 @@ fn claude_policy_current(r: &Record) -> bool {
 
 // A later user patch can override an unchanged managed block. Inspect the final
 // config rows too; matching marker bytes alone is not proof of effective state.
-fn effective_matches(path: &Path, owned: &str, index: usize) -> bool {
+fn effective_matches(path: &Path, owned: &str) -> bool {
     let Ok(text) = read(path) else { return false };
     let (Ok(full), Ok(managed)) = (yaml(&text), yaml(owned)) else {
         return false;
     };
-    if index == 0 {
-        return full.get(KEY) == managed.get(KEY);
-    }
     let (Some(rows), Some(expected)) = (full.as_sequence(), managed.as_sequence()) else {
         return false;
     };
+    if rows.iter().any(|row| {
+        row["id"].as_str() == Some("credentials")
+            && (row.get("config").is_some() || row.get("disabled").is_some())
+    }) {
+        return false;
+    }
     expected.iter().all(|entry| {
-        if rows
-            .iter()
-            .any(|row| row.get("id") == entry.get("id") && row.get("disabled").is_some())
-        {
+        if rows.iter().any(|row| {
+            row.get("id") == entry.get("id")
+                && (row.get("disabled").is_some() || row.get("insert").is_some())
+        }) {
             return false;
         }
         rows.iter()
@@ -443,9 +576,11 @@ pub(super) fn credential(state: &AppState, group: &str) -> Result<Option<String>
     if !intact(&r) {
         return Err("DSH 配置已变化，请核对后重新配置".into());
     }
-    Ok(yaml(&read(&paths(&r.home)[0])?)?[KEY]
-        .as_str()
-        .map(str::to_owned))
+    Ok(
+        credentials_document(&read(&paths(&r.home)[0])?)?["refs"][KEY]
+            .as_str()
+            .map(str::to_owned),
+    )
 }
 
 pub(super) fn status(
@@ -497,15 +632,20 @@ pub(super) fn restore(state: &AppState) -> Result<bool, String> {
         .collect::<Result<Vec<_>, _>>()?;
     let mut originals = Vec::new();
     for (i, path) in paths.iter().enumerate() {
-        let (original, owned) = split(&read(path)?)?;
-        let hash = owned.as_ref().map(|s| digest(s));
-        let matches_new = hash == r.hashes.get(i).cloned();
-        let matches_old = r.pending && r.previous_hashes.get(i).is_some_and(|old| *old == hash);
-        if !(matches_new || matches_old)
-            || owned
-                .as_ref()
-                .is_some_and(|s| !effective_matches(path, s, i))
-        {
+        if i == 0 {
+            let mut document = credentials_document(&before[i])?;
+            if !hash_matches(&r, i, credential_hash(&document).as_ref()) {
+                return Err("DSH 凭据已被外部修改，保留配置及凭据，请手动核对".into());
+            }
+            document["refs"]
+                .as_mapping_mut()
+                .ok_or("DSH 凭据格式无效")?
+                .remove(serde_yaml::Value::from(KEY));
+            originals.push(serde_yaml::to_string(&document).map_err(|_| "生成 DSH 凭据失败")?);
+            continue;
+        }
+        let (original, owned) = trusted_profile(&before[i], &r, i)?;
+        if owned.as_ref().is_some_and(|s| !effective_matches(path, s)) {
             return Err("DSH 配置已被外部修改，保留配置及凭据，请手动核对".into());
         }
         let original = if i > 0 && yaml(&original)?.is_null() {
@@ -534,6 +674,124 @@ pub(super) fn restore(state: &AppState) -> Result<bool, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    fn fixture() -> (tempfile::TempDir, Record) {
+        let home = tempfile::tempdir().unwrap();
+        let model = "gpt-6.1-sol".to_string();
+        let models = vec![model.clone(), "gpt-6-astra".into()];
+        let profile = block(&profile_body("", &model, &models).unwrap());
+        let credential = block(&format!("{KEY}: \"synthetic-key\"\n"));
+        let hashes = vec![digest(&credential), digest(&profile), digest(&profile)];
+        for (path, text) in paths(home.path())
+            .iter()
+            .zip([credential, profile.clone(), profile])
+        {
+            write(path, &text).unwrap();
+        }
+        let r = Record {
+            home: home.path().into(),
+            model,
+            group: "default".into(),
+            models,
+            hashes,
+            pending: false,
+            previous_hashes: vec![],
+        };
+        (home, r)
+    }
+
+    #[test]
+    fn runtime_migration_and_settings_preserve_ownership() {
+        let (_home, r) = fixture();
+        assert!(intact(&r));
+        let files = paths(&r.home);
+        // The official writer migrates the key, reformats YAML, and stores a
+        // browser session. Its model UI also saves unrelated welcome settings.
+        write(&files[0], &format!("version: 1\nrefs:\n  {KEY}: synthetic-key\nrecords:\n  client-connection/browser-session:\n    kind: opaque\n    payload: {{version: 1, secret: synthetic-browser-session}}\n")).unwrap();
+        let mut rows = yaml(&read(&files[2]).unwrap()).unwrap();
+        rows[1]["config"]["model"] = serde_yaml::Value::from("gpt-6-astra");
+        rows.as_sequence_mut().unwrap().push(
+            yaml("id: ui-settings-general\nconfig: {welcomeNoticeVersion: '2026-09-28.1'}\n")
+                .unwrap(),
+        );
+        // JSON is valid YAML, and deliberately uses a different representation.
+        write(
+            &files[2],
+            &block(&format!(
+                "{}\n",
+                serde_json::to_string_pretty(&rows).unwrap()
+            )),
+        )
+        .unwrap();
+        assert!(intact(&r));
+        let (original, owned) = trusted_profile(&read(&files[2]).unwrap(), &r, 2).unwrap();
+        assert!(original.contains("welcomeNoticeVersion"));
+        assert!(!owned.unwrap().contains("welcomeNoticeVersion"));
+        // Actual exported runtime fixtures can be checked without exposing keys.
+        if let Ok(dir) = std::env::var("YUANHENG_DSH_OWNERSHIP_EXPORT") {
+            let dir = Path::new(&dir);
+            for (i, path) in files.iter().enumerate() {
+                write(&dir.join(format!("{i}.yaml")), &read(path).unwrap()).unwrap();
+            }
+            write(
+                &dir.join("record.json"),
+                &serde_json::to_string(&r).unwrap(),
+            )
+            .unwrap();
+        }
+    }
+
+    #[test]
+    fn runtime_normalization_never_trusts_modified_sensitive_fields() {
+        let (_home, r) = fixture();
+        let files = paths(&r.home);
+        let original = read(&files[2]).unwrap();
+        for (before, after) in [
+            (OPENAI_BASE_URL, "https://example.invalid/v1"),
+            (KEY, "OTHER_KEY"),
+            ("gpt-6.1-sol", "unknown-model"),
+        ] {
+            write(&files[2], &original.replace(before, after)).unwrap();
+            assert!(!intact(&r));
+        }
+        write(&files[2], &original).unwrap();
+        write(
+            &files[0],
+            &format!("version: 1\nrefs:\n  {KEY}: changed-key\n"),
+        )
+        .unwrap();
+        assert!(!intact(&r));
+        write(
+            &files[0],
+            &format!("version: 2\nrefs:\n  {KEY}: synthetic-key\n"),
+        )
+        .unwrap();
+        assert!(!intact(&r));
+        assert!(credentials_document("version: 1\nrefs: {KEY: a, KEY: b}\n").is_err());
+    }
+
+    #[test]
+    fn sanitized_runtime_fixture_is_read_only_and_trusted() {
+        // Optional fixtures are generated from redacted on-disk comparisons or
+        // an isolated official DSH run, never automatically from the user's home.
+        let Ok(dir) = std::env::var("YUANHENG_DSH_OWNERSHIP_FIXTURE") else {
+            return;
+        };
+        let dir = Path::new(&dir);
+        let (_home, mut r) = fixture();
+        let record: Record =
+            serde_json::from_str(&read(&dir.join("record.json")).unwrap()).unwrap();
+        r.model = record.model;
+        r.models = record.models;
+        r.hashes = record.hashes;
+        for (i, path) in paths(&r.home).iter().enumerate() {
+            write(path, &read(&dir.join(format!("{i}.yaml"))).unwrap()).unwrap();
+        }
+        assert!(
+            intact(&r),
+            "saved runtime fixture failed ownership validation"
+        );
+    }
+
     #[test]
     fn preserves_other_provider_and_rejects_collision() {
         let text =

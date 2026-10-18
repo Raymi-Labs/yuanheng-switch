@@ -6773,11 +6773,77 @@ mod tests {
             std::fs::read_to_string(&web).unwrap(),
             format!("{old_web}# unrelated later note\n")
         );
-        assert_eq!(
-            std::fs::read_to_string(root.join(".credentials.yaml")).unwrap(),
-            "# other key\nOTHER_KEY: preserved\n"
-        );
+        let restored: serde_yaml::Value =
+            serde_yaml::from_str(&std::fs::read_to_string(root.join(".credentials.yaml")).unwrap())
+                .unwrap();
+        assert_eq!(restored["refs"]["OTHER_KEY"].as_str(), Some("preserved"));
+        assert!(restored["refs"].get("YUANHENG_DSH_API_KEY").is_none());
         assert!(!dsh::restore(&state).unwrap());
+    }
+
+    #[test]
+    #[serial]
+    fn dsh_runtime_saved_profiles_can_reconfigure_and_restore() {
+        for restore_only in [false, true] {
+            let (_home, state) = isolated_state();
+            let root = crate::config::get_home_dir().join(".dsh");
+            let models: Vec<String> = vec!["gpt-6.1-sol".into(), "gpt-6-astra".into()];
+            dsh::configure(&state, "synthetic-key", &models[0], &models, "default").unwrap();
+            let credential_path = root.join(".credentials.yaml");
+            let mut credentials: serde_yaml::Value =
+                serde_yaml::from_str(&std::fs::read_to_string(&credential_path).unwrap()).unwrap();
+            credentials["refs"]["OTHER_KEY"] = serde_yaml::Value::from("other-credential");
+            credentials["records"] = serde_yaml::from_str("client-connection/browser-session: {kind: opaque, payload: {version: 1, secret: synthetic-browser-session}}").unwrap();
+            std::fs::write(
+                &credential_path,
+                serde_yaml::to_string(&credentials).unwrap(),
+            )
+            .unwrap();
+            let web = root.join("profiles/web/cordis.patch.yml");
+            let mut rows: serde_yaml::Value =
+                serde_yaml::from_str(&std::fs::read_to_string(&web).unwrap()).unwrap();
+            rows[1]["config"]["model"] = serde_yaml::Value::from("gpt-6-astra");
+            rows.as_sequence_mut().unwrap().push(
+                serde_yaml::from_str(
+                    "id: ui-settings-general\nconfig: {welcomeNoticeVersion: '2026-09-28.1'}\n",
+                )
+                .unwrap(),
+            );
+            std::fs::write(
+                &web,
+                format!(
+                    "# BEGIN YUANHENG DSH\n{}\n# END YUANHENG DSH\n",
+                    serde_json::to_string_pretty(&rows).unwrap()
+                ),
+            )
+            .unwrap();
+            assert_eq!(
+                dsh::credential(&state, "default").unwrap().as_deref(),
+                Some("synthetic-key")
+            );
+            if !restore_only {
+                dsh::configure(&state, "rotated-key", &models[0], &models, "default").unwrap();
+                assert_eq!(
+                    dsh::credential(&state, "default").unwrap().as_deref(),
+                    Some("rotated-key")
+                );
+                assert!(std::fs::read_to_string(&web)
+                    .unwrap()
+                    .contains("welcomeNoticeVersion"));
+            }
+            assert!(dsh::restore(&state).unwrap());
+            let restored: serde_yaml::Value =
+                serde_yaml::from_str(&std::fs::read_to_string(&credential_path).unwrap()).unwrap();
+            assert_eq!(
+                restored["refs"]["OTHER_KEY"],
+                credentials["refs"]["OTHER_KEY"]
+            );
+            assert_eq!(restored["records"], credentials["records"]);
+            assert!(restored["refs"].get("YUANHENG_DSH_API_KEY").is_none());
+            let profile = std::fs::read_to_string(&web).unwrap();
+            assert!(profile.contains("welcomeNoticeVersion"));
+            assert!(!profile.contains("yuanheng-responses"));
+        }
     }
 
     #[test]
