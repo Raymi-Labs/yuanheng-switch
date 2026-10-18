@@ -125,6 +125,7 @@ jobs:
       - name: Launch in iPhone simulator
         run: python3 scripts/smoke_ios.py
       - uses: actions/upload-artifact@v7
+        if: always()
         with:
           name: yuanheng-ios-unsigned-development
           path: mobile/artifacts/*
