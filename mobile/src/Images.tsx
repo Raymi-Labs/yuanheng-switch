@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Download, ImagePlus, Sparkles, Square, X } from "lucide-react";
-import { api, errorText, ImageResult } from "./api";
+import { api, randomId, errorText, ImageResult } from "./api";
 import { Notice } from "./App";
 
 export function Images({
@@ -81,7 +81,7 @@ export function Images({
   const generate = async (e: React.FormEvent) => {
     e.preventDefault();
     if (busy || !prompt.trim()) return;
-    const id = crypto.randomUUID();
+    const id = randomId();
     task.current = id;
     start.current = Date.now();
     setElapsed(0);

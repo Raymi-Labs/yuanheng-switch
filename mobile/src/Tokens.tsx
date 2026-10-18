@@ -296,7 +296,7 @@ function CreateToken({
     try {
       if (!name.trim() || name.trim().length > 50)
         throw new Error("令牌名称需要 1–50 个字符");
-      if (!group || !Object.hasOwn(groups, group))
+      if (!group || !Object.prototype.hasOwnProperty.call(groups, group))
         throw new Error("请选择可用分组");
       const limits = models
         .split(/[,，\n]/)

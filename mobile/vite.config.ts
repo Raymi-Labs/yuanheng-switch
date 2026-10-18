@@ -7,5 +7,5 @@ export default defineConfig({
   plugins: [react()],
   clearScreen: false,
   server: { port: 1420, strictPort: true, host: "0.0.0.0" },
-  build: { target: "es2022" },
+  build: { target: ["safari15", "chrome80"] },
 });

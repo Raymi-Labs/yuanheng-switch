@@ -112,6 +112,7 @@ select {
 .app-shell {
   max-width: 720px;
   margin: auto;
+  min-height: 100vh;
   min-height: 100dvh;
   display: flex;
   flex-direction: column;
@@ -313,6 +314,7 @@ select {
   stroke-width: 2.5;
 }
 .splash {
+  min-height: 100vh;
   min-height: 100dvh;
   display: flex;
   flex-direction: column;
@@ -392,6 +394,9 @@ select {
   margin-top: 18px;
 }
 .chat-page {
+  height: calc(
+    100vh - 146px - env(safe-area-inset-top) - env(safe-area-inset-bottom)
+  );
   height: calc(
     100dvh - 146px - env(safe-area-inset-top) - env(safe-area-inset-bottom)
   );

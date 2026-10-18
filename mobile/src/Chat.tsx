@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import {
   api,
+  randomId,
   Conversation,
   errorText,
   Group,
@@ -108,12 +109,12 @@ export function Chat({
   const send = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!text.trim() || busy || !model || loading) return;
-    const id = selected || crypto.randomUUID();
-    const task = crypto.randomUUID();
-    const answerId = crypto.randomUUID();
+    const id = selected || randomId();
+    const task = randomId();
+    const answerId = randomId();
     const request: Message[] = [
       ...messages.filter((m) => !m.error && m.content),
-      { id: crypto.randomUUID(), role: "user", content: text.trim() },
+      { id: randomId(), role: "user", content: text.trim() },
     ];
     const next: Conversation = {
       id,
