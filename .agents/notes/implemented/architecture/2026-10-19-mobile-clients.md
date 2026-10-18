@@ -30,7 +30,7 @@ Status: implemented
 
 ## Validation
 
-本地移动前端类型检查、Vite 构建与流解析/页面回归通过；Rust 测试和 clippy 通过。验证覆盖金额单位、兑换失败/待领取权益、2FA、网站充值不虚增余额、会话 epoch、并发与取消、受限 URL 和错误凭据过滤。页面使用临时 IPC 模拟做窄屏和暗色浏览器验收，模拟不会进入交付代码。320/390px 浅色/暗色和 320×480 压缩高度检查通过；聊天不再用固定最小高度挤占输入区，发送按钮保持在底栏上方。原生目标构建由独立 Mobile Build CI 执行，签名和真机结果需另行核实。
+本地移动前端类型检查、Vite 构建与流解析/页面回归通过；Rust 测试和 clippy 通过。验证覆盖金额单位、兑换失败/待领取权益、2FA、网站充值不虚增余额、模拟聊天流与图片保存入口、会话 epoch、并发与取消、受限 URL 和错误凭据过滤。页面使用临时 IPC 模拟做窄屏和暗色浏览器验收，模拟不会进入交付代码。320/390px 浅色/暗色和 320×480 压缩高度检查通过；聊天不再用固定最小高度挤占输入区，发送按钮保持在底栏上方。独立 Mobile Build CI 已完成 Android ARM64 APK 签名，以及 iPhone / ARM64 模拟器无签名 archive 编译。下载后核对 APK 的 SHA256、ARM64 原生库、插件 dex，以及 iOS 两份 archive 的 platform、bundle ID 和版本元数据；Android 二进制 manifest 的 minSdk=29、targetSdk=37、allowBackup=false 已核对。CI 的模拟器启动检查会安装应用、检查存活并保存截图，仍不代表真机收费流程验收。
 
 ## Consequences
 

@@ -61,7 +61,7 @@ jobs:
           log-accepted-android-sdk-licenses: false
       - name: Android SDK
         run: |
-          sdkmanager 'platforms;android-36' 'build-tools;36.0.0' 'ndk;28.2.13676358'
+          sdkmanager 'platforms;android-36' 'platforms;android-37' 'build-tools;36.0.0' 'ndk;28.2.13676358'
           echo "NDK_HOME=$ANDROID_HOME/ndk/28.2.13676358" >> "$GITHUB_ENV"
       - uses: dtolnay/rust-toolchain@1.95.0
         with:
@@ -122,6 +122,8 @@ jobs:
         run: pnpm tauri ios build --ci --target aarch64-sim --no-sign --archive-only
       - name: Package simulator archive
         run: python3 scripts/package_ios.py simulator
+      - name: Launch in iPhone simulator
+        run: python3 scripts/smoke_ios.py
       - uses: actions/upload-artifact@v7
         with:
           name: yuanheng-ios-unsigned-development

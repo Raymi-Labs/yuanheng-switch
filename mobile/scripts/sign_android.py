@@ -33,9 +33,9 @@ config = json.loads((root / 'src-tauri/tauri.conf.json').read_text())
 assert f"name='{config['identifier']}'" in metadata, 'Unexpected Android package ID'
 assert f"versionCode='{config['bundle']['android']['versionCode']}'" in metadata, 'Unexpected version code'
 assert f"versionName='{version}'" in metadata, 'Unexpected app version'
-assert "sdkVersion:'29'" in metadata, 'Unexpected minimum SDK'
-assert "native-code: 'arm64-v8a'" in metadata, 'Unexpected APK architecture'
+assert re.search(r"sdkVersion:\s*'29'", metadata), f'Unexpected minimum SDK: {metadata}'
+assert re.search(r"native-code:\s*'arm64-v8a'", metadata), f'Unexpected APK architecture: {metadata}'
 manifest = subprocess.check_output([str(build_tools / 'aapt2'), 'dump', 'xmltree', str(artifact), '--file', 'AndroidManifest.xml'], text=True)
-assert re.search(r'android:allowBackup[^\n]*\(type 0x12\)0x0\b', manifest), 'Session backup must be disabled'
+assert re.search(r'android:allowBackup[^\n=]*=\s*(?:false|\(type 0x12\)0x0+)\b', manifest), f'Session backup must be disabled: {manifest}'
 print('Verified package ID, version, Android 10 minimum, ARM64 and disabled backup')
 (out / f'{artifact.name}.sha256').write_text(f'{hashlib.sha256(artifact.read_bytes()).hexdigest()}  {artifact.name}\n')

@@ -13,7 +13,7 @@
 
 ## 本地开发
 
-需要 Node.js 22、pnpm 10.12.3、Rust 1.95。Android 需要 Java 17、SDK 36、NDK 28.2.13676358；iOS 需要完整 Xcode（仅 Command Line Tools 不够）。
+需要 Node.js 22、pnpm 10.12.3、Rust 1.95。Android 需要 Java 17、SDK 36/37、Build Tools 36.0.0、NDK 28.2.13676358；iOS 需要完整 Xcode（仅 Command Line Tools 不够）。
 
 ```sh
 cd mobile
@@ -36,7 +36,7 @@ pnpm ios:dev
 [Mobile Build](../.github/workflows/mobile.yml) 独立验证两端，并使用 `mobile-v*` 版本标签，避免触发桌面 `v*` 发布。
 
 - Android：首版 Android 10+、ARM64 APK，首版 versionCode=1（后续 alpha 必须递增）、固定 release keystore 签名，校验签名和 16 KB zip 对齐。Secrets：`YUANHENG_ANDROID_KEYSTORE_BASE64`、`YUANHENG_ANDROID_KEYSTORE_PASSWORD`；PKCS12 alias 为 `yuanheng`。必须保留同一签名密钥，后续更新才能覆盖安装。下载后核对 SHA256，在浏览器安装权限中允许当前下载来源。
-- iOS：CI 编译 iPhone 和 ARM64 模拟器 archive。`*-device-unsigned.xcarchive.zip` **未签名，不能直接安装**；模拟器 archive 用于 Xcode 模拟器。真机安装 / TestFlight / App Store 分发仍需有效的 iOS 开发者签名、匹配 `com.nanashiwang.yuanhengmobile` 的描述文件以及选定的发行渠道。现有 macOS Developer ID 证书不能替代这些条件。
+- iOS：CI 编译 iPhone 和 ARM64 模拟器 archive，并在模拟器安装启动、检查进程存活、保存截图。`*-device-unsigned.xcarchive.zip` **未签名，不能直接安装**；模拟器 archive 用于 Xcode 模拟器。真机安装 / TestFlight / App Store 分发仍需有效的 iOS 开发者签名、匹配 `com.nanashiwang.yuanhengmobile` 的描述文件以及选定的发行渠道。现有 macOS Developer ID 证书不能替代这些条件。
 - 本轮按用户要求保留网页充值。发行地区和苹果审核是独立事项；没有审核隐藏逻辑，也不将测试构建说成已上架。普通中国区 iPhone 不能把网站上的 unsigned archive 当作 APK 安装。
 
 ## 接口与数据边界
@@ -48,3 +48,5 @@ Rust 只允许固定 `https://meta-api.vip` 和操作白名单；不接受前端
 ## 当前验收边界
 
 类型、前端构建、流程/流解析测试和 Rust 状态/边界测试在本地执行；原生目标通过 CI 单独确认。真实账号登录、模型收费请求、充值到账、兑换核销、相册授权和软键盘表现仍需真机验收；测试不自动创建账号、扣款或使用真实兑换码。
+
+Android release 签名证书 SHA256：`e1de31b926da27432d37aeb978324d18f626e053b1e23c68b3a7463c07783746`。密钥备份由维护者保存在受保护的本机目录，不能提交到仓库。
