@@ -32,7 +32,7 @@ out.mkdir(exist_ok=True)
 started = time.time()
 launch = subprocess.check_output(['xcrun', 'simctl', 'launch', '--terminate-running-process',
     f'--stdout={out / "ios-stdout.log"}', f'--stderr={out / "ios-stderr.log"}', udid, identifier], text=True)
-print(launch.strip())
+print(launch.strip(), flush=True)
 pid = int(launch.rsplit(':', 1)[1].strip())
 time.sleep(8)
 subprocess.run(['xcrun', 'simctl', 'io', udid, 'screenshot', str(out / 'ios-simulator-launch.png')], check=True)
@@ -42,13 +42,34 @@ process = subprocess.run(['ps', '-p', str(pid), '-o', 'stat=,comm='], capture_ou
 print(f'Process check: {process.returncode}, {process.stdout.strip()!r}', flush=True)
 alive = process.returncode == 0 and executable in process.stdout and not process.stdout.strip().startswith('Z')
 if not alive:
-    reports = Path.home() / 'Library/Logs/DiagnosticReports'
-    for report in reports.glob('*'):
-        if report.is_file() and report.stat().st_mtime >= started:
-            shutil.copy2(report, out / report.name)
+    reports = [Path.home() / 'Library/Logs/DiagnosticReports',
+        Path.home() / f'Library/Developer/CoreSimulator/Devices/{udid}/data/Library/Logs']
+    # Simulator crash reports may live inside the device, or arrive after exit.
+    time.sleep(20)
+    for directory in reports:
+        for report in directory.rglob('*'):
+            if report.is_file() and report.suffix in ('.ips', '.crash') and report.stat().st_mtime >= started:
+                content = report.read_text(errors='replace')
+                if identifier in content or executable in report.name:
+                    shutil.copy2(report, out / report.name)
     with (out / 'ios-system.log').open('w') as handle:
         subprocess.run(['xcrun', 'simctl', 'spawn', udid, 'log', 'show', '--last', '3m',
             '--style', 'compact', '--predicate', f'processID == {pid} OR eventMessage CONTAINS "{identifier}"'],
             stdout=handle, stderr=subprocess.STDOUT, timeout=45)
+    with (out / 'ios-host.log').open('w') as handle:
+        subprocess.run(['log', 'show', '--last', '8m', '--style', 'compact', '--predicate',
+            f'processID == {pid} OR eventMessage CONTAINS "{identifier}" OR eventMessage CONTAINS "{executable}"'],
+            stdout=handle, stderr=subprocess.STDOUT, timeout=45)
+    # Capture the first fault directly if crash reporting is unavailable in CI.
+    debug = subprocess.check_output(['xcrun', 'simctl', 'launch', '--terminate-running-process',
+        '--wait-for-debugger', udid, identifier], text=True, timeout=90)
+    debug_pid = int(debug.rsplit(':', 1)[1].strip())
+    with (out / 'ios-backtrace.log').open('w') as handle:
+        try:
+            subprocess.run(['xcrun', 'lldb', '--batch', '-o', f'process attach --pid {debug_pid}',
+                '-o', 'continue', '-o', 'thread backtrace all', '-o', 'image list', '-o', 'quit'],
+                stdout=handle, stderr=subprocess.STDOUT, timeout=90)
+        except subprocess.TimeoutExpired:
+            handle.write('\nDebugger timed out after 90 seconds\n')
     raise SystemExit(f'Application PID {pid} exited after launch; screenshot and available crash reports saved')
 print(f'Native launch verified on {device["name"]}, PID {pid}; no login or paid request performed')
