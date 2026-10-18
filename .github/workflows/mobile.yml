@@ -2,6 +2,7 @@ name: Mobile Build
 on:
   workflow_dispatch:
   push:
+    branches: [main]
     paths: ["mobile/**", ".github/workflows/mobile.yml"]
   pull_request:
     paths: ["mobile/**", ".github/workflows/mobile.yml"]
@@ -31,6 +32,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: mobile/src-tauri -> target
+          cache-on-failure: true
       - run: pnpm install --frozen-lockfile
       - run: pnpm test && pnpm build
       - run: cargo fmt --manifest-path src-tauri/Cargo.toml --check && cargo fmt --manifest-path native/Cargo.toml --check
@@ -67,6 +69,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: mobile/src-tauri -> target
+          cache-on-failure: true
       - run: pnpm install --frozen-lockfile
       - run: pnpm tauri android init --ci --skip-targets-install
       - run: pnpm tauri icon src-tauri/icons/icon.png
@@ -105,6 +108,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: mobile/src-tauri -> target
+          cache-on-failure: true
       - run: pnpm install --frozen-lockfile
       - run: pnpm tauri ios init --ci --skip-targets-install
       - run: pnpm tauri icon src-tauri/icons/icon.png

@@ -35,7 +35,7 @@ pnpm ios:dev
 
 [Mobile Build](../.github/workflows/mobile.yml) 独立验证两端，并使用 `mobile-v*` 版本标签，避免触发桌面 `v*` 发布。
 
-- Android：首版 Android 10+、ARM64 APK，固定 release keystore 签名，校验签名和 16 KB zip 对齐。Secrets：`YUANHENG_ANDROID_KEYSTORE_BASE64`、`YUANHENG_ANDROID_KEYSTORE_PASSWORD`；PKCS12 alias 为 `yuanheng`。必须保留同一签名密钥，后续更新才能覆盖安装。下载后核对 SHA256，在浏览器安装权限中允许当前下载来源。
+- Android：首版 Android 10+、ARM64 APK，首版 versionCode=1（后续 alpha 必须递增）、固定 release keystore 签名，校验签名和 16 KB zip 对齐。Secrets：`YUANHENG_ANDROID_KEYSTORE_BASE64`、`YUANHENG_ANDROID_KEYSTORE_PASSWORD`；PKCS12 alias 为 `yuanheng`。必须保留同一签名密钥，后续更新才能覆盖安装。下载后核对 SHA256，在浏览器安装权限中允许当前下载来源。
 - iOS：CI 编译 iPhone 和 ARM64 模拟器 archive。`*-device-unsigned.xcarchive.zip` **未签名，不能直接安装**；模拟器 archive 用于 Xcode 模拟器。真机安装 / TestFlight / App Store 分发仍需有效的 iOS 开发者签名、匹配 `com.nanashiwang.yuanhengmobile` 的描述文件以及选定的发行渠道。现有 macOS Developer ID 证书不能替代这些条件。
 - 本轮按用户要求保留网页充值。发行地区和苹果审核是独立事项；没有审核隐藏逻辑，也不将测试构建说成已上架。普通中国区 iPhone 不能把网站上的 unsigned archive 当作 APK 安装。
 

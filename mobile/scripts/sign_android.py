@@ -3,6 +3,7 @@ import base64
 import hashlib
 import json
 import os
+import re
 from pathlib import Path
 import subprocess
 import tempfile
@@ -27,4 +28,14 @@ with tempfile.TemporaryDirectory() as folder:
     subprocess.run([str(build_tools / 'apksigner'), 'sign', '--ks', str(keystore), '--ks-type', 'PKCS12', '--ks-key-alias', 'yuanheng', '--ks-pass', 'env:ANDROID_KEYSTORE_PASSWORD', '--out', str(artifact), str(aligned)], check=True)
     subprocess.run([str(build_tools / 'apksigner'), 'verify', '--verbose', '--print-certs', str(artifact)], check=True)
     subprocess.run([str(build_tools / 'zipalign'), '-c', '-P', '16', '4', str(artifact)], check=True)
+metadata = subprocess.check_output([str(build_tools / 'aapt2'), 'dump', 'badging', str(artifact)], text=True)
+config = json.loads((root / 'src-tauri/tauri.conf.json').read_text())
+assert f"name='{config['identifier']}'" in metadata, 'Unexpected Android package ID'
+assert f"versionCode='{config['bundle']['android']['versionCode']}'" in metadata, 'Unexpected version code'
+assert f"versionName='{version}'" in metadata, 'Unexpected app version'
+assert "sdkVersion:'29'" in metadata, 'Unexpected minimum SDK'
+assert "native-code: 'arm64-v8a'" in metadata, 'Unexpected APK architecture'
+manifest = subprocess.check_output([str(build_tools / 'aapt2'), 'dump', 'xmltree', str(artifact), '--file', 'AndroidManifest.xml'], text=True)
+assert re.search(r'android:allowBackup[^\n]*\(type 0x12\)0x0\b', manifest), 'Session backup must be disabled'
+print('Verified package ID, version, Android 10 minimum, ARM64 and disabled backup')
 (out / f'{artifact.name}.sha256').write_text(f'{hashlib.sha256(artifact.read_bytes()).hexdigest()}  {artifact.name}\n')
