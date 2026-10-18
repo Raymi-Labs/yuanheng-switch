@@ -21,6 +21,14 @@ for archive in (root / 'src-tauri/gen/apple').rglob('*.xcarchive'):
 if not candidates:
     raise SystemExit(f'No verified {kind} archive found')
 archive = max(candidates)[1]
+signing = 'unsigned'
+if kind == 'simulator':
+    # --no-sign leaves only a linker signature, without the bundle resource seal.
+    # Ad-hoc signing is sufficient for the simulator and uses no Apple identity.
+    for app in (archive / 'Products/Applications').glob('*.app'):
+        subprocess.run(['codesign', '--force', '--sign', '-', '--timestamp=none', str(app)], check=True)
+        subprocess.run(['codesign', '--verify', '--strict', '--verbose=2', str(app)], check=True)
+    signing = 'adhoc'
 out = root / 'artifacts'
 out.mkdir(exist_ok=True)
-subprocess.run(['ditto', '-c', '-k', '--sequesterRsrc', '--keepParent', str(archive), str(out / f'YuanHeng-{version}-ios-{kind}-unsigned.xcarchive.zip')], check=True)
+subprocess.run(['ditto', '-c', '-k', '--sequesterRsrc', '--keepParent', str(archive), str(out / f'YuanHeng-{version}-ios-{kind}-{signing}.xcarchive.zip')], check=True)

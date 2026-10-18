@@ -30,7 +30,7 @@ Status: implemented
 
 ## Validation
 
-本地移动前端类型检查、Vite 构建与流解析/页面回归通过；Rust 测试和 clippy 通过。验证覆盖金额单位、兑换失败/待领取权益、2FA、网站充值不虚增余额、模拟聊天流与图片保存入口、会话 epoch、并发与取消、受限 URL 和错误凭据过滤。页面使用临时 IPC 模拟做窄屏和暗色浏览器验收，模拟不会进入交付代码。320/390px 浅色/暗色和 320×480 压缩高度检查通过；聊天不再用固定最小高度挤占输入区，发送按钮保持在底栏上方。构建目标包含 Safari 15 / Chrome 80；请求 ID 使用 getRandomValues，避免旧 WebView 或自定义 scheme 缺少 randomUUID，动态视口高度保留 vh 回退。独立 Mobile Build CI 已完成 Android ARM64 APK 签名，以及 iPhone / ARM64 模拟器无签名 archive 编译。下载后核对 APK 的 SHA256、ARM64 原生库、插件 dex，以及 iOS 两份 archive 的 platform、bundle ID 和版本元数据；Android 二进制 manifest 的 minSdk=29、targetSdk=37、allowBackup=false 已核对。CI 的模拟器启动检查会安装应用，直接检查 simctl 返回的宿主 PID 与可执行程序名（不依赖可能遗漏 UIKit 应用的 launchctl bootstrap 域），并在失败时同样保留截图与可用崩溃报告，仍不代表真机收费流程验收。
+本地移动前端类型检查、Vite 构建与流解析/页面回归通过；Rust 测试和 clippy 通过。验证覆盖金额单位、兑换失败/待领取权益、2FA、网站充值不虚增余额、模拟聊天流与图片保存入口、会话 epoch、并发与取消、受限 URL 和错误凭据过滤。页面使用临时 IPC 模拟做窄屏和暗色浏览器验收，模拟不会进入交付代码。320/390px 浅色/暗色和 320×480 压缩高度检查通过；聊天不再用固定最小高度挤占输入区，发送按钮保持在底栏上方。构建目标包含 Safari 15 / Chrome 80；请求 ID 使用 getRandomValues，避免旧 WebView 或自定义 scheme 缺少 randomUUID，动态视口高度保留 vh 回退。独立 Mobile Build CI 已完成 Android ARM64 APK 签名，以及 iPhone / ARM64 模拟器无签名 archive 编译。下载后核对 APK 的 SHA256、ARM64 原生库、插件 dex，以及 iOS 两份 archive 的 platform、bundle ID 和版本元数据；Android 二进制 manifest 的 minSdk=29、targetSdk=37、allowBackup=false 已核对。CI 的模拟器启动检查会安装应用，直接检查 simctl 返回的宿主 PID 与可执行程序名（不依赖可能遗漏 UIKit 应用的 launchctl bootstrap 域），并在失败时同样保留截图、stdout/stderr、系统日志与新产生的崩溃报告，仍不代表真机收费流程验收。
 
 ## Consequences
 
@@ -38,4 +38,4 @@ Status: implemented
 
 登录凭据只保存在平台安全存储；聊天历史为按账号隔离的本机文本。停止生成不承诺取消后台收费。首版不做跨设备同步或后台持续生成；图片结果需保存相册，生图模型需支持 b64_json。
 
-本机仅有 Command Line Tools，没有完整 Xcode、Java/Android SDK 和有效 iOS 签名身份；使用 CI 编译目标。Android 使用独立持久 release keystore 并验证签名，iOS 无签名 archive 不能称为可安装 IPA。macOS Developer ID secrets 不视作 iOS 发行资格。真实账号、收费模型、充值到账、兑换码和相册授权仍需真机验证；不为自动验收产生费用。当前官网 status 的 Turnstile 开关关闭，如将来启用，需补人机验证流程而非绕过。
+本机仅有 Command Line Tools，没有完整 Xcode、Java/Android SDK 和有效 iOS 签名身份；使用 CI 编译目标。Android 使用独立持久 release keystore 并验证签名，iOS 真机无签名 archive 不能称为可安装 IPA。模拟器的 --no-sign 构建只有 linker-signed Mach-O，codesign --verify --strict 报告缺失 bundle 资源封印；打包前对模拟器完整 app 做不使用 Apple 身份的 ad-hoc 签名并校验，产物明确命名 simulator-adhoc，真机 archive 仍保持 unsigned。macOS Developer ID secrets 不视作 iOS 发行资格。真实账号、收费模型、充值到账、兑换码和相册授权仍需真机验证；不为自动验收产生费用。当前官网 status 的 Turnstile 开关关闭，如将来启用，需补人机验证流程而非绕过。
