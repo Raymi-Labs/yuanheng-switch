@@ -1,0 +1,41 @@
+# Agent Note: 元衡 Android 与 iOS 独立客户端
+
+Status: implemented
+
+## Problem
+
+用户需要在手机直接聊天、生图、查看余额、创建令牌、使用兑换码，并明确要求两个平台都打开现有官网充值。现有桌面应用主要配置本机 AI 工具，不能将桌面 Core、进程管理和窗口插件直接搬到手机。
+
+## Existing capabilities and impact
+
+已核对 [桌面账号命令](../../../../src-tauri/src/commands/yuanheng.rs)、[桌面配置](../../../../src-tauri/tauri.conf.json) 与本地 newapi 的 router/api-router.go、router/relay-router.go、controller/user.go、controller/token.go、controller/image_playground.go。后台已有登录/2FA、本人余额、可用模型/分组、令牌增删改查、统一兑换和聊天/生图接口；金额与权限仍由后台决定。移动端不复制后台业务代码。
+
+活跃笔记检索：没有移动端归属笔记。[客户端线路选择](../../implemented/architecture/2026-10-17-client-route-selection.md)仅相邻，不改变桌面线路；[桌面工作台](../../implemented/simplification/2026-10-12-workspace-single-tool-controls.md)仅相邻，不改其工具入口。其余安装、更新、DSH、macOS 凭据笔记不被替代。
+
+## Decision
+
+- 新建 mobile/ 下的 React + Tauri 2 应用，共享现有技术栈但独立 Cargo、平台工程、应用标识、版本和发布流程；桌面构建不加载移动端模块。
+- 本地界面通过有限 Rust IPC 访问固定元衡 HTTPS origin；会话凭据存 iOS Keychain / Android Keystore 加密存储，不写 localStorage、不传给网页。退出和账号切换使旧请求结果失效。
+- 聊天支持 SSE、停止和按账号保存本机历史；生图按用户显式操作发起，不自动重试可能计费的请求；支持原生图片保存。
+- 令牌只操作当前账号；创建时使用服务器返回的可选组，额度和有效期显式设置。兑换沿用后台核销，展示重复/失效/套餐待领取等真实结果。
+- 两个平台充值都用系统浏览器打开固定官网 /console/topup，不把会话放 URL；返回时从后台刷新余额，不以浏览器返回判定到账。浏览器可能需要单独登录。
+- 如实提供网站充值与兑换功能，不加入审核隐藏开关。iOS 上架地区、审核结论、签名和设备安装分别验收；本次实现不承诺中国区 App Store 通过，不擅自替换为 IAP 或 PWA。
+
+## Alternatives considered
+
+- 直接改造桌面入口：最大化代码复用，但无关 Core、托盘、子进程、桌面工具和凭据路径形成移动构建依赖；独立入口降低桌面回归范围。
+- React Native / Swift + Kotlin：更直接的原生 UI，但要重新建立 UI 体系和双平台契约；当前 React/Tauri 基础适合先实现本地打包客户端。
+- iPhone PWA：官网分发更简单，用户明确选择 iPhone 原生安装包，因此不采用。
+- 苹果内购：可为相应商店分发提供另一支付路径，用户明确选择现有网页充值，本轮不新增另一套支付和账本。
+
+## Validation
+
+本地移动前端类型检查、Vite 构建与流解析/页面回归通过；Rust 测试和 clippy 通过。验证覆盖金额单位、兑换失败/待领取权益、2FA、网站充值不虚增余额、会话 epoch、并发与取消、受限 URL 和错误凭据过滤。页面使用临时 IPC 模拟做窄屏和暗色浏览器验收，模拟不会进入交付代码。原生目标构建由独立 Mobile Build CI 执行，签名和真机结果需另行核实。
+
+## Consequences
+
+桌面和手机版本、依赖、原生构建隔离，代价是 UI 实现和锁文件独立维护。根 Vitest 排除 mobile 子项目，防止桌面测试初始化污染移动测试。pnpm 固定 10.12.3；本机 pnpm 11 安装错误不通过改动桌面依赖解决。
+
+登录凭据只保存在平台安全存储；聊天历史为按账号隔离的本机文本。停止生成不承诺取消后台收费。首版不做跨设备同步或后台持续生成；图片结果需保存相册，生图模型需支持 b64_json。
+
+本机仅有 Command Line Tools，没有完整 Xcode、Java/Android SDK 和有效 iOS 签名身份；使用 CI 编译目标。Android 使用独立持久 release keystore 并验证签名，iOS 无签名 archive 不能称为可安装 IPA。macOS Developer ID secrets 不视作 iOS 发行资格。真实账号、收费模型、充值到账、兑换码和相册授权仍需真机验证；不为自动验收产生费用。当前官网 status 的 Turnstile 开关关闭，如将来启用，需补人机验证流程而非绕过。

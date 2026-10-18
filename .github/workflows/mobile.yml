@@ -1,0 +1,122 @@
+name: Mobile Build
+on:
+  workflow_dispatch:
+  push:
+    paths: ["mobile/**", ".github/workflows/mobile.yml"]
+  pull_request:
+    paths: ["mobile/**", ".github/workflows/mobile.yml"]
+permissions:
+  contents: read
+concurrency:
+  group: mobile-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  checks:
+    runs-on: macos-15
+    timeout-minutes: 25
+    defaults:
+      run:
+        working-directory: mobile
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+      - uses: pnpm/action-setup@v6
+        with:
+          package_json_file: mobile/package.json
+      - uses: dtolnay/rust-toolchain@1.95.0
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: mobile/src-tauri -> target
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm test && pnpm build
+      - run: cargo fmt --manifest-path src-tauri/Cargo.toml --check && cargo fmt --manifest-path native/Cargo.toml --check
+      - run: cargo test --locked --manifest-path src-tauri/Cargo.toml --lib && cargo clippy --locked --manifest-path src-tauri/Cargo.toml --lib -- -D warnings
+  android:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    defaults:
+      run:
+        working-directory: mobile
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+      - uses: pnpm/action-setup@v6
+        with:
+          package_json_file: mobile/package.json
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: android-actions/setup-android@v3
+      - name: Android SDK
+        run: |
+          sdkmanager 'platforms;android-36' 'build-tools;36.0.0' 'ndk;28.2.13676358'
+          echo "NDK_HOME=$ANDROID_HOME/ndk/28.2.13676358" >> "$GITHUB_ENV"
+      - uses: dtolnay/rust-toolchain@1.95.0
+        with:
+          targets: aarch64-linux-android
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: mobile/src-tauri -> target
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm tauri android init --ci --skip-targets-install
+      - run: pnpm tauri icon src-tauri/icons/icon.png
+      - run: pnpm tauri android build --ci --target aarch64 --apk
+      - name: Sign APK
+        if: github.event_name != 'pull_request'
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.YUANHENG_ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.YUANHENG_ANDROID_KEYSTORE_PASSWORD }}
+        run: python3 scripts/sign_android.py
+      - uses: actions/upload-artifact@v7
+        if: github.event_name != 'pull_request'
+        with:
+          name: yuanheng-android-arm64
+          path: mobile/artifacts/*
+          if-no-files-found: error
+  ios:
+    env:
+      APPLE_DEVELOPMENT_TEAM: ${{ secrets.APPLE_TEAM_ID }}
+    runs-on: macos-15
+    timeout-minutes: 60
+    defaults:
+      run:
+        working-directory: mobile
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+      - uses: pnpm/action-setup@v6
+        with:
+          package_json_file: mobile/package.json
+      - uses: dtolnay/rust-toolchain@1.95.0
+        with:
+          targets: aarch64-apple-ios, aarch64-apple-ios-sim
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: mobile/src-tauri -> target
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm tauri ios init --ci --skip-targets-install
+      - run: pnpm tauri icon src-tauri/icons/icon.png
+      - name: Build iPhone archive without signing
+        run: pnpm tauri ios build --ci --target aarch64 --no-sign --archive-only
+      - name: Package unsigned device archive
+        run: |
+          mkdir -p artifacts
+          python3 scripts/package_ios.py device
+      - name: Build simulator archive
+        run: pnpm tauri ios build --ci --target aarch64-sim --no-sign --archive-only
+      - name: Package simulator archive
+        run: python3 scripts/package_ios.py simulator
+      - uses: actions/upload-artifact@v7
+        with:
+          name: yuanheng-ios-unsigned-development
+          path: mobile/artifacts/*
+          if-no-files-found: error

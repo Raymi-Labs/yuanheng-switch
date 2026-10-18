@@ -1,0 +1,1 @@
+{ "$schema": "../gen/schemas/mobile-schema.json", "identifier": "mobile-main", "description": "仅本地移动界面可调用应用命令；远程网页使用系统浏览器。", "windows": ["main"], "permissions": ["core:default"] }
