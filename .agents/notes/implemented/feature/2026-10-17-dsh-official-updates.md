@@ -8,7 +8,7 @@ Status: implemented
 
 ## Existing capabilities and impact
 
-复用 DSH 临时目录安装、原子 current 标记、工具锁、监督取消、账号配置保护及本地检测。工作台和工具管理复用一个更新组件，版本查询扩展 get_tool_versions，升级扩展 run_tool_lifecycle_action 的 DSH 分支；其他工具更新行为保持不变。
+复用 DSH 临时目录安装、原子 current 标记、工具锁、监督取消、账号配置保护及本地检测。工具管理承载版本检查和更新组件；工作台按用户要求移除常驻版本面板，仅在任务进行时复用共享进度与取消。版本查询扩展 get_tool_versions，升级扩展 run_tool_lifecycle_action 的 DSH 分支；其他工具更新行为保持不变。
 
 [旧 DSH 安装决定](../../implemented/bug-fix/2026-10-11-dsh-install-launch.md)的固定 DSH 版本策略由本篇替代，其私有 Node、用户目录和监督边界保留。[直接安装](../../implemented/bug-fix/2026-10-17-workspace-direct-install.md)继续负责未安装入口；[安装取消](../../implemented/bug-fix/2026-10-01-bounded-tool-installation.md)复用于 DSH 更新，不扩大其他工具的取消承诺。
 
@@ -29,6 +29,7 @@ Status: implemented
 - 官方 registry latest 元数据于 2026-10-17 核对为 0.2.0-rc.2；0.3.0 仅用于隔离测试，没有虚构新的官方版本。
 - 955 项前端测试通过，覆盖共享更新、版本比较、远端失败重试、自选/外部安装保护、取消/失败后原版本与重试、真实 POSIX 脚本拒绝非法版本。DSH 相关 Rust 17 项通过，覆盖动态 manifest、语义版本顺序、异常元数据、运行验证失败/取消不替换原标记以及新旧目录保留。Clippy、TypeScript、renderer 构建和格式检查通过。
 - 实际 App 壳与模拟 IPC 验证：工作台启动更新 → 工具管理共享状态和取消 → 失败重试 → 成功刷新两处版本；没有自动配置或启动请求。900×600 暗色检查失败、自选路径提示及常规浅色布局通过。此验收没有替换用户当前 DSH。
+- 2026-10-18 收窄工作台展示后，965 项前端测试、类型检查、构建和格式检查通过；真实 App 壳配合模拟 IPC 验证工具管理发起更新、返回工作台查看进度和取消、成功后收起进度，以及刷新和 900×600 暗色布局。工作台常驻版本面板已移除，工具管理仍提供版本检查与更新。
 - 官方元数据可访问；本机真实 Node 归档下载仍受网络超时影响，本轮不声称真实完整下载安装或 Windows 真机升级已验收。跨平台编译、签名和安装包由发布流水线验证。
 
 ## Consequences

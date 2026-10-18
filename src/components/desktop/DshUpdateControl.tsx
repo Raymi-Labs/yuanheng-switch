@@ -14,7 +14,7 @@ import { clearToolInventoryCache } from "./toolInventoryCache";
 
 const DSH_RELEASE_KEY = ["desktop", "dsh-release"] as const;
 
-/** Both desktop surfaces share the release query and supervised update job. */
+/** Tool management entry for DSH release checks and supervised updates. */
 export function DshUpdateControl({
   busy = false,
   onDark = false,

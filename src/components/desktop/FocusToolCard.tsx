@@ -34,7 +34,6 @@ import { groupModelsByVendor, modelVendorOf } from "./modelVendors";
 import { dt } from "./desktopI18n";
 import { launchDirectoryLabel } from "./useToolLaunchDirectories";
 import { ToolActivationProgress } from "./ToolActivationProgress";
-import { DshUpdateControl } from "./DshUpdateControl";
 import { ToolInstallCancel } from "./ToolInstallCancel";
 import { toolInstallLabel } from "./toolInstallFeedback";
 import { useToolLifecycleState } from "@/lib/toolLifecycleState";
@@ -457,7 +456,12 @@ export function FocusToolCard({
         </button>
       </div>
 
-      {app === "dsh" && <DshUpdateControl busy={pendingApps.has(app)} onDark />}
+      {app === "dsh" && switcher.installingApps.has(app) && (
+        <div className="relative flex flex-col items-start gap-2">
+          <ToolInstallProgress tool="dsh" onDark />
+          <ToolInstallCancel tool="dsh" label={dt("取消更新")} />
+        </div>
+      )}
 
       <div className="relative mt-4 flex flex-wrap items-baseline gap-x-3 gap-y-1">
         <span className="text-[11px] text-white/55">{dt("当前模型")}</span>
