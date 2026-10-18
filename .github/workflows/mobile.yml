@@ -119,7 +119,7 @@ jobs:
           mkdir -p artifacts
           python3 scripts/package_ios.py device
       - name: Build simulator archive
-        run: pnpm tauri ios build --ci --target aarch64-sim --no-sign --archive-only
+        run: pnpm tauri ios build --ci --target aarch64-sim --archive-only
       - name: Package simulator archive
         run: python3 scripts/package_ios.py simulator
       - name: Launch in iPhone simulator

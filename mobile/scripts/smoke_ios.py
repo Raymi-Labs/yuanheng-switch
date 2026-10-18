@@ -30,8 +30,17 @@ subprocess.run(['xcrun', 'simctl', 'install', udid, str(app)], check=True, timeo
 out = root / 'artifacts'
 out.mkdir(exist_ok=True)
 started = time.time()
-launch = subprocess.check_output(['xcrun', 'simctl', 'launch', '--terminate-running-process',
-    f'--stdout={out / "ios-stdout.log"}', f'--stderr={out / "ios-stderr.log"}', udid, identifier], text=True)
+try:
+    launch = subprocess.check_output(['xcrun', 'simctl', 'launch', '--terminate-running-process',
+        f'--stdout={out / "ios-stdout.log"}', f'--stderr={out / "ios-stderr.log"}', udid, identifier],
+        text=True, timeout=180)
+except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
+    for label, command in [('host', ['log']), ('system', ['xcrun', 'simctl', 'spawn', udid, 'log'])]:
+        with (out / f'ios-{label}.log').open('w') as handle:
+            subprocess.run([*command, 'show', '--last', '5m', '--style', 'compact', '--predicate',
+                f'eventMessage CONTAINS "{identifier}" OR eventMessage CONTAINS "{executable}"'],
+                stdout=handle, stderr=subprocess.STDOUT, timeout=45)
+    raise
 print(launch.strip(), flush=True)
 pid = int(launch.rsplit(':', 1)[1].strip())
 time.sleep(8)
