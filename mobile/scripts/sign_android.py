@@ -29,11 +29,12 @@ with tempfile.TemporaryDirectory() as folder:
     subprocess.run([str(build_tools / 'apksigner'), 'verify', '--verbose', '--print-certs', str(artifact)], check=True)
     subprocess.run([str(build_tools / 'zipalign'), '-c', '-P', '16', '4', str(artifact)], check=True)
 metadata = subprocess.check_output([str(build_tools / 'aapt2'), 'dump', 'badging', str(artifact)], text=True)
+print('\n'.join(line for line in metadata.splitlines() if any(key in line for key in ('package:', 'sdk', 'Sdk', 'native-code'))))
 config = json.loads((root / 'src-tauri/tauri.conf.json').read_text())
 assert f"name='{config['identifier']}'" in metadata, 'Unexpected Android package ID'
 assert f"versionCode='{config['bundle']['android']['versionCode']}'" in metadata, 'Unexpected version code'
 assert f"versionName='{version}'" in metadata, 'Unexpected app version'
-assert re.search(r"sdkVersion:\s*'29'", metadata), f'Unexpected minimum SDK: {metadata}'
+assert re.search(r"(?:sdkVersion|minSdkVersion):\s*['\"]?29(?=['\"\s]|$)", metadata), f'Unexpected minimum SDK: {metadata}'
 assert re.search(r"native-code:\s*'arm64-v8a'", metadata), f'Unexpected APK architecture: {metadata}'
 manifest = subprocess.check_output([str(build_tools / 'aapt2'), 'dump', 'xmltree', str(artifact), '--file', 'AndroidManifest.xml'], text=True)
 assert re.search(r'android:allowBackup[^\n=]*=\s*(?:false|\(type 0x12\)0x0+)\b', manifest), f'Session backup must be disabled: {manifest}'

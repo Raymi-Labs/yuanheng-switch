@@ -13,7 +13,7 @@
 
 ## 本地开发
 
-需要 Node.js 22、pnpm 10.12.3、Rust 1.95。Android 需要 Java 17、SDK 36/37、Build Tools 36.0.0、NDK 28.2.13676358；iOS 需要完整 Xcode（仅 Command Line Tools 不够）。
+需要 Node.js 22、pnpm 10.12.3、Rust 1.95。Android 需要 Java 17、SDK 36、Build Tools 36.0.0、NDK 28.2.13676358；iOS 需要完整 Xcode（仅 Command Line Tools 不够）。
 
 ```sh
 cd mobile
