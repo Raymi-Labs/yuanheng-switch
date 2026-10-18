@@ -17,6 +17,8 @@ for archive in (root / 'src-tauri/gen/apple').rglob('*.xcarchive'):
             info = plistlib.load(handle)
         platform = info.get('DTPlatformName', '')
         if (kind == 'simulator' and platform == 'iphonesimulator') or (kind == 'device' and platform == 'iphoneos'):
+            assert info['CFBundleExecutable'].isascii(), 'iOS executable must use an ASCII filename'
+            assert info.get('CFBundleDisplayName') == '元衡', 'iOS display name must remain localized'
             candidates.append((archive.stat().st_mtime, archive))
 if not candidates:
     raise SystemExit(f'No verified {kind} archive found')
