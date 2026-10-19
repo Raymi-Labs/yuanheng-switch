@@ -148,3 +148,5 @@ Claude diagnostic persistence uses a bounded background writer, not disk I/O on 
 [mobile/](../mobile/README.md) 是独立 React/Tauri 移动应用；四个入口为聊天、生图、令牌、我的，复用现有元衡后台账号/2FA、SSE、图片、余额、分组、令牌和兑换接口。Rust 固定 HTTPS origin 与操作白名单，原生 Kotlin/Swift 桥接 Keystore/Keychain 和相册；不加载桌面 Core。两个平台均用系统浏览器打开官网充值，返回后刷新余额，不以返回动作认定到账。权益码核销与领取分开显示。
 
 独立 lockfile、版本和 [Mobile Build](../.github/workflows/mobile.yml) 不触发桌面发布；Android APK 与 iOS unsigned archive 的签名/安装边界见移动端 README。浏览器模拟与自动测试不代表真实付费推理、充值、兑换或真机验收。设计原因见[移动端笔记](../.agents/notes/implemented/architecture/2026-10-19-mobile-clients.md)。
+
+安卓公开测试版官网分发复用下载域名和不可变对象校验；[分发工作流](../.github/workflows/mobile-delivery.yml)仅从已发布移动 Release 同步经过摘要及证书核对的 APK/校验文件，不写桌面 latest，也不发布未签名 iOS archive。见[分发笔记](../.agents/notes/implemented/process/2026-10-19-android-website-delivery.md)。

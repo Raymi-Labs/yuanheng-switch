@@ -39,6 +39,8 @@ pnpm ios:dev
 - iOS：CI 编译 iPhone 和 ARM64 模拟器 archive，并在模拟器安装启动、检查进程存活、保存截图。`*-device-unsigned.xcarchive.zip` **未签名，不能直接安装**；`*-simulator-adhoc.xcarchive.zip` 由 Xcode 生成模拟器 ad-hoc 签名与权限，仅用于 Xcode 模拟器。真机安装 / TestFlight / App Store 分发仍需有效的 iOS 开发者签名、匹配 `com.nanashiwang.yuanhengmobile` 的描述文件以及选定的发行渠道。现有 macOS Developer ID 证书不能替代这些条件。
 - 本轮按用户要求保留网页充值。发行地区和苹果审核是独立事项；没有审核隐藏逻辑，也不将测试构建说成已上架。普通中国区 iPhone 不能把网站上的 unsigned archive 当作 APK 安装。
 
+官网安卓入口位于 `https://meta-api.vip/download#android`。已发布 APK 的分发复用 [Android website download delivery](../.github/workflows/mobile-delivery.yml)，手动输入 `0.1.0-alpha.1` 等已有版本；版本必须具有 `mobile/releases/<version>.json` 校验元数据。仅发布通过摘要与固定签名证书核对的 APK 和 SHA256 文件到 `download.meta-api.vip/mobile/releases/<version>/`，不改变桌面更新清单。新版本需在官网仓库明确更新入口，不能把普通构建视作已开放下载。
+
 ## 接口与数据边界
 
 Rust 只允许固定 `https://meta-api.vip` 和操作白名单；不接受前端任意 URL、不跟随 HTTP 重定向。账号请求复用后台 session + New-Api-User，生图临时 key 只留在 Rust。Android 会话用 Keystore AES/GCM 加密且禁止系统备份；iOS 使用 ThisDeviceOnly Keychain。聊天历史是按账号隔离的设备本地文本，用户可在历史页删除；退出不会清空历史。
