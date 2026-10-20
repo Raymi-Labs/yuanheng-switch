@@ -61,7 +61,7 @@ Claude diagnostic persistence uses a bounded background writer, not disk I/O on 
 |---|---|---|
 | 工作台当前工具、工具页、关于页 CLI 安装 | `settingsApi.runToolLifecycleAction` → `toolLifecycleState` → `commands/misc.rs` | 立即发布执行/验证状态，同工具互斥；安装后本机版本探测确认可运行才成功。共享 `ToolInstallProgress` 展示阶段、耗时和最近活动；DSH 按真实字节与可用总量显示下载百分比，其他阶段使用不确定进度，静默一分钟提醒检查网络/系统提示。官网安装明确显示等待与自动检测，Claude Windows 准备复用系统阶段。 |
 | 纯净环境安装 | Windows Claude 原生 PowerShell 安装器；POSIX/WSL 原生优先；npm 分支依赖检查 | npm 安装在实际执行环境检查 Node/npm；缺失给出 Node.js LTS 指引，不静默修改全局运行时。WSL 依赖不由 Windows 主机检测代替。 |
-| 模型下拉与后台刷新 | `ModelPicker` → `useRefreshYuanheng` → `useYuanhengToolStatuses` | 工具状态缓存按地址/账号/连接状态隔离，不按同步时间重建。刷新保留已知状态与弹层；选择、Esc、外部点击仍正常关闭。 |
+| 模型下拉与后台刷新 | `ToolModelPicker` / `ModelPicker` → `useRefreshYuanheng` → `useYuanhengToolStatuses` | 工具状态缓存按地址/账号/连接状态隔离，不按同步时间重建。刷新保留已知状态与弹层；选择、Esc、外部点击仍正常关闭。 |
 
 验收入口：`tests/components/ModelPicker.refresh.test.tsx`、`tests/hooks/diagnosticAccountScope.test.tsx`、`tests/lib/toolLifecycleState.test.tsx` 与 Rust 生命周期/命令测试。浏览器模拟不替代干净 Windows 真机安装验收。
 
@@ -88,13 +88,19 @@ Claude diagnostic persistence uses a bounded background writer, not disk I/O on 
 
 ## 令牌分组与模型本地收藏（2026-10-04，本地）
 
-实际分组入口是工具管理 `ToolSetupGrid` 的“令牌分组”和当前工具 `FocusToolCard` 的“3 · 令牌分组”。两处使用 [GroupPicker](../src/components/desktop/GroupPicker.tsx)，支持搜索、星标收藏置顶，比例和分组名继续来自原 options。收藏不调用 onChange；工具管理仍点击配置/启动后保存，当前工具仍显式选择后应用。厂商与推理等级下拉仍使用原 CompactSelectPicker。
+实际分组入口是工具管理 `ToolSetupGrid` 和当前工具 `FocusToolCard` 的“分组与模型”。两处使用 [ToolModelPicker](../src/components/desktop/ToolModelPicker.tsx) 的级联弹层，支持搜索、星标收藏置顶，倍率和分组名来自账号目录。收藏不调用 onChange；普通工具管理仍点击配置/启动后保存，Codex 和当前工具选定完整组合后应用。独立 GroupPicker 保留，厂商与推理等级下拉使用 CompactSelectPicker。
 
 [ModelPicker](../src/components/desktop/ModelPicker.tsx) 同时支持模型/厂商星标，只从当前传入模型目录展示。收藏不会增加任何厂商、模型或分组权限；已保存但目录外的分组值仍显示原值，不冒充首项或补入选项，不自动换组。
 
 [本地收藏存储](../src/components/desktop/useModelFavorites.ts) 使用固定 `yuanheng:group-favorites:v1` / `yuanheng:model-favorites:v1` key，只存分组名、模型 ID、厂商 ID，不含 API 密钥、账号或地址。偏好在同一客户端本地存储范围内跨入口共享（不按账号隔离），退出/切换账号不会清除偏好，但展示严格受新目录限制。不与 newapi 网页或其他设备同步；清理本地存储会丢失收藏。损坏数据回退空值，不可写提示失败且不影响正常选择。
 
 回归：`GroupPicker.favorites.test.tsx`、`ModelPicker.favorites.test.tsx`、既有分组/刷新测试及 `tests/integration/App.test.tsx` 工具管理与当前工具的配置边界。决定与已验证范围见[本地收藏笔记](../.agents/notes/implemented/feature/2026-10-04-model-picker-favorites.md)。
+
+## 厂商与分组模型级联（2026-10-20，本地）
+
+两处工具入口统一为两个下拉框：模型供应商，以及分组 → 模型。ToolModelPicker 只展示账号 groups、modelGroups 与当前工具模型目录的交集；选择厂商和分组只改变浏览，选择模型叶子才一次提交 `{model, group}`，避免 DeepSeek 企业组切至 Grok 时沿用不兼容组。支持搜索、倍率、模型/厂商/分组本地收藏和键盘展开。目录外原配置保留显示并提示，缺失目录不猜默认组；刷新不卸载弹层，账号切换中止旧预检后续写入。后端实时预检与既有配置命令保持。
+
+回归覆盖组件、工作台与工具管理完整流程、Codex 即时应用、配置失败、账号切换、目录刷新和草稿恢复。浏览器模拟 IPC 验证深浅色、最小窗口、键盘和失败保留，不代表真实付费推理或网络故障修复。决定见[级联选择笔记](../.agents/notes/implemented/feature/2026-10-20-tool-model-group-cascade.md)。
 
 ## 顶部更新提醒（2026-10-12）
 

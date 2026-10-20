@@ -6,6 +6,25 @@ import { DESKTOP_ZH_TW } from "./desktopI18n.zhTW";
 type Values = Record<string, string | number | null | undefined>;
 
 export const DESKTOP_EN: Record<string, string> = {
+  "2 · 分组与模型": "2 · Group and model",
+  "{{tool}} 分组与模型": "{{tool}} Group and Model",
+  未选择分组: "No group selected",
+  "选择分组，再选择模型": "Choose a group, then a model",
+  "搜索分组或模型…": "Search groups or models…",
+  "选择分组后展开模型，点选模型后应用完整组合":
+    "Choose a group to see its models; select a model to use the pair",
+  没有找到匹配的分组或模型: "No matching groups or models",
+  "该厂商暂无可用分组，请刷新模型目录":
+    "No available groups for this provider. Refresh the model catalog.",
+  "{{count}} 个模型": "{{count}} models",
+  先选择左侧分组: "Choose a group on the left",
+  "当前组合未在目录中确认，已保留原配置；请刷新或重新选择分组与模型。":
+    "This pair is not confirmed in the catalog. Your configuration is preserved; refresh or choose a group and model.",
+  "选定分组和模型后立即应用。":
+    "The selected group and model are applied immediately.",
+  "选定分组和模型后，点击配置或启动保存。":
+    "Choose a group and model, then configure or launch to save.",
+
   "正在准备安装…": "Preparing installation…",
   "正在检查官方最新版本…": "Checking the latest official version…",
   "正在下载运行环境…": "Downloading the runtime…",

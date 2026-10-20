@@ -1,6 +1,6 @@
 import { ToolInstallProgress } from "./ToolInstallProgress";
 import { CodexHistoryHint } from "./CodexHistoryHint";
-import { useMemo, useState, type ReactNode } from "react";
+import type { ReactNode } from "react";
 import {
   AlertTriangle,
   CheckCircle2,
@@ -15,14 +15,12 @@ import {
   type YuanhengReasoningLevel,
   type YuanhengToolId,
 } from "@/lib/api";
-import { ModelPicker } from "./ModelPicker";
+import { ToolModelPicker } from "./ToolModelPicker";
 import { CompactSelectPicker } from "./CompactSelectPicker";
-import { GroupPicker } from "./GroupPicker";
 import {
   canInstallTool,
   DESKTOP_DOWNLOAD_URLS,
   TOOL_VERSION_TARGETS,
-  pickPreferredGroup,
   reasoningLabel,
   toolLabel,
 } from "./ToolSetupGrid";
@@ -30,7 +28,6 @@ import {
   providerIconOf,
   type ModelSwitchCenterState,
 } from "./useModelSwitchCenter";
-import { groupModelsByVendor, modelVendorOf } from "./modelVendors";
 import { dt } from "./desktopI18n";
 import { launchDirectoryLabel } from "./useToolLaunchDirectories";
 import { ToolActivationProgress } from "./ToolActivationProgress";
@@ -205,7 +202,7 @@ function FocusToolStateCard({
 }
 
 /**
- * 首页焦点工具卡：当前工具的大字模型展示 + 供应商 / 模型 / 分组切换。
+ * 首页焦点工具卡：当前工具的大字模型展示 + 供应商 / 分组与模型级联选择。
  * 复用工作台状态处理配置、推理等级、检测与启动。
  */
 export function FocusToolCard({
@@ -218,7 +215,6 @@ export function FocusToolCard({
   const {
     connection,
     terminalModels,
-    modelMeta,
     bootstrapPhase,
     bootstrapRefreshing,
     inventoryRefreshFailed,
@@ -238,8 +234,7 @@ export function FocusToolCard({
     codexAccountMode,
     codexModePending,
     refreshModels,
-    applyModel,
-    applyGroup,
+    applyModelGroup,
     applyReasoning,
     switchCodexMode,
     chooseLaunchDirectory,
@@ -253,15 +248,6 @@ export function FocusToolCard({
   const currentReasoning = app
     ? (reasoning[app] ?? status?.reasoning ?? "auto")
     : "auto";
-  const vendorGroups = useMemo(
-    () => groupModelsByVendor(terminalModels),
-    [terminalModels],
-  );
-  const currentVendorId = current ? modelVendorOf(current).id : undefined;
-  const [selectedVendors, setSelectedVendors] = useState<
-    Partial<Record<YuanhengToolId, string>>
-  >({});
-
   const toolPicker =
     app && onToolChange && availableTools ? (
       <div className="min-w-0 max-w-[260px]">
@@ -360,46 +346,6 @@ export function FocusToolCard({
   const launchDirectoryPending = launchDirectoryPendingApps.has(app);
   const configured = usesOfficialCodexAccount || Boolean(status?.configured);
   const restartRequired = restartRequiredApps.has(app);
-  const selectedVendor =
-    vendorGroups.find((vendor) => vendor.id === selectedVendors[app]) ??
-    vendorGroups.find((vendor) => vendor.id === currentVendorId) ??
-    vendorGroups[0];
-  const visibleModel =
-    selectedVendor?.id === currentVendorId ? current : undefined;
-  const recommendedModel =
-    status?.recommendedModel &&
-    modelVendorOf(status.recommendedModel).id === selectedVendor?.id
-      ? status.recommendedModel
-      : undefined;
-  const availableGroups = current
-    ? (connection?.modelGroups[current] ?? [])
-    : [];
-  const selectedGroup = current
-    ? pickPreferredGroup(
-        connection,
-        current,
-        groups[app] ?? status?.group ?? undefined,
-      )
-    : undefined;
-  const groupMap = new Map(
-    (connection?.groups ?? []).map((group) => [group.id, group]),
-  );
-  const vendorOptions = vendorGroups.map((vendor) => ({
-    value: vendor.id,
-    label: `${vendor.label} · ${vendor.models.length}`,
-    icon: vendor.icon,
-    iconName: vendor.label,
-  }));
-  const groupOptions =
-    availableGroups.length === 0
-      ? [{ value: "", label: dt("账号默认") }]
-      : availableGroups.map((group) => {
-          const option = groupMap.get(group);
-          return {
-            value: group,
-            label: `${group}${option?.ratio != null ? ` · ${option.ratio}x` : ""}`,
-          };
-        });
 
   return (
     <section className={focusCardShell}>
@@ -574,69 +520,29 @@ export function FocusToolCard({
 
       {!usesOfficialCodexAccount && (
         <div className="relative mt-4 rounded-xl border border-white/10 bg-black/10 p-3">
-          <div
-            className={`grid gap-2 ${showReasoning ? "sm:grid-cols-2" : "sm:grid-cols-[minmax(116px,.8fr)_minmax(0,1.35fr)_minmax(108px,.8fr)]"}`}
-          >
-            <label className="min-w-0">
-              <span className="mb-1 block text-[9px] font-medium text-white/50">
-                {dt("1 · 模型供应商")}
-              </span>
-              <CompactSelectPicker
-                label={dt("{{v0}} 模型供应商", { v0: toolLabel(app) })}
-                value={selectedVendor?.id ?? ""}
-                options={vendorOptions}
-                disabled={pending || vendorGroups.length === 0}
-                triggerClassName="border-white/15 bg-white/[0.08] px-2.5 text-[10.5px] text-white transition-colors hover:bg-white/[0.12] focus:border-[#e9b67c]/70"
-                onChange={(vendor) =>
-                  setSelectedVendors((currentSelections) => ({
-                    ...currentSelections,
-                    [app]: vendor,
-                  }))
-                }
-              />
-            </label>
-
-            <label className="min-w-0">
-              <span className="mb-1 block text-[9px] font-medium text-white/50">
-                {dt("2 · 细分模型")}
-              </span>
-              <ModelPicker
-                models={selectedVendor?.models ?? []}
-                value={visibleModel}
-                recommended={recommendedModel}
-                modelMeta={modelMeta}
-                label={dt("{{v0}} {{v1}}模型", {
-                  v0: toolLabel(app),
-                  v1: selectedVendor?.label ?? "",
-                })}
-                disabled={pending || !selectedVendor}
-                triggerLabel={
-                  visibleModel ??
-                  dt("选择 {{v0}}模型", {
-                    v0: selectedVendor?.label ?? dt("供应商"),
-                  })
-                }
-                className="mt-0 h-8 border-white/15 bg-white/[0.08] text-[10.5px] text-white shadow-sm hover:bg-white/[0.12]"
+          <div className="space-y-3">
+            {connection && (
+              <ToolModelPicker
+                key={JSON.stringify([
+                  app,
+                  connection.baseUrl,
+                  connection.userId,
+                  connection.connected,
+                ])}
+                connection={connection}
+                models={terminalModels}
+                model={current}
+                group={currentGroup}
+                recommended={status?.recommendedModel}
+                tool={toolLabel(app)}
+                disabled={pending}
+                onDark
                 onRefresh={refreshModels}
-                onChange={(model) => void applyModel(app, model)}
+                onChange={({ model, group }) =>
+                  void applyModelGroup(app, model, group)
+                }
               />
-            </label>
-
-            <label className="min-w-0">
-              <span className="mb-1 block text-[9px] font-medium text-white/50">
-                {dt("3 · 令牌分组")}
-              </span>
-              <GroupPicker
-                label={dt("{{v0}} 当前工具令牌分组", {
-                  v0: toolLabel(app),
-                })}
-                value={selectedGroup ?? ""}
-                options={groupOptions}
-                disabled={pending || availableGroups.length <= 1}
-                triggerClassName="border-white/15 bg-white/[0.08] px-2.5 text-[10.5px] text-white transition-colors hover:bg-white/[0.12] focus:border-[#e9b67c]/70"
-                onChange={(group) => void applyGroup(app, group)}
-              />
-            </label>
+            )}
             {showReasoning && (
               <label className="min-w-0">
                 <span className="mb-1 block text-[9px] font-medium text-white/50">

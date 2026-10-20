@@ -12,6 +12,8 @@ Status: implemented
 
 ## Existing notes audit
 
+[厂商与分组级联](2026-10-20-tool-model-group-cascade.md)后续替换两处工具入口的独立选择器，复用本篇本地收藏 key、星标不提交和目录权限边界。原 ModelPicker/GroupPicker 组件保留；下方入口与验证记录描述原实现。
+
 [工作台入口精简](../simplification/2026-10-12-workspace-single-tool-controls.md) 移除重复快捷控制台，当前保留工具管理与当前工具两处入口；收藏决定及权限边界保持不变。以下首次验证记录对应当时的三个入口。
 
 [分组层级](2026-10-02-model-picker-groups.md) 部分重叠：原先收藏未获授权，本轮明确新增授权；保留其搜索、排序、权限边界。[刷新连续性](../bug-fix/2026-10-01-tool-install-and-model-picker.md) 部分重叠且不替代：仍保留弹层和账号目录隔离。

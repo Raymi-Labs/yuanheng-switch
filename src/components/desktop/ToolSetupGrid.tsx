@@ -64,9 +64,8 @@ export {
 } from "@/config/desktopTools";
 import { ProviderIcon } from "@/components/ProviderIcon";
 import { Button } from "@/components/ui/button";
-import { ModelPicker } from "./ModelPicker";
+import { ToolModelPicker } from "./ToolModelPicker";
 import { CompactSelectPicker } from "./CompactSelectPicker";
-import { GroupPicker } from "./GroupPicker";
 import { cn } from "@/lib/utils";
 import { extractErrorMessage } from "@/utils/errorUtils";
 import { dt } from "./desktopI18n";
@@ -81,10 +80,7 @@ import {
 import { useDesktopInstallFlow } from "./useDesktopInstallFlow";
 import { clearToolInventoryCache } from "./toolInventoryCache";
 import { useToolInventory } from "@/lib/query/toolInventory";
-import {
-  pickPreferredGroup,
-  resolveToolSetupSelection,
-} from "./toolSetupSelection";
+import { resolveToolSetupSelection } from "./toolSetupSelection";
 import { useInstallContinuation } from "./useInstallContinuation";
 export { pickPreferredGroup } from "./toolSetupSelection";
 
@@ -246,24 +242,6 @@ function ToolSetupGridContent({
     groups[app] = selection.group;
     reasoning[app] = selection.reasoning;
   }
-  const groupMap = useMemo(
-    () => new Map((connection?.groups ?? []).map((group) => [group.id, group])),
-    [connection?.groups],
-  );
-  const modelMeta = useMemo(
-    () =>
-      Object.fromEntries(
-        yuanhengTerminalModels(connection).map((model) => [
-          model,
-          {
-            groups: connection?.modelGroups[model]?.length ?? 0,
-            reasoningLevels: connection?.reasoningLevels[model]?.length ?? 0,
-            available: true,
-          },
-        ]),
-      ),
-    [connection],
-  );
 
   useEffect(() => {
     if (selectionInitialized.current || !versions.data || !statuses.data)
@@ -405,33 +383,10 @@ function ToolSetupGridContent({
     }
   };
 
-  const applyCodexModel = async (model: string) => {
+  const applyCodexModel = async (model: string, group: string) => {
     if (!beginAction()) return;
     const previousModel = models.codex;
     const previousGroup = groups.codex;
-    let group = previousGroup;
-    const available = connection?.modelGroups[model] ?? [];
-    if (
-      model !== previousModel &&
-      group &&
-      available.length > 0 &&
-      !available.includes(group)
-    ) {
-      const suggestion = pickPreferredGroup(connection, model);
-      if (
-        !suggestion ||
-        !window.confirm(
-          dt(
-            "新模型的目录未包含原分组 {{old}}。是否改用 {{next}}？取消将保留原配置。",
-            { old: group, next: suggestion },
-          ),
-        )
-      ) {
-        endAction();
-        return;
-      }
-      group = suggestion;
-    }
     const selectedReasoning = selectedReasoningFor("codex", model);
     setModels((current) => ({ ...current, codex: model }));
     setGroups((current) => {
@@ -824,16 +779,7 @@ function ToolSetupGridContent({
           const availableModels = compatibleModels();
           const selectedModel =
             models[app] ?? status?.recommendedModel ?? undefined;
-          const availableGroups = selectedModel
-            ? (connection?.modelGroups[selectedModel] ?? [])
-            : [];
           const selectedGroup = groups[app];
-          const groupUnconfirmed = Boolean(
-            selectedGroup && !availableGroups.includes(selectedGroup),
-          );
-          const displayGroups = groupUnconfirmed
-            ? [selectedGroup!, ...availableGroups]
-            : availableGroups;
           const supportedReasoning = selectedModel
             ? (connection?.reasoningLevels[selectedModel] ?? [])
             : [];
@@ -1121,88 +1067,37 @@ function ToolSetupGridContent({
                       {availableModels.length} {dt("个 · 点击切换")}
                     </span>
                   </div>
-                  <ModelPicker
+                  <ToolModelPicker
+                    connection={connection}
                     models={availableModels}
-                    value={selectedModel}
+                    model={selectedModel}
+                    group={selectedGroup}
                     recommended={status.recommendedModel}
-                    modelMeta={modelMeta}
-                    label={dt("{{v0}} 模型选择", { v0: toolLabel(app) })}
+                    tool={toolLabel(app)}
                     disabled={busy}
                     onRefresh={refreshModels}
-                    onChange={(value) => {
+                    onChange={({ model, group }) => {
                       if (app === "codex") {
-                        void applyCodexModel(value);
+                        void applyCodexModel(model, group);
                         return;
                       }
-                      setModels((current) => ({ ...current, [app]: value }));
-                      const group = groups[app];
-                      setGroups((current) => {
-                        const next = { ...current };
-                        if (group) next[app] = group;
-                        else delete next[app];
-                        return next;
-                      });
+                      setModels((current) => ({ ...current, [app]: model }));
+                      setGroups((current) => ({ ...current, [app]: group }));
                       setReasoning((current) => {
                         const supported =
-                          connection.reasoningLevels[value] ?? [];
+                          connection.reasoningLevels[model] ?? [];
                         const selected = current[app] ?? "auto";
-                        if (
-                          selected === "auto" ||
+                        return selected === "auto" ||
                           supported.includes(selected)
-                        ) {
-                          return current;
-                        }
-                        return { ...current, [app]: "auto" };
+                          ? current
+                          : { ...current, [app]: "auto" };
                       });
                     }}
                   />
-                  {displayGroups.length > 0 && (
-                    <div className="mt-2 flex items-center gap-2 text-[10px]">
-                      <span className="shrink-0 text-muted-foreground">
-                        {dt("令牌分组")}
-                      </span>
-                      <GroupPicker
-                        label={dt("{{v0}} 令牌分组", {
-                          v0: toolLabel(app),
-                        })}
-                        triggerClassName="h-7 flex-1"
-                        value={selectedGroup ?? ""}
-                        disabled={busy}
-                        options={[
-                          ...(!selectedGroup
-                            ? [{ value: "", label: dt("选择令牌分组") }]
-                            : []),
-                          ...displayGroups.map((group) => {
-                            const option = groupMap.get(group);
-                            return {
-                              value: group,
-                              label: `${group}${option?.ratio != null ? ` · ${option.ratio}x` : ""}`,
-                            };
-                          }),
-                        ]}
-                        onChange={(value) => {
-                          setGroups((current) => ({
-                            ...current,
-                            [app]: value,
-                          }));
-                        }}
-                      />
-                    </div>
-                  )}
-                  {groupUnconfirmed && (
-                    <p
-                      role="status"
-                      className="mt-2 text-[10px] text-amber-700 dark:text-amber-300"
-                    >
-                      {dt(
-                        "保留原分组：当前目录尚未确认其可用性。请刷新或手动选择，不会自动换组。",
-                      )}
-                    </p>
-                  )}
                   <p className="mt-2 text-[10px] text-muted-foreground">
-                    {dt(
-                      "分组选择需点击配置或启动后保存；再次打开将恢复已保存配置。",
-                    )}
+                    {app === "codex"
+                      ? dt("选定分组和模型后立即应用。")
+                      : dt("选定分组和模型后，点击配置或启动保存。")}
                   </p>
                   {controlsReasoning && (
                     <div className="mt-2 flex items-center gap-2 text-[10px]">

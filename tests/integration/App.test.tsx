@@ -707,9 +707,11 @@ describe("App integration with MSW", { timeout: 15_000 }, () => {
     fireEvent.click(screen.getByRole("button", { name: "工具管理" }));
     await screen.findByRole("heading", { name: "工具管理" });
 
-    expect(await screen.findByLabelText("Codex 模型选择")).toBeInTheDocument();
     expect(
-      await screen.findByLabelText("Claude Desktop 模型选择"),
+      await screen.findByLabelText("Codex 分组与模型"),
+    ).toBeInTheDocument();
+    expect(
+      await screen.findByLabelText("Claude Desktop 分组与模型"),
     ).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "配置 Codex" }));
@@ -817,11 +819,14 @@ describe("App integration with MSW", { timeout: 15_000 }, () => {
     await screen.findByRole("heading", { name: "工作台" });
     fireEvent.click(screen.getByRole("button", { name: "工具管理" }));
 
-    fireEvent.click(await screen.findByLabelText("Codex 模型选择"));
-    fireEvent.change(screen.getByPlaceholderText("搜索模型名称或厂商…"), {
+    fireEvent.click(await screen.findByLabelText("Codex 模型供应商"));
+    fireEvent.click(await screen.findByRole("option", { name: "月之暗面" }));
+    fireEvent.click(screen.getByLabelText("Codex 分组与模型"));
+    fireEvent.change(screen.getByPlaceholderText("搜索分组或模型…"), {
       target: { value: "k3" },
     });
-    fireEvent.click(await screen.findByText("k3"));
+    fireEvent.click(await screen.findByRole("option", { name: /^default / }));
+    fireEvent.click(await screen.findByRole("option", { name: "k3" }));
 
     await waitFor(() => expect(getConfiguredToolCalls()).toEqual([["codex"]]));
     expect(getConfiguredToolReasoningCalls()).toEqual([{ codex: "auto" }]);
@@ -882,7 +887,7 @@ describe("App integration with MSW", { timeout: 15_000 }, () => {
       screen.getByRole("combobox", { name: "选择当前工具" }),
     ).toBeInTheDocument();
     expect(screen.getByLabelText(/模型供应商$/)).toBeInTheDocument();
-    expect(screen.getByLabelText(/当前工具令牌分组$/)).toBeInTheDocument();
+    expect(screen.getByLabelText(/分组与模型$/)).toBeInTheDocument();
     expect(screen.getByText("今日请求")).toBeInTheDocument();
     expect(screen.getByText("缓存命中率")).toBeInTheDocument();
     expect(screen.getByText("128")).toBeInTheDocument();
@@ -955,7 +960,7 @@ describe("App integration with MSW", { timeout: 15_000 }, () => {
     const { default: App } = await import("@/App");
     renderApp(App);
 
-    const groupPicker = await screen.findByLabelText("Codex 当前工具令牌分组");
+    const groupPicker = await screen.findByLabelText("Codex 分组与模型");
     const reasoningPicker = await screen.findByLabelText("Codex 推理等级");
 
     fireEvent.click(groupPicker);
@@ -967,7 +972,8 @@ describe("App integration with MSW", { timeout: 15_000 }, () => {
     expect(getConfiguredToolGroupCalls()).toHaveLength(callsBeforeFavorite);
     expect(groupPicker.textContent).toBe(groupBeforeFavorite);
     expect(screen.getByRole("dialog")).toBeInTheDocument();
-    fireEvent.click(await screen.findByRole("option", { name: /vip · 0.8x/ }));
+    fireEvent.click(await screen.findByRole("option", { name: /^vip 0.8x/ }));
+    fireEvent.click(screen.getByRole("option", { name: "gpt-5.6-sol" }));
     await waitFor(() =>
       expect(getConfiguredToolGroupCalls()).toContainEqual({ codex: "vip" }),
     );
@@ -1009,14 +1015,13 @@ describe("App integration with MSW", { timeout: 15_000 }, () => {
 
     const vendorPicker = await screen.findByLabelText("Codex 模型供应商");
     expect(vendorPicker.tagName).toBe("BUTTON");
-    expect(vendorPicker).toHaveTextContent("OpenAI · 1");
+    expect(vendorPicker).toHaveTextContent("OpenAI");
     fireEvent.click(vendorPicker);
-    fireEvent.click(
-      await screen.findByRole("option", { name: /Anthropic · 1/ }),
-    );
+    fireEvent.click(await screen.findByRole("option", { name: /^Anthropic$/ }));
 
-    const modelPicker = await screen.findByLabelText("Codex Anthropic模型");
+    const modelPicker = await screen.findByLabelText("Codex 分组与模型");
     fireEvent.click(modelPicker);
+    fireEvent.click(await screen.findByRole("option", { name: /^svip / }));
     fireEvent.click(
       await screen.findByRole("option", { name: /claude-sonnet-5/ }),
     );
@@ -1024,7 +1029,7 @@ describe("App integration with MSW", { timeout: 15_000 }, () => {
     await waitFor(() =>
       expect(getConfiguredToolCalls()).toContainEqual(["codex"]),
     );
-    const groupPicker = await screen.findByLabelText("Codex 当前工具令牌分组");
+    const groupPicker = await screen.findByLabelText("Codex 分组与模型");
     expect(groupPicker.tagName).toBe("BUTTON");
     fireEvent.click(groupPicker);
     const callsBeforeFavorite = getConfiguredToolGroupCalls().length;
@@ -1035,7 +1040,8 @@ describe("App integration with MSW", { timeout: 15_000 }, () => {
     expect(getConfiguredToolGroupCalls()).toHaveLength(callsBeforeFavorite);
     expect(groupPicker.textContent).toBe(groupBeforeFavorite);
     expect(screen.getByRole("dialog")).toBeInTheDocument();
-    fireEvent.click(await screen.findByRole("option", { name: /vip · 0.8x/ }));
+    fireEvent.click(await screen.findByRole("option", { name: /^vip 0.8x/ }));
+    fireEvent.click(screen.getByRole("option", { name: "claude-sonnet-5" }));
     await waitFor(() =>
       expect(getConfiguredToolGroupCalls()).toContainEqual({ codex: "vip" }),
     );
@@ -1080,7 +1086,7 @@ describe("App integration with MSW", { timeout: 15_000 }, () => {
     const card = title.closest("article");
     expect(card).not.toBeNull();
     expect(
-      within(card!).queryByLabelText("Claude Desktop 模型选择"),
+      within(card!).queryByLabelText("Claude Desktop 分组与模型"),
     ).not.toBeInTheDocument();
 
     fireEvent.click(
@@ -1253,12 +1259,15 @@ describe("App integration with MSW", { timeout: 15_000 }, () => {
     });
     fireEvent.click(screen.getByRole("button", { name: "工具管理" }));
 
-    fireEvent.click(await screen.findByLabelText("Codex Desktop 模型选择"));
-    fireEvent.change(screen.getByPlaceholderText("搜索模型名称或厂商…"), {
+    fireEvent.click(await screen.findByLabelText("Codex Desktop 模型供应商"));
+    fireEvent.click(await screen.findByRole("option", { name: "月之暗面" }));
+    fireEvent.click(screen.getByLabelText("Codex Desktop 分组与模型"));
+    fireEvent.change(screen.getByPlaceholderText("搜索分组或模型…"), {
       target: { value: "k3" },
     });
-    fireEvent.click(await screen.findByText("k3"));
-    expect(screen.getByLabelText("Codex Desktop 模型选择")).toHaveTextContent(
+    fireEvent.click(await screen.findByRole("option", { name: /^default / }));
+    fireEvent.click(await screen.findByRole("option", { name: "k3" }));
+    expect(screen.getByLabelText("Codex Desktop 分组与模型")).toHaveTextContent(
       "k3",
     );
 
@@ -1279,6 +1288,57 @@ describe("App integration with MSW", { timeout: 15_000 }, () => {
       ]),
     );
   });
+
+  it.each(["home", "tools"] as const)(
+    "selects a DSH Grok group/model pair without carrying over the enterprise group in %s",
+    async (entry) => {
+      setSettings({ firstRunNoticeConfirmed: true });
+      localStorage.setItem("yuanheng-switch-last-app", "dsh");
+      setYuanhengConnection({
+        connected: true,
+        userId: "1024",
+        models: ["deepseek-flash", "grok-4.7"],
+        groups: [
+          { id: "企业专属", description: "", ratio: 1 },
+          { id: "Grok 标准", description: "", ratio: 0.25 },
+        ],
+        modelGroups: {
+          "deepseek-flash": ["企业专属"],
+          "grok-4.7": ["Grok 标准"],
+        },
+      });
+      setYuanhengToolStatus("dsh", {
+        supported: true,
+        configured: true,
+        model: "deepseek-flash",
+        group: "企业专属",
+      });
+      const { default: App } = await import("@/App");
+      renderApp(App);
+      await screen.findByRole("heading", { name: "工作台" });
+      if (entry === "tools")
+        fireEvent.click(screen.getByRole("button", { name: "工具管理" }));
+      fireEvent.click(await screen.findByLabelText("DSH 模型供应商"));
+      fireEvent.click(await screen.findByRole("option", { name: "xAI" }));
+      fireEvent.click(screen.getByLabelText("DSH 分组与模型"));
+      expect(
+        screen.queryByRole("option", { name: /企业专属/ }),
+      ).not.toBeInTheDocument();
+      fireEvent.click(
+        await screen.findByRole("option", { name: /^Grok 标准 / }),
+      );
+      expect(getConfiguredToolCalls()).toHaveLength(0);
+      fireEvent.click(screen.getByRole("option", { name: "grok-4.7" }));
+      if (entry === "tools") {
+        expect(getConfiguredToolCalls()).toHaveLength(0);
+        fireEvent.click(screen.getByRole("button", { name: "配置 DSH" }));
+      }
+      await waitFor(() =>
+        expect(getConfiguredToolGroupCalls()).toEqual([{ dsh: "Grok 标准" }]),
+      );
+      expect(getConfiguredToolCalls()).toEqual([["dsh"]]);
+    },
+  );
 
   it("configures DSH before launching its local Web surface", async () => {
     setSettings({ firstRunNoticeConfirmed: true });
@@ -1311,11 +1371,16 @@ describe("App integration with MSW", { timeout: 15_000 }, () => {
     fireEvent.click(screen.getByRole("button", { name: "工具管理" }));
     await screen.findByRole("heading", { name: "工具管理" });
 
-    fireEvent.click(await screen.findByLabelText("Claude 模型选择"));
-    fireEvent.change(screen.getByPlaceholderText("搜索模型名称或厂商…"), {
+    fireEvent.click(await screen.findByLabelText("Claude 模型供应商"));
+    fireEvent.click(await screen.findByRole("option", { name: "DeepSeek" }));
+    fireEvent.click(screen.getByLabelText("Claude 分组与模型"));
+    fireEvent.change(screen.getByPlaceholderText("搜索分组或模型…"), {
       target: { value: "deepseek" },
     });
-    fireEvent.click(await screen.findByText("deepseek-v3.2"));
+    fireEvent.click(await screen.findByRole("option", { name: /^default / }));
+    fireEvent.click(
+      await screen.findByRole("option", { name: "deepseek-v3.2" }),
+    );
     fireEvent.click(screen.getByRole("button", { name: "启动 Claude" }));
 
     await waitFor(() => expect(getConfiguredToolCalls()).toEqual([["claude"]]));
@@ -1345,11 +1410,14 @@ describe("App integration with MSW", { timeout: 15_000 }, () => {
       name: "工作台",
     });
     fireEvent.click(screen.getByRole("button", { name: "工具管理" }));
-    fireEvent.click(await screen.findByLabelText("Claude Desktop 模型选择"));
-    fireEvent.change(screen.getByPlaceholderText("搜索模型名称或厂商…"), {
+    fireEvent.click(await screen.findByLabelText("Claude Desktop 模型供应商"));
+    fireEvent.click(await screen.findByRole("option", { name: "月之暗面" }));
+    fireEvent.click(screen.getByLabelText("Claude Desktop 分组与模型"));
+    fireEvent.change(screen.getByPlaceholderText("搜索分组或模型…"), {
       target: { value: "k3" },
     });
-    fireEvent.click(await screen.findByText("k3"));
+    fireEvent.click(await screen.findByRole("option", { name: /^default / }));
+    fireEvent.click(await screen.findByRole("option", { name: "k3" }));
     const reasoningPicker = screen.getByLabelText("Claude Desktop 推理等级");
     fireEvent.click(reasoningPicker);
     expect(await screen.findByRole("option", { name: "极简" })).toBeVisible();
@@ -1402,8 +1470,8 @@ describe("App integration with MSW", { timeout: 15_000 }, () => {
     });
     fireEvent.click(screen.getByRole("button", { name: "工具管理" }));
 
-    const groupPicker = await screen.findByLabelText("Claude 令牌分组");
-    expect(screen.getByLabelText("Claude 模型选择")).toHaveTextContent(
+    const groupPicker = await screen.findByLabelText("Claude 分组与模型");
+    expect(screen.getByLabelText("Claude 分组与模型")).toHaveTextContent(
       "gpt-5.6-sol",
     );
     fireEvent.click(groupPicker);
@@ -1415,9 +1483,8 @@ describe("App integration with MSW", { timeout: 15_000 }, () => {
     expect(getConfiguredToolGroupCalls()).toHaveLength(callsBeforeFavorite);
     expect(groupPicker.textContent).toBe(groupBeforeFavorite);
     expect(screen.getByRole("dialog")).toBeInTheDocument();
-    fireEvent.click(
-      await screen.findByRole("option", { name: /^vip · 0.5x$/ }),
-    );
+    fireEvent.click(await screen.findByRole("option", { name: /^vip 0.5x/ }));
+    fireEvent.click(screen.getByRole("option", { name: "gpt-5.6-sol" }));
     fireEvent.click(screen.getByRole("button", { name: "配置 Claude" }));
 
     await waitFor(() =>

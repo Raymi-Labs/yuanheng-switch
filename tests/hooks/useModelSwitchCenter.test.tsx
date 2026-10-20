@@ -205,6 +205,125 @@ describe("useModelSwitchCenter", () => {
     );
   });
 
+  it.each([true, false])(
+    "applies the DSH model/group pair together and preserves both on failure: %s",
+    async (success) => {
+      connection = {
+        ...connected(["deepseek-flash", "grok-4.7"]),
+        groups: [
+          { id: "enterprise", description: "", ratio: 1 },
+          { id: "grok-standard", description: "", ratio: 0.25 },
+        ],
+        modelGroups: {
+          "deepseek-flash": ["enterprise"],
+          "grok-4.7": ["grok-standard"],
+        },
+      };
+      statuses = [
+        { ...toolStatus("dsh", "deepseek-flash"), group: "enterprise" },
+      ];
+      const original = invokeMock.getMockImplementation()!;
+      invokeMock.mockImplementation(
+        async (command: string, payload: Record<string, any> = {}) => {
+          if (command === "preflight_yuanheng_tool")
+            return {
+              ...(await original(command, payload)),
+              status: success ? "warning" : "error",
+              requiresConfiguration: true,
+              message: "preflight",
+              checks: [],
+            };
+          if (command === "configure_yuanheng_tools") {
+            statuses[0] = {
+              ...statuses[0],
+              model: payload.models.dsh,
+              group: payload.groups.dsh,
+            };
+            return [
+              {
+                app: "dsh",
+                configured: true,
+                model: payload.models.dsh,
+                warnings: [],
+              },
+            ];
+          }
+          return original(command, payload);
+        },
+      );
+      const confirm = vi.spyOn(window, "confirm");
+      const { wrapper } = createWrapper();
+      const { result } = renderHook(() => useModelSwitchCenter(), { wrapper });
+      await waitFor(() => expect(result.current.groups.dsh).toBe("enterprise"));
+      await act(async () =>
+        result.current.applyModelGroup("dsh", "grok-4.7", "grok-standard"),
+      );
+      expect(confirm).not.toHaveBeenCalled();
+      expect(invokeMock).toHaveBeenCalledWith(
+        "preflight_yuanheng_tool",
+        expect.objectContaining({
+          app: "dsh",
+          model: "grok-4.7",
+          group: "grok-standard",
+        }),
+      );
+      if (success) {
+        expect(invokeMock).toHaveBeenCalledWith(
+          "configure_yuanheng_tools",
+          expect.objectContaining({
+            apps: ["dsh"],
+            models: { dsh: "grok-4.7" },
+            groups: { dsh: "grok-standard" },
+          }),
+        );
+        expect(result.current.models.dsh).toBe("grok-4.7");
+        expect(result.current.groups.dsh).toBe("grok-standard");
+      } else {
+        expect(
+          invokeMock.mock.calls.some(
+            ([command]) => command === "configure_yuanheng_tools",
+          ),
+        ).toBe(false);
+        expect(result.current.models.dsh).toBe("deepseek-flash");
+        expect(result.current.groups.dsh).toBe("enterprise");
+      }
+      confirm.mockRestore();
+    },
+  );
+
+  it("does not apply a pending pair after the account changes", async () => {
+    const original = invokeMock.getMockImplementation()!;
+    let resolve!: (value: unknown) => void;
+    invokeMock.mockImplementation(
+      (command: string, payload: Record<string, any> = {}) =>
+        command === "preflight_yuanheng_tool"
+          ? new Promise((r) => {
+              resolve = r;
+            })
+          : original(command, payload),
+    );
+    const { wrapper, queryClient } = createWrapper();
+    const { result } = renderHook(() => useModelSwitchCenter(), { wrapper });
+    await waitFor(() => expect(result.current.models.codex).toBe("model-a"));
+    let pending!: Promise<void>;
+    act(() => {
+      pending = result.current.applyModelGroup("codex", "model-b", "other");
+    });
+    await waitFor(() => expect(resolve).toBeDefined());
+    connection = { ...connection, userId: "second-user" };
+    await act(async () => {
+      await queryClient.invalidateQueries({ queryKey: ["yuanheng"] });
+    });
+    await waitFor(() =>
+      expect(result.current.connection?.userId).toBe("second-user"),
+    );
+    await act(async () => {
+      resolve({ status: "ok", checks: [] });
+      await pending;
+    });
+    expect(configureResolvers.size).toBe(0);
+  });
+
   it("installs DSH, verifies detection, configures the selected model and only then launches", async () => {
     statuses = [{ ...toolStatus("dsh", "model-a"), configured: false }];
     const { wrapper } = createWrapper();
@@ -428,6 +547,7 @@ describe("useModelSwitchCenter", () => {
       expect(result.current.rows).toEqual(
         expect.arrayContaining(["claude", "codex"]),
       );
+      expect(result.current.models.codex).toBe("model-a");
     });
 
     let claudeRequest!: Promise<void>;
@@ -631,6 +751,7 @@ describe("useModelSwitchCenter", () => {
 
     await waitFor(() => {
       expect(result.current.rows).toContain("chatgpt-desktop");
+      expect(result.current.models["chatgpt-desktop"]).toBe("model-a");
     });
 
     let configureRequest!: Promise<void>;

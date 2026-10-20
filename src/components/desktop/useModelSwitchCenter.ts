@@ -99,6 +99,16 @@ export function useModelSwitchCenter() {
     Partial<Record<YuanhengToolId, YuanhengToolPreflight>>
   >({});
 
+  useEffect(() => {
+    setPendingApps(new Set());
+    return () => {
+      // A selection from another account or an unmounted page cannot continue
+      // from its completed preflight into a configuration write.
+      operationIds.current = {};
+      preflightCache.current.clear();
+    };
+  }, [connection?.baseUrl, connection?.userId, connection?.connected]);
+
   const versionMap = useMemo(
     () => new Map((inventory.data ?? []).map((item) => [item.name, item])),
     [inventory.data],
@@ -618,6 +628,15 @@ export function useModelSwitchCenter() {
       dt("{{v0}} 已切换到 {{v1}}", { v0: toolLabel(app), v1: model }),
     );
 
+  const applyModelGroup = (app: YuanhengToolId, model: string, group: string) =>
+    applySelection(app, { model, group }, () =>
+      dt("{{tool}} 已切换到 {{group}} 分组 · {{model}}", {
+        tool: toolLabel(app),
+        group,
+        model,
+      }),
+    );
+
   const applyGroup = (app: YuanhengToolId, group: string) =>
     applySelection(app, { group }, (model) =>
       dt("{{v0}} 已切换到 {{v1}} 分组 · {{v2}}", {
@@ -792,6 +811,7 @@ export function useModelSwitchCenter() {
     install,
     chooseDesktopPath,
     applyModel,
+    applyModelGroup,
     applyGroup,
     applyReasoning,
     switchCodexMode,

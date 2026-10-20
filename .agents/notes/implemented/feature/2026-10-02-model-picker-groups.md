@@ -29,3 +29,7 @@ Status: implemented
 ## Existing notes audit
 
 [安装与模型选择连续性](../bug-fix/2026-10-01-tool-install-and-model-picker.md) 部分重叠：其刷新不卸载与账号隔离继续适用；本笔记新增显示/过滤决定。其余安装和诊断笔记无关，保留之前未提交修改。
+
+## Subsequent decision
+
+[厂商与分组级联](2026-10-20-tool-model-group-cascade.md)替换工作台和工具管理的独立模型/分组选择入口。独立 ModelPicker 的层级与测试保留；工具入口改为先厂商、再分组内模型，完整组合一次提交。本篇的首次验证记录对应当时界面。

@@ -36,7 +36,10 @@ vi.mock("@/lib/query/yuanheng", () => ({
     isPending: false,
   }),
   usePreflightYuanhengTool: () => ({ mutateAsync: mocks.preflight }),
-  useRefreshYuanheng: () => ({ mutateAsync: vi.fn(), isPending: false }),
+  useRefreshYuanheng: () => ({
+    mutateAsync: vi.fn().mockResolvedValue(undefined),
+    isPending: false,
+  }),
   useCodexAccountMode: () => ({ data: { mode: "yuanheng" } }),
 }));
 vi.mock("@/lib/api", async (original) => {
@@ -65,20 +68,6 @@ vi.mock("@/components/desktop/useToolLaunchDirectories", () => ({
   useToolLaunchDirectories: () => ({ directories: {}, pendingApps: new Set() }),
   launchDirectoryLabel: () => "",
 }));
-// Leave the group picker real; replace only the model picker with a simple control.
-vi.mock("@/components/desktop/ModelPicker", () => ({
-  ModelPicker: ({ label, value, onChange, disabled }: any) => (
-    <select
-      aria-label={label}
-      value={value ?? ""}
-      disabled={disabled}
-      onChange={(e) => onChange(e.target.value)}
-    >
-      <option value="model-a">model-a</option>
-      <option value="model-b">model-b</option>
-    </select>
-  ),
-}));
 vi.mock("@/components/desktop/desktopI18n", () => ({
   dt: (key: string, values: Record<string, unknown> = {}) =>
     key.replace(/\{\{(\w+)\}\}/g, (_, name) => String(values[name] ?? "")),
@@ -103,6 +92,7 @@ const status = (
 });
 beforeEach(() => {
   vi.clearAllMocks();
+  localStorage.clear();
   mocks.connection = {
     connected: true,
     userId: "test-user",
@@ -145,21 +135,29 @@ beforeEach(() => {
   });
   mocks.launch.mockResolvedValue(undefined);
 });
-const chooseGroup = async (app = "Claude", name = "cheap") => {
-  fireEvent.click(screen.getByLabelText(`${app} 令牌分组`));
+const chooseGroup = async (
+  app = "Claude",
+  name = "cheap",
+  model = "model-a",
+) => {
+  fireEvent.click(screen.getByLabelText(`${app} 分组与模型`));
   fireEvent.click(
-    await screen.findByRole("option", { name: new RegExp(`^${name} ·`) }),
+    await screen.findByRole("option", { name: new RegExp(`^${name} `) }),
   );
+  expect(mocks.configure).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("option", { name: model }));
 };
 
 describe("tool group restoration", () => {
   it("restores independent saved groups and launch does not overwrite them", async () => {
     render(<ToolSetupGrid />);
-    expect(screen.getByLabelText("Claude 令牌分组")).toHaveTextContent(
+    expect(screen.getByLabelText("Claude 分组与模型")).toHaveTextContent(
       "premium",
     );
-    expect(screen.getByLabelText("Codex 令牌分组")).toHaveTextContent("cheap");
-    expect(screen.getByLabelText("Gemini 令牌分组")).toHaveTextContent(
+    expect(screen.getByLabelText("Codex 分组与模型")).toHaveTextContent(
+      "cheap",
+    );
+    expect(screen.getByLabelText("Gemini 分组与模型")).toHaveTextContent(
       "premium",
     );
     fireEvent.click(screen.getByLabelText("启动 Claude"));
@@ -176,7 +174,7 @@ describe("tool group restoration", () => {
     expect(mocks.configure).not.toHaveBeenCalled();
     mocks.statuses = saved;
     ui.rerender(<ToolSetupGrid />);
-    expect(await screen.findByLabelText("Claude 令牌分组")).toHaveTextContent(
+    expect(await screen.findByLabelText("Claude 分组与模型")).toHaveTextContent(
       "premium",
     );
   });
@@ -186,12 +184,12 @@ describe("tool group restoration", () => {
     const ui = render(<ToolSetupGrid />);
     mocks.connection = saved;
     ui.rerender(<ToolSetupGrid />);
-    expect(screen.getByLabelText("Claude 令牌分组")).toHaveTextContent(
+    expect(screen.getByLabelText("Claude 分组与模型")).toHaveTextContent(
       "premium",
     );
     ui.unmount();
     render(<ToolSetupGrid />);
-    expect(screen.getByLabelText("Claude 令牌分组")).toHaveTextContent(
+    expect(screen.getByLabelText("Claude 分组与模型")).toHaveTextContent(
       "premium",
     );
   });
@@ -199,20 +197,20 @@ describe("tool group restoration", () => {
     const ui = render(<ToolSetupGrid />);
     mocks.statuses = [status("claude", "cheap")];
     ui.rerender(<ToolSetupGrid />);
-    expect(screen.getByLabelText("Claude 令牌分组")).toHaveTextContent("cheap");
+    expect(screen.getByLabelText("Claude 分组与模型")).toHaveTextContent(
+      "cheap",
+    );
     await chooseGroup("Claude", "premium");
     mocks.connection = { ...mocks.connection!, lastSyncedAt: 2 };
     ui.rerender(<ToolSetupGrid />);
-    expect(screen.getByLabelText("Claude 令牌分组")).toHaveTextContent(
+    expect(screen.getByLabelText("Claude 分组与模型")).toHaveTextContent(
       "premium",
     );
     expect(mocks.configure).not.toHaveBeenCalled();
   });
   it("preserves group on model change and sends the same snapshot to preflight/save", async () => {
     render(<ToolSetupGrid />);
-    fireEvent.change(screen.getByLabelText("Claude 模型选择"), {
-      target: { value: "model-b" },
-    });
+    await chooseGroup("Claude", "premium", "model-b");
     fireEvent.click(screen.getByLabelText("配置 Claude"));
     await waitFor(() =>
       expect(mocks.configure).toHaveBeenCalledWith(
@@ -238,10 +236,10 @@ describe("tool group restoration", () => {
       checks: [],
     });
     ui.rerender(<ToolSetupGrid />);
-    expect(screen.getByLabelText("Claude 令牌分组")).toHaveTextContent(
+    expect(screen.getByLabelText("Claude 分组与模型")).toHaveTextContent(
       "premium",
     );
-    expect(screen.getAllByText(/保留原分组/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/已保留原配置/).length).toBeGreaterThan(0);
     fireEvent.click(screen.getByLabelText("启动 Claude"));
     await waitFor(() => expect(mocks.error).toHaveBeenCalled());
     expect(mocks.configure).not.toHaveBeenCalled();
@@ -254,7 +252,9 @@ describe("tool group restoration", () => {
     await waitFor(() => expect(mocks.configure).toHaveBeenCalled());
     ui.unmount();
     render(<ToolSetupGrid />);
-    expect(screen.getByLabelText("Claude 令牌分组")).toHaveTextContent("cheap");
+    expect(screen.getByLabelText("Claude 分组与模型")).toHaveTextContent(
+      "cheap",
+    );
   });
   it("locks preflight against duplicate submissions and group edits", async () => {
     let resolve!: (value: unknown) => void;
@@ -267,7 +267,7 @@ describe("tool group restoration", () => {
     render(<ToolSetupGrid />);
     fireEvent.click(screen.getByLabelText("配置 Claude"));
     fireEvent.click(screen.getByLabelText("配置 Claude"));
-    expect(screen.getByLabelText("Claude 令牌分组")).toBeDisabled();
+    expect(screen.getByLabelText("Claude 分组与模型")).toBeDisabled();
     expect(mocks.preflight).toHaveBeenCalledTimes(1);
     await act(async () => resolve({ status: "ok", checks: [] }));
     expect(mocks.configure).toHaveBeenCalledTimes(1);
@@ -286,7 +286,7 @@ describe("tool group restoration", () => {
     mocks.connection = { ...mocks.connection!, userId: "second-user" };
     mocks.statuses = [status("claude")];
     ui.rerender(<ToolSetupGrid />);
-    expect(screen.getByLabelText("Claude 令牌分组")).toHaveTextContent(
+    expect(screen.getByLabelText("Claude 分组与模型")).toHaveTextContent(
       "premium",
     );
     await act(async () => resolve({ status: "ok", checks: [] }));
@@ -341,17 +341,26 @@ describe("tool group restoration", () => {
     );
   });
   it.each([true, false])(
-    "Codex group migration requires explicit confirmation: %s",
-    async (accepted) => {
-      const confirm = vi.spyOn(window, "confirm").mockReturnValue(accepted);
+    "Codex applies an explicit pair or restores both values on failure: %s",
+    async (success) => {
+      const confirm = vi.spyOn(window, "confirm");
       mocks.statuses = [status("codex", "premium")];
       mocks.connection!.modelGroups["model-b"] = ["cheap"];
+      if (!success)
+        mocks.preflight.mockResolvedValue({
+          status: "error",
+          checks: [],
+          message: "network failure",
+        });
       render(<ToolSetupGrid />);
-      fireEvent.change(screen.getByLabelText("Codex 模型选择"), {
-        target: { value: "model-b" },
-      });
-      expect(confirm).toHaveBeenCalledOnce();
-      if (accepted) {
+      await chooseGroup("Codex", "cheap", "model-b");
+      expect(confirm).not.toHaveBeenCalled();
+      await waitFor(() =>
+        expect(mocks.preflight).toHaveBeenCalledWith(
+          expect.objectContaining({ group: "cheap", model: "model-b" }),
+        ),
+      );
+      if (success) {
         await waitFor(() =>
           expect(mocks.configure).toHaveBeenCalledWith(
             expect.objectContaining({
@@ -360,13 +369,13 @@ describe("tool group restoration", () => {
             }),
           ),
         );
-        expect(mocks.preflight).toHaveBeenCalledWith(
-          expect.objectContaining({ group: "cheap", model: "model-b" }),
-        );
       } else {
+        await waitFor(() =>
+          expect(mocks.error).toHaveBeenCalledWith("network failure"),
+        );
         expect(mocks.configure).not.toHaveBeenCalled();
-        expect(screen.getByLabelText("Codex 令牌分组")).toHaveTextContent(
-          "premium",
+        expect(screen.getByLabelText("Codex 分组与模型")).toHaveTextContent(
+          "premium / model-a",
         );
       }
       confirm.mockRestore();

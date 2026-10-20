@@ -66,6 +66,7 @@ function createSwitcher(
     install: vi.fn(),
     chooseDesktopPath: vi.fn(),
     applyModel: vi.fn(),
+    applyModelGroup: vi.fn(),
     applyGroup: vi.fn(),
     applyReasoning: vi.fn(),
     switchCodexMode: vi.fn(),
