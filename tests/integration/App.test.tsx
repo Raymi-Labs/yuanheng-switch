@@ -1340,6 +1340,60 @@ describe("App integration with MSW", { timeout: 15_000 }, () => {
     },
   );
 
+  it.each(["home", "tools"] as const)(
+    "selects a newly synced cloud vendor through both DSH entry points in %s",
+    async (entry) => {
+      setSettings({ firstRunNoticeConfirmed: true });
+      localStorage.setItem("yuanheng-switch-last-app", "dsh");
+      setYuanhengConnection({
+        connected: true,
+        userId: "1024",
+        models: ["deepseek-flash", "bailian-chat"],
+        groups: [
+          { id: "企业专属", description: "", ratio: 1 },
+          { id: "百炼标准", description: "", ratio: 0.25 },
+        ],
+        modelVendors: { "bailian-chat": { id: "42", name: "阿里百联大模型" } },
+        modelGroups: {
+          "deepseek-flash": ["企业专属"],
+          "bailian-chat": ["百炼标准"],
+        },
+      });
+      setYuanhengToolStatus("dsh", {
+        supported: true,
+        configured: true,
+        model: "deepseek-flash",
+        group: "企业专属",
+      });
+      const { default: App } = await import("@/App");
+      renderApp(App);
+      await screen.findByRole("heading", { name: "工作台" });
+      if (entry === "tools")
+        fireEvent.click(screen.getByRole("button", { name: "工具管理" }));
+      fireEvent.click(await screen.findByLabelText("DSH 模型供应商"));
+      fireEvent.click(
+        await screen.findByRole("option", { name: "阿里百联大模型" }),
+      );
+      fireEvent.click(screen.getByLabelText("DSH 分组与模型"));
+      expect(
+        screen.queryByRole("option", { name: /企业专属/ }),
+      ).not.toBeInTheDocument();
+      fireEvent.click(
+        await screen.findByRole("option", { name: /^百炼标准 / }),
+      );
+      expect(getConfiguredToolCalls()).toHaveLength(0);
+      fireEvent.click(screen.getByRole("option", { name: "bailian-chat" }));
+      if (entry === "tools") {
+        expect(getConfiguredToolCalls()).toHaveLength(0);
+        fireEvent.click(screen.getByRole("button", { name: "配置 DSH" }));
+      }
+      await waitFor(() =>
+        expect(getConfiguredToolGroupCalls()).toEqual([{ dsh: "百炼标准" }]),
+      );
+      expect(getConfiguredToolCalls()).toEqual([["dsh"]]);
+    },
+  );
+
   it("configures DSH before launching its local Web surface", async () => {
     setSettings({ firstRunNoticeConfirmed: true });
     setYuanhengConnection({ connected: true, models: ["gpt-5.6"] });

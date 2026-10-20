@@ -1,6 +1,7 @@
 #[cfg(any(target_os = "macos", test))]
 pub(crate) mod credential_session;
 mod dsh;
+mod model_catalog;
 use std::collections::{BTreeSet, HashMap};
 use std::sync::OnceLock;
 use std::time::Duration;
@@ -203,11 +204,19 @@ pub struct YuanhengConnectionStatus {
     #[serde(default)]
     pub model_groups: HashMap<String, Vec<String>>,
     #[serde(default)]
+    pub model_vendors: HashMap<String, YuanhengModelVendor>,
+    #[serde(default)]
     pub reasoning_levels: HashMap<String, Vec<String>>,
     #[serde(default)]
     pub reasoning_defaults: HashMap<String, String>,
     pub announcement: Option<String>,
     pub last_synced_at: Option<i64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct YuanhengModelVendor {
+    pub id: String,
+    pub name: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -387,6 +396,7 @@ impl Default for YuanhengConnectionStatus {
             image_generation_models: Vec::new(),
             groups: Vec::new(),
             model_groups: HashMap::new(),
+            model_vendors: HashMap::new(),
             reasoning_levels: HashMap::new(),
             reasoning_defaults: HashMap::new(),
             announcement: None,
@@ -1321,6 +1331,7 @@ fn reasoning_profiles_for_models(
 }
 
 async fn sync_connection(
+    state: &AppState,
     client: &reqwest::Client,
     session_cookie: &str,
     user_id: &str,
@@ -1409,6 +1420,14 @@ async fn sync_connection(
     };
 
     let models: Vec<String> = model_names.into_iter().collect();
+    let cached = state
+        .db
+        .get_setting(CACHE_KEY)
+        .ok()
+        .flatten()
+        .and_then(|value| serde_json::from_str::<YuanhengConnectionStatus>(&value).ok());
+    let model_vendors =
+        model_catalog::model_vendors(pricing.as_ref(), &models, cached.as_ref(), user_id);
     let (terminal_models, image_generation_models) = partition_model_catalog(&models);
     let (reasoning_levels, reasoning_defaults) = reasoning_profiles_for_models(&terminal_models);
 
@@ -1423,6 +1442,7 @@ async fn sync_connection(
         image_generation_models,
         groups,
         model_groups,
+        model_vendors,
         reasoning_levels,
         reasoning_defaults,
         announcement: notice,
@@ -1496,7 +1516,7 @@ async fn finish_authenticated_session(
     session_cookie: &str,
     user_id: &str,
 ) -> Result<YuanhengConnectionStatus, String> {
-    let status = sync_connection(client, session_cookie, user_id).await?;
+    let status = sync_connection(state, client, session_cookie, user_id).await?;
     let group = status
         .account
         .as_ref()
@@ -5635,7 +5655,7 @@ pub async fn rotate_yuanheng_device_token(
         .map_err(|e| e.to_string())?
         .and_then(|value| value.parse::<i64>().ok());
     let client = yuanheng_client()?;
-    let status = sync_connection(&client, &session_cookie, &user_id).await?;
+    let status = sync_connection(&state, &client, &session_cookie, &user_id).await?;
     let group = status
         .account
         .as_ref()

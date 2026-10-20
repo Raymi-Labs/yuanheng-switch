@@ -153,7 +153,7 @@ describe("ToolModelPicker", () => {
     expect(
       screen.getByRole("option", { name: "grok-4.6" }),
     ).toBeInTheDocument();
-    expect(onRefresh).toHaveBeenCalledTimes(1);
+    expect(onRefresh).toHaveBeenCalledTimes(2);
     expect(onChange).not.toHaveBeenCalled();
   });
   it("shows stale saved values without inventing groups or models", () => {
@@ -196,5 +196,153 @@ describe("ToolModelPicker", () => {
     setup({ disabled: true });
     for (const control of screen.getAllByRole("combobox"))
       expect(control).toBeDisabled();
+  });
+});
+
+describe("cloud vendor cascade", () => {
+  const connection = (): YuanhengConnectionStatus => ({
+    ...catalog(),
+    models: ["qwen-plus", "custom-chat"],
+    modelVendors: {
+      "qwen-plus": { id: "16", name: "阿里百联大模型" },
+      "custom-chat": { id: "42", name: "新厂商" },
+      "private-chat": { id: "99", name: "不可见厂商" },
+    },
+    modelGroups: { "qwen-plus": ["企业专属"], "custom-chat": ["Grok 标准"] },
+  });
+  it("shows a previously unknown cloud vendor and submits only its allowed model/group pair", async () => {
+    const data = connection();
+    const { onChange, onRefresh } = setup({
+      connection: data,
+      models: data.models,
+    });
+    fireEvent.click(screen.getByLabelText("DSH 模型供应商"));
+    expect(onRefresh).toHaveBeenCalledTimes(1);
+    expect(
+      screen.queryByRole("option", { name: "阿里千问" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("option", { name: "不可见厂商" }),
+    ).not.toBeInTheDocument();
+    fireEvent.click(await screen.findByRole("option", { name: "新厂商" }));
+    fireEvent.click(screen.getByLabelText("DSH 分组与模型"));
+    expect(
+      screen.queryByRole("option", { name: /^企业专属/ }),
+    ).not.toBeInTheDocument();
+    await branch("Grok 标准");
+    fireEvent.click(screen.getByRole("option", { name: "custom-chat" }));
+    expect(onChange).toHaveBeenCalledWith({
+      model: "custom-chat",
+      group: "Grok 标准",
+    });
+  });
+  it("updates names and associations while open, retaining stable vendor identity and removing revoked models", async () => {
+    const data = connection();
+    const { props, rerender, onChange } = setup({
+      connection: data,
+      models: data.models,
+      model: "qwen-plus",
+    });
+    fireEvent.click(screen.getByLabelText("DSH 分组与模型"));
+    const dialog = screen.getByRole("dialog");
+    expect(
+      screen.getByRole("option", { name: "qwen-plus" }),
+    ).toBeInTheDocument();
+    const updated = {
+      ...data,
+      modelVendors: {
+        "qwen-plus": { id: "16", name: "阿里巴巴" },
+        "custom-chat": { id: "16", name: "阿里巴巴" },
+      },
+      modelGroups: { "custom-chat": ["企业专属"] },
+    };
+    rerender(
+      <ToolModelPicker
+        {...props}
+        connection={updated}
+        models={["custom-chat"]}
+      />,
+    );
+    expect(screen.getByLabelText("DSH 模型供应商")).toHaveTextContent(
+      "阿里巴巴",
+    );
+    expect(screen.getByRole("dialog")).toBe(dialog);
+    expect(
+      screen.queryByRole("option", { name: "qwen-plus" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("option", { name: "custom-chat" }),
+    ).toBeInTheDocument();
+    expect(onChange).not.toHaveBeenCalled();
+  });
+  it("preserves the browsed legacy vendor when refresh first provides cloud metadata", async () => {
+    const { props, rerender, onChange } = setup();
+    await browseGrok();
+    await branch("Grok 标准");
+    rerender(
+      <ToolModelPicker
+        {...props}
+        connection={{
+          ...props.connection,
+          modelVendors: {
+            "grok-4.6": { id: "9", name: "云端 Grok" },
+            "grok-4.7": { id: "9", name: "云端 Grok" },
+            "grok-unmapped": { id: "9", name: "云端 Grok" },
+          },
+        }}
+      />,
+    );
+    expect(screen.getByLabelText("DSH 模型供应商")).toHaveTextContent(
+      "云端 Grok",
+    );
+    expect(
+      screen.getByRole("option", { name: "grok-4.6" }),
+    ).toBeInTheDocument();
+    expect(onChange).not.toHaveBeenCalled();
+  });
+  it("resolves old vendor favorites, persists cloud IDs only on a user toggle, and survives rename", () => {
+    localStorage.setItem(
+      "yuanheng:model-favorites:v1",
+      JSON.stringify({
+        models: ["qwen-plus"],
+        vendors: ["qwen", "absent-vendor"],
+      }),
+    );
+    const before = localStorage.getItem("yuanheng:model-favorites:v1");
+    const data = connection();
+    const { props, rerender, onChange } = setup({
+      connection: data,
+      models: data.models,
+      model: "qwen-plus",
+    });
+    expect(
+      screen.getByLabelText("取消收藏厂商 阿里百联大模型"),
+    ).toHaveAttribute("aria-pressed", "true");
+    expect(localStorage.getItem("yuanheng:model-favorites:v1")).toBe(before);
+    fireEvent.click(screen.getByLabelText("取消收藏厂商 阿里百联大模型"));
+    fireEvent.click(screen.getByLabelText("收藏厂商 阿里百联大模型"));
+    expect(
+      JSON.parse(localStorage.getItem("yuanheng:model-favorites:v1")!),
+    ).toEqual({
+      models: ["qwen-plus"],
+      vendors: ["absent-vendor", "cloud:16"],
+    });
+    rerender(
+      <ToolModelPicker
+        {...props}
+        connection={{
+          ...data,
+          modelVendors: {
+            ...data.modelVendors,
+            "qwen-plus": { id: "16", name: "阿里巴巴" },
+          },
+        }}
+      />,
+    );
+    expect(screen.getByLabelText("取消收藏厂商 阿里巴巴")).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    expect(onChange).not.toHaveBeenCalled();
   });
 });

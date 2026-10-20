@@ -3,6 +3,7 @@ import {
   groupModelsByVendor,
   modelVendorOf,
   sortModelNames,
+  resolveVendorFavorites,
 } from "@/components/desktop/modelVendors";
 
 describe("modelVendors", () => {
@@ -89,4 +90,65 @@ describe("modelVendors", () => {
       ),
     ).toEqual(["gpt-5.4", "gpt-5.6-mini", "gpt-5.6", "gpt-4.1-mini"]);
   });
+});
+
+describe("cloud vendor catalog", () => {
+  const catalog = {
+    "qwen-plus": { id: "16", name: "阿里百联大模型" },
+    "custom-chat": { id: "42", name: "新厂商" },
+    "another-chat": { id: "43", name: "新厂商" },
+    "private-model": { id: "99", name: "不可见厂商" },
+  };
+  it("uses exact cloud associations and names ahead of heuristics without adding models", () => {
+    const groups = groupModelsByVendor(
+      ["qwen-plus", "custom-chat", "another-chat", "gpt-5.6"],
+      catalog,
+    );
+    expect(groups).toHaveLength(4);
+    expect(groups.find((group) => group.id === "cloud:16")).toMatchObject({
+      label: "阿里百联大模型",
+      legacyId: "qwen",
+      icon: "qwen",
+    });
+    expect(
+      groups
+        .filter((group) => group.label === "新厂商")
+        .map((group) => group.id),
+    ).toEqual(["cloud:42", "cloud:43"]);
+    expect(groups.some((group) => group.id === "cloud:99")).toBe(false);
+    expect(modelVendorOf("gpt-5.6", catalog).id).toBe("openai");
+    expect(modelVendorOf("custom-chat", catalog).label).toBe("新厂商");
+  });
+  it("does not merge mixed cloud vendors into heuristic favorites or use translated names", () => {
+    const groups = groupModelsByVendor(["qwen-plus", "gpt-5.6"], {
+      "qwen-plus": { id: "16", name: "其他模型" },
+      "gpt-5.6": { id: "16", name: "其他模型" },
+    });
+    expect(groups).toHaveLength(1);
+    expect(groups[0]).toMatchObject({
+      id: "cloud:16",
+      label: "其他模型",
+      icon: "models",
+    });
+    expect(groups[0].legacyId).toBeUndefined();
+  });
+});
+
+it("keeps partial legacy favorites independent and expands completely migrated groups", () => {
+  const catalog = {
+    "qwen-plus": { id: "16", name: "阿里巴巴" },
+    "qwen-max": { id: "42", name: "另一厂商" },
+  };
+  expect(
+    resolveVendorFavorites(
+      ["qwen", "absent"],
+      groupModelsByVendor(["qwen-plus", "qwen-turbo"], catalog),
+    ),
+  ).toEqual(["qwen", "absent"]);
+  expect(
+    resolveVendorFavorites(
+      ["qwen", "absent"],
+      groupModelsByVendor(["qwen-plus", "qwen-max"], catalog),
+    ).sort(),
+  ).toEqual(["absent", "cloud:16", "cloud:42"]);
 });

@@ -17,6 +17,7 @@ import {
   groupModelsByVendor,
   modelVendorOf,
   sortModelNames,
+  type ModelVendorCatalog,
 } from "./modelVendors";
 import { dt } from "./desktopI18n";
 import { useModelFavorites } from "./useModelFavorites";
@@ -32,6 +33,7 @@ export function ModelPicker({
   onChange,
   onRefresh,
   modelMeta,
+  modelVendors,
 }: {
   models: string[];
   value?: string;
@@ -42,12 +44,14 @@ export function ModelPicker({
   triggerLabel?: string;
   onChange: (value: string) => void;
   onRefresh?: () => void;
+  modelVendors?: ModelVendorCatalog;
   modelMeta?: Record<
     string,
     { groups?: number; reasoningLevels?: number; available?: boolean }
   >;
 }) {
-  const { favorites, toggle, saveFailed } = useModelFavorites();
+  const vendors = groupModelsByVendor([...new Set(models)], modelVendors);
+  const { favorites, toggle, saveFailed } = useModelFavorites(vendors);
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [vendorFilter, setVendorFilter] = useState("all");
@@ -80,13 +84,13 @@ export function ModelPicker({
   const favoriteVendorFirst = (a: { id: string }, b: { id: string }) =>
     Number(favorites.vendors.includes(b.id)) -
     Number(favorites.vendors.includes(a.id));
-  const vendors = groupModelsByVendor(orderedModels).sort(favoriteVendorFirst);
+  vendors.sort(favoriteVendorFirst);
   const activeVendor = vendors.some((vendor) => vendor.id === vendorFilter)
     ? vendorFilter
     : "all";
   const terms = search.trim().toLowerCase().split(/\s+/).filter(Boolean);
   const visibleModels = orderedModels.filter((model) => {
-    const vendor = modelVendorOf(model);
+    const vendor = modelVendorOf(model, modelVendors);
     const text = `${model} ${vendor.label} ${vendor.id}`.toLowerCase();
     return (
       (activeVendor === "all" || vendor.id === activeVendor) &&
@@ -96,12 +100,13 @@ export function ModelPicker({
   const current = visibleModels.find((model) => model === value);
   const isFavorite = (model: string) =>
     favorites.models.includes(model) ||
-    favorites.vendors.includes(modelVendorOf(model).id);
+    favorites.vendors.includes(modelVendorOf(model, modelVendors).id);
   const favoriteModels = visibleModels.filter(
     (model) => model !== current && isFavorite(model),
   );
   const groups = groupModelsByVendor(
     visibleModels.filter((model) => model !== current && !isFavorite(model)),
+    modelVendors,
   );
   const resetScroll = () => {
     if (listRef.current) listRef.current.scrollTop = 0;
@@ -156,7 +161,7 @@ export function ModelPicker({
   const renderModel = (model: string, showVendor = false) => {
     const meta = modelMeta?.[model];
     const details = [
-      showVendor ? modelVendorOf(model).label : null,
+      showVendor ? modelVendorOf(model, modelVendors).label : null,
       meta?.groups != null
         ? dt("{{count}} 个可用分组", { count: meta.groups })
         : null,

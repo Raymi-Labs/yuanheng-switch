@@ -23,6 +23,7 @@ export interface CompactSelectPickerProps {
   contentClassName?: string;
   itemClassName?: string;
   onChange: (value: string) => void;
+  onOpen?: () => void;
 }
 
 const encodeValue = (value: string) => `value:${value}`;
@@ -43,6 +44,7 @@ export function CompactSelectPicker({
   contentClassName,
   itemClassName,
   onChange,
+  onOpen,
 }: CompactSelectPickerProps) {
   const selected =
     options.find((option) => option.value === value) ??
@@ -59,6 +61,9 @@ export function CompactSelectPicker({
       }
       disabled={disabled || options.length === 0}
       onValueChange={(nextValue) => onChange(decodeValue(nextValue))}
+      onOpenChange={(open) => {
+        if (open) onOpen?.();
+      }}
     >
       <SelectTrigger
         aria-label={label}

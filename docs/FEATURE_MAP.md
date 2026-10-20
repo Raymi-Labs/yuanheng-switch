@@ -83,7 +83,7 @@ Claude diagnostic persistence uses a bounded background writer, not disk I/O on 
 
 ## 模型选择器信息层级（2026-10-02，本地）
 
-所有现有 `ModelPicker` 入口复用 `modelVendors` 识别与排序：当前模型单独分区且不重复，当前目录内收藏模型/收藏厂商下模型进入常用区，其余厂商分组；固定搜索、厂商筛选和匹配数量，列表独立滚动。厂商/名称搜索取交集，禁用项保持禁用，不补造目录外模型，不改 onChange/onRefresh、配置写入与权限。推荐保留标签并在组内优先，不宣称官方最新顺序；重新打开重置筛选。回归：`ModelPicker.groups.test.tsx`、`ModelPicker.refresh.test.tsx` 和应用集成切换流程。
+所有现有 `ModelPicker` 入口复用 `modelVendors` 的云端归属优先、模型名兼容识别与排序：当前模型单独分区且不重复，当前目录内收藏模型/收藏厂商下模型进入常用区，其余厂商分组；固定搜索、厂商筛选和匹配数量，列表独立滚动。厂商/名称搜索取交集，禁用项保持禁用，不补造目录外模型，不改 onChange/onRefresh、配置写入与权限。推荐保留标签并在组内优先，不宣称官方最新顺序；重新打开重置筛选。回归：`ModelPicker.groups.test.tsx`、`ModelPicker.refresh.test.tsx` 和应用集成切换流程。
 
 
 ## 令牌分组与模型本地收藏（2026-10-04，本地）
@@ -156,3 +156,11 @@ Claude diagnostic persistence uses a bounded background writer, not disk I/O on 
 独立 lockfile、版本和 [Mobile Build](../.github/workflows/mobile.yml) 不触发桌面发布；Android APK 与 iOS unsigned archive 的签名/安装边界见移动端 README。浏览器模拟与自动测试不代表真实付费推理、充值、兑换或真机验收。设计原因见[移动端笔记](../.agents/notes/implemented/architecture/2026-10-19-mobile-clients.md)。
 
 安卓公开测试版官网分发复用下载域名和不可变对象校验；[分发工作流](../.github/workflows/mobile-delivery.yml)仅从已发布移动 Release 同步经过摘要及证书核对的 APK/校验文件，不写桌面 latest，也不发布未签名 iOS archive。见[分发笔记](../.agents/notes/implemented/process/2026-10-19-android-website-delivery.md)。
+
+## 云端模型厂商同步（2026-10-21）
+
+账号同步从已有 `/api/pricing` 的 `vendors` / `vendor_id` 生成 `modelVendors`，按精确模型名关联且限制在本次模型集合。`ToolModelPicker` 的工作台与工具管理入口、独立 `ModelPicker` 共享显示规则：云端名称原文显示，稳定 ID 区分同名厂商；缺失关联时使用旧模型名规则，图标仅用本地资源。打开厂商下拉框即调用现有刷新路径；刷新不提交配置，也不卸载弹层。
+
+同地址、同账号刷新失败时沿用仍在目录内的旧关联，成功空目录或移除关联生效；旧缓存无需迁移即可读取。云端厂商不是权限来源，工具模型和分组交集及后端预检继续约束可选项。旧厂商收藏仅在当前目录完整映射时转换，模型/分组收藏保持。
+
+回归：`yuanheng/model_catalog.rs`、`modelVendors.test.ts`、`ToolModelPicker.test.tsx`、`ModelPicker.groups.test.tsx`、`App.test.tsx`。见[同步决定及验证边界](../.agents/notes/implemented/bug-fix/2026-10-21-cloud-model-vendors.md)。

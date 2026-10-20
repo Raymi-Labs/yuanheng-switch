@@ -33,3 +33,7 @@ Status: implemented
 ## Subsequent decision
 
 [厂商与分组级联](2026-10-20-tool-model-group-cascade.md)替换工作台和工具管理的独立模型/分组选择入口。独立 ModelPicker 的层级与测试保留；工具入口改为先厂商、再分组内模型，完整组合一次提交。本篇的首次验证记录对应当时界面。
+
+## Cloud vendor catalog
+
+[云端厂商同步](../bug-fix/2026-10-21-cloud-model-vendors.md)将目录归属改为云端优先，原模型名识别仅在缺失关联时兼容；使用稳定云端 ID，并兼容可完整映射的旧厂商收藏。本篇交互、权限和保存时机继续适用，原验证记录保留。

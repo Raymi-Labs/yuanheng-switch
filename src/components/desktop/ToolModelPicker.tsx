@@ -57,7 +57,11 @@ export function ToolModelPicker({
   onRefresh?: () => void;
   onChange: (selection: ToolModelSelection) => void;
 }) {
-  const modelFavorites = useModelFavorites();
+  const vendors = groupModelsByVendor(
+    [...new Set(models)],
+    connection.modelVendors,
+  );
+  const modelFavorites = useModelFavorites(vendors);
   const groupFavorites = useLocalPickerFavorites(
     GROUP_FAVORITES_KEY,
     GROUP_KINDS,
@@ -72,16 +76,20 @@ export function ToolModelPicker({
   const [highlight, setHighlight] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
-  const vendors = groupModelsByVendor([...new Set(models)]).sort(
+  vendors.sort(
     (a, b) =>
       Number(modelFavorites.favorites.vendors.includes(b.id)) -
       Number(modelFavorites.favorites.vendors.includes(a.id)),
   );
-  const currentVendor = model ? modelVendorOf(model).id : undefined;
+  const currentVendor = model
+    ? modelVendorOf(model, connection.modelVendors).id
+    : undefined;
   const vendorId =
     vendorChoice?.model === model ? vendorChoice?.id : currentVendor;
+  const legacyMatches = vendors.filter((item) => item.legacyId === vendorId);
   const vendor =
     vendors.find((item) => item.id === vendorId) ??
+    (legacyMatches.length === 1 ? legacyMatches[0] : undefined) ??
     vendors.find((item) => item.id === currentVendor) ??
     vendors[0];
   const terms = search.trim().toLowerCase().split(/\s+/).filter(Boolean);
@@ -214,6 +222,7 @@ export function ToolModelPicker({
                 icon: item.icon,
               }))}
               disabled={disabled}
+              onOpen={onRefresh}
               triggerClassName={cn("flex-1", triggerClass)}
               onChange={(id) => {
                 setVendorChoice({ model, id });

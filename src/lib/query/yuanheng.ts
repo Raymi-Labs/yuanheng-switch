@@ -165,6 +165,7 @@ export function useSignOutYuanheng() {
         imageGenerationModels: [],
         groups: [],
         modelGroups: {},
+        modelVendors: {},
         reasoningLevels: {},
         reasoningDefaults: {},
         announcement: null,

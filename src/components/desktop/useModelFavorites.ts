@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { resolveVendorFavorites, type ModelVendorGroup } from "./modelVendors";
 
 export const MODEL_FAVORITES_KEY = "yuanheng:model-favorites:v1";
 const CHANGE_EVENT = "yuanheng:model-favorites-changed";
@@ -57,8 +58,13 @@ export function useLocalPickerFavorites<K extends string>(
     };
   }, [key, kinds]);
 
-  const toggle = (kind: K, id: string) => {
+  const toggle = (
+    kind: K,
+    id: string,
+    resolve?: (ids: string[]) => string[],
+  ) => {
     const next = read();
+    if (resolve) next[kind] = resolve(next[kind]);
     next[kind] = next[kind].includes(id)
       ? next[kind].filter((item) => item !== id)
       : [...next[kind], id];
@@ -73,6 +79,21 @@ export function useLocalPickerFavorites<K extends string>(
   return { favorites, toggle, saveFailed };
 }
 
-export function useModelFavorites() {
-  return useLocalPickerFavorites(MODEL_FAVORITES_KEY, MODEL_KINDS);
+export function useModelFavorites(vendors: ModelVendorGroup[] = []) {
+  const state = useLocalPickerFavorites(MODEL_FAVORITES_KEY, MODEL_KINDS);
+  return {
+    ...state,
+    favorites: {
+      ...state.favorites,
+      vendors: resolveVendorFavorites(state.favorites.vendors, vendors),
+    },
+    toggle: (kind: "models" | "vendors", id: string) =>
+      state.toggle(
+        kind,
+        id,
+        kind === "vendors"
+          ? (ids) => resolveVendorFavorites(ids, vendors)
+          : undefined,
+      ),
+  };
 }

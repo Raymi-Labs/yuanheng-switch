@@ -58,6 +58,11 @@ export interface YuanhengAnnouncementFeed {
   source: "platform" | "legacy";
 }
 
+export interface YuanhengModelVendor {
+  id: string;
+  name: string;
+}
+
 export interface YuanhengConnectionStatus {
   connected: boolean;
   sessionOnly?: boolean;
@@ -69,6 +74,7 @@ export interface YuanhengConnectionStatus {
   imageGenerationModels?: string[];
   groups: YuanhengGroupOption[];
   modelGroups: Record<string, string[]>;
+  modelVendors?: Record<string, YuanhengModelVendor>;
   reasoningLevels: Record<string, YuanhengReasoningLevel[]>;
   reasoningDefaults?: Record<string, YuanhengReasoningLevel>;
   announcement: string | null;

@@ -1,9 +1,12 @@
 import { dt } from "./desktopI18n";
+import type { YuanhengModelVendor } from "@/lib/api/yuanheng";
+export type ModelVendorCatalog = Record<string, YuanhengModelVendor>;
 export interface ModelVendorGroup {
   id: string;
   label: string;
   icon: string;
   models: string[];
+  legacyId?: string;
 }
 
 interface ModelVendorDefinition {
@@ -311,7 +314,15 @@ export function sortModelNames(
   });
 }
 
-export function modelVendorOf(model: string): Omit<ModelVendorGroup, "models"> {
+export function modelVendorOf(
+  model: string,
+  catalog?: ModelVendorCatalog,
+): Omit<ModelVendorGroup, "models"> {
+  const cloud = catalog?.[model];
+  if (cloud?.id && cloud.name.trim()) {
+    // Cloud names are content, not translation keys or remote icon URLs.
+    return { id: `cloud:${cloud.id}`, label: cloud.name, icon: "models" };
+  }
   const normalized = model.trim().toLowerCase();
   const segments = normalized.split(/[/:]/).filter(Boolean);
   const modelName = segments.at(-1) ?? normalized;
@@ -332,10 +343,13 @@ export function modelVendorOf(model: string): Omit<ModelVendorGroup, "models"> {
   return { id: "other", label: dt("其他模型"), icon: "models" };
 }
 
-export function groupModelsByVendor(models: string[]): ModelVendorGroup[] {
+export function groupModelsByVendor(
+  models: string[],
+  catalog?: ModelVendorCatalog,
+): ModelVendorGroup[] {
   const grouped = new Map<string, ModelVendorGroup>();
   for (const model of models) {
-    const vendor = modelVendorOf(model);
+    const vendor = modelVendorOf(model, catalog);
     const group = grouped.get(vendor.id);
     if (group) {
       group.models.push(model);
@@ -345,14 +359,45 @@ export function groupModelsByVendor(models: string[]): ModelVendorGroup[] {
   }
 
   return [...grouped.values()]
-    .map((group) => ({
-      ...group,
-      models: sortModelNames(group.models),
-    }))
+    .map((group) => {
+      const legacy = modelVendorOf(group.models[0]);
+      const legacyId =
+        group.id.startsWith("cloud:") &&
+        legacy.id !== "other" &&
+        group.models.every((model) => modelVendorOf(model).id === legacy.id)
+          ? legacy.id
+          : undefined;
+      return {
+        ...group,
+        ...(legacyId ? { legacyId, icon: legacy.icon } : {}),
+        models: sortModelNames(group.models),
+      };
+    })
     .sort(
       (left, right) =>
-        (VENDOR_ORDER.get(left.id) ?? Number.POSITIVE_INFINITY) -
-          (VENDOR_ORDER.get(right.id) ?? Number.POSITIVE_INFINITY) ||
-        left.label.localeCompare(right.label),
+        (VENDOR_ORDER.get(left.legacyId ?? left.id) ??
+          Number.POSITIVE_INFINITY) -
+          (VENDOR_ORDER.get(right.legacyId ?? right.id) ??
+            Number.POSITIVE_INFINITY) ||
+        left.label.localeCompare(right.label) ||
+        left.id.localeCompare(right.id),
     );
+}
+
+/** Resolve old name-based favorites without writing preferences during refresh. */
+export function resolveVendorFavorites(
+  ids: string[],
+  vendors: ModelVendorGroup[],
+): string[] {
+  return [
+    ...new Set(
+      ids.flatMap((id) => {
+        // A partial directory may still contain the old fallback group. Keep
+        // its favorite separate until that group can be fully migrated.
+        if (vendors.some((vendor) => vendor.id === id)) return [id];
+        const matches = vendors.filter((vendor) => vendor.legacyId === id);
+        return matches.length ? matches.map((vendor) => vendor.id) : [id];
+      }),
+    ),
+  ];
 }

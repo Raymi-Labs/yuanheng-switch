@@ -112,3 +112,45 @@ describe("grouped model picker", () => {
     ).toHaveAttribute("aria-pressed", "true");
   });
 });
+
+it("uses the same cloud vendor catalog for standalone search and filtering", () => {
+  const change = vi.fn();
+  const props = {
+    label: "模型",
+    models: ["qwen-plus", "custom-chat"],
+    onChange: change,
+  };
+  const view = render(
+    <ModelPicker
+      {...props}
+      modelVendors={{
+        "qwen-plus": { id: "16", name: "阿里百联大模型" },
+        "custom-chat": { id: "42", name: "新增厂商" },
+      }}
+    />,
+  );
+  const dialog = open();
+  fireEvent.click(within(dialog).getByRole("button", { name: "新增厂商" }));
+  expect(within(dialog).getAllByRole("option")).toHaveLength(1);
+  expect(
+    within(dialog).getByRole("option", { name: /custom-chat/ }),
+  ).toBeInTheDocument();
+  view.rerender(
+    <ModelPicker
+      {...props}
+      modelVendors={{
+        "qwen-plus": { id: "16", name: "阿里百联大模型" },
+        "custom-chat": { id: "42", name: "已更名厂商" },
+      }}
+    />,
+  );
+  expect(screen.getByRole("dialog")).toBe(dialog);
+  expect(
+    within(dialog).getByRole("button", { name: "已更名厂商" }),
+  ).toHaveAttribute("aria-pressed", "true");
+  fireEvent.change(within(dialog).getByRole("combobox"), {
+    target: { value: "已更名" },
+  });
+  fireEvent.click(within(dialog).getByRole("option", { name: /custom-chat/ }));
+  expect(change).toHaveBeenCalledWith("custom-chat");
+});
