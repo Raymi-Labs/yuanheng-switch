@@ -28,6 +28,8 @@ Status: implemented
 
 ## Testing
 
+首轮云端构建在 iOS 初始化阶段发现模板路径按 mobile 工作目录解析，而不是配置文件目录；已将 template 改为 src-tauri/ios.project.yml。失败发生于原生构建和上传前，未产生已上传版本。
+
 本地前端流程与流解析、TypeScript/Vite 构建、Rust 状态/请求边界测试与 clippy、签名元数据拒绝错误平台/团队/证书/过期和调试权限的测试通过。iOS 原生签名构建及模拟器启动在 GitHub macOS runner 上独立核验；结果记录到 mobile/app-store/README.md，未完成时不能宣称成功。本机 Node 25 的实验 Web Storage 与 jsdom 冲突，本地测试通过 NODE_OPTIONS=--no-experimental-webstorage 运行，CI 继续固定 Node 22。
 
 ## Consequences

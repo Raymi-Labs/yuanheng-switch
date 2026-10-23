@@ -5,7 +5,7 @@
   "bundle": {
     "iOS": {
       "bundleVersion": "1",
-      "template": "ios.project.yml"
+      "template": "src-tauri/ios.project.yml"
     }
   }
 }
