@@ -8,6 +8,8 @@ import { createTestQueryClient } from "../utils/testQueryClient";
 
 const api = vi.hoisted(() => ({
   getStatus: vi.fn(),
+  listGroups: vi.fn(),
+  configureGroup: vi.fn(),
   install: vi.fn(),
   setEnabled: vi.fn(),
   exportSkill: vi.fn(),
@@ -31,6 +33,10 @@ const status = (tool: YuanhengToolId): ImagegenToolStatus => ({
   configured: true,
   enabled: true,
   ready: true,
+  imageGroup: null,
+  imageModels: ["gpt-image-2.5-sunburst"],
+  selectedImageModel: "gpt-image-2.5-sunburst",
+  catalogChecked: true,
   scope: "local-skill",
 });
 function setup(tool: YuanhengToolId) {
@@ -56,9 +62,70 @@ beforeEach(() => {
   api.getStatus.mockImplementation(async (tool: YuanhengToolId) =>
     status(tool),
   );
+  api.listGroups.mockResolvedValue([]);
 });
 
 describe("image capability cache boundaries", () => {
+  it("does not retain image group options across accounts", async () => {
+    api.listGroups.mockResolvedValue([
+      { id: "account-a-only", description: "", ratio: 1 },
+    ]);
+    const view = setup("dsh");
+    await waitFor(() =>
+      expect(view.result.current.groups.data?.[0].id).toBe("account-a-only"),
+    );
+    api.listGroups.mockRejectedValue(new Error("new account unavailable"));
+    account.current = { ...account.current, userId: "account-b" };
+    view.rerender({ tool: "dsh" });
+    await waitFor(() => expect(view.result.current.groups.isError).toBe(true));
+    expect(view.result.current.groups.data).toBeUndefined();
+    view.unmount();
+    view.client.clear();
+  });
+
+  it("writes a late image group configuration only to the original tool/account cache", async () => {
+    let finish!: (value: ImagegenToolStatus) => void;
+    api.configureGroup.mockImplementation(
+      () =>
+        new Promise<ImagegenToolStatus>((done) => {
+          finish = done;
+        }),
+    );
+    const view = setup("dsh");
+    await waitFor(() => expect(view.result.current.query.isSuccess).toBe(true));
+    let pending!: Promise<ImagegenToolStatus>;
+    act(() => {
+      pending = view.result.current.configureGroup("image-standard");
+    });
+    await waitFor(() =>
+      expect(api.configureGroup).toHaveBeenCalledWith("dsh", "image-standard"),
+    );
+    account.current = { ...account.current, userId: "account-b" };
+    view.rerender({ tool: "workbuddy" });
+    await waitFor(() =>
+      expect(view.result.current.query.data?.tool).toBe("workbuddy"),
+    );
+    await act(async () => {
+      finish({ ...status("dsh"), imageGroup: "image-standard" });
+      await pending;
+    });
+    expect(view.result.current.query.data).toMatchObject({
+      tool: "workbuddy",
+      imageGroup: null,
+    });
+    expect(
+      view.client.getQueryData([
+        ...imagegenKeys,
+        "dsh",
+        account.current.baseUrl,
+        "account-a",
+        true,
+      ]),
+    ).toMatchObject({ tool: "dsh", imageGroup: "image-standard" });
+    view.unmount();
+    view.client.clear();
+  });
+
   it("does not retain a different tool's status when its new query fails", async () => {
     const view = setup("codex");
     await waitFor(() =>

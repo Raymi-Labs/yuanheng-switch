@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 
 import type { AppId } from "@/lib/api/types";
-import type { YuanhengToolId } from "@/lib/api/yuanheng";
+import type { YuanhengGroupOption, YuanhengToolId } from "@/lib/api/yuanheng";
 
 export type AppType =
   | "claude"
@@ -21,6 +21,10 @@ export interface ImagegenToolStatus {
   enabled: boolean;
   configured: boolean;
   ready: boolean;
+  imageGroup: string | null;
+  imageModels: string[];
+  selectedImageModel: string | null;
+  catalogChecked: boolean;
   error?: string | null;
   scope: string;
 }
@@ -28,6 +32,15 @@ export interface ImagegenToolStatus {
 export const imagegenApi = {
   getStatus(tool: YuanhengToolId): Promise<ImagegenToolStatus> {
     return invoke("get_imagegen_tool_status", { tool });
+  },
+  listGroups(tool: YuanhengToolId): Promise<YuanhengGroupOption[]> {
+    return invoke("list_imagegen_groups", { tool });
+  },
+  configureGroup(
+    tool: YuanhengToolId,
+    group: string | null,
+  ): Promise<ImagegenToolStatus> {
+    return invoke("configure_imagegen_group", { tool, group });
   },
   install(tool: YuanhengToolId): Promise<ImagegenToolStatus> {
     return invoke("install_imagegen_for_tool", { tool });

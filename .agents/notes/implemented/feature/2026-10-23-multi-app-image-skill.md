@@ -2,6 +2,8 @@
 
 Status: implemented
 
+Scope update: [独立图像分组](../bug-fix/2026-10-23-independent-image-group.md) 部分替代仅复用聊天凭据的限制；本篇的每目标投影、绑定、启停、宿主和导出边界继续有效。
+
 ## Problem
 
 自动图像技能目前只接入 Codex。用户希望 DSH、WorkBuddy 及其他支持技能的工具也可在聊天中按需调用，沿用最新可用版本、质量优先策略。聊天模型品牌不应决定能否调用独立 Images API。

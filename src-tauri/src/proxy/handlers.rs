@@ -106,6 +106,22 @@ pub async fn reload_core(
     Ok(Json(json!({ "ok": true })))
 }
 
+pub async fn sync_imagegen_credentials(
+    State(state): State<ProxyState>,
+    request: axum::extract::Request,
+) -> Result<Json<Value>, StatusCode> {
+    // Authenticate before consuming or deserializing a secret-bearing body.
+    authorize_core_request(&state, request.headers())?;
+    let bytes = axum::body::to_bytes(request.into_body(), crate::imagegen_core::MAX_BODY)
+        .await
+        .map_err(|_| StatusCode::PAYLOAD_TOO_LARGE)?;
+    let snapshot: crate::imagegen_core::CredentialSnapshot =
+        serde_json::from_slice(&bytes).map_err(|_| StatusCode::BAD_REQUEST)?;
+    crate::imagegen_core::replace(&state.db, &snapshot.entries)
+        .map_err(|_| StatusCode::CONFLICT)?;
+    Ok(Json(json!({"ok": true})))
+}
+
 pub async fn shutdown_core(
     State(state): State<ProxyState>,
     headers: HeaderMap,

@@ -9,6 +9,20 @@ describe("image capability IPC", () => {
     expect(invoke).toHaveBeenLastCalledWith("get_imagegen_tool_status", {
       tool: "dsh",
     });
+    await imagegenApi.listGroups("dsh");
+    expect(invoke).toHaveBeenLastCalledWith("list_imagegen_groups", {
+      tool: "dsh",
+    });
+    await imagegenApi.configureGroup("workbuddy", "image-standard");
+    expect(invoke).toHaveBeenLastCalledWith("configure_imagegen_group", {
+      tool: "workbuddy",
+      group: "image-standard",
+    });
+    await imagegenApi.configureGroup("dsh", null);
+    expect(invoke).toHaveBeenLastCalledWith("configure_imagegen_group", {
+      tool: "dsh",
+      group: null,
+    });
     await imagegenApi.install("workbuddy");
     expect(invoke).toHaveBeenLastCalledWith("install_imagegen_for_tool", {
       tool: "workbuddy",

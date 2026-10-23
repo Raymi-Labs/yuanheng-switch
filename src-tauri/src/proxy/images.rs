@@ -44,7 +44,12 @@ pub(super) fn routes() -> Router<ProxyState> {
     let prefixes = ["", "/v1", "/v1/v1"]
         .into_iter()
         .map(str::to_owned)
-        .chain(IMAGE_NAMESPACES.iter().map(|name| format!("/{name}/v1")));
+        .chain(IMAGE_NAMESPACES.iter().map(|name| format!("/{name}/v1")))
+        .chain(
+            IMAGE_NAMESPACES
+                .iter()
+                .map(|name| format!("/imagegen/{name}/v1")),
+        );
     for prefix in prefixes {
         for operation in ["generations", "edits"] {
             router = router.route(&format!("{prefix}/images/{operation}"), post(handle_images));
@@ -53,6 +58,10 @@ pub(super) fn routes() -> Router<ProxyState> {
     for namespace in IMAGE_NAMESPACES {
         let prefix = format!("/{namespace}/v1");
         router = router.route(&format!("{prefix}/images/models"), get(handle_image_models));
+        router = router.route(
+            &format!("/imagegen{prefix}/images/models"),
+            get(handle_image_models),
+        );
     }
     router.layer(DefaultBodyLimit::max(IMAGE_REQUEST_LIMIT))
 }
@@ -143,7 +152,11 @@ async fn handle_images(
 
 fn provider_namespace(uri: &Uri) -> Result<&'static str, ProxyError> {
     for namespace in IMAGE_NAMESPACES {
-        if uri.path().starts_with(&format!("/{namespace}/v1/images/")) {
+        if uri.path().starts_with(&format!("/{namespace}/v1/images/"))
+            || uri
+                .path()
+                .starts_with(&format!("/imagegen/{namespace}/v1/images/"))
+        {
             return Ok(namespace);
         }
     }
@@ -162,7 +175,8 @@ fn selected_provider(state: &ProxyState, uri: &Uri) -> Result<Provider, ProxyErr
     // Deliberately bypass the chat failover queue and circuit breaker. Even its
     // first entry could differ from the user's selected account/provider.
     let namespace = provider_namespace(uri)?;
-    if !matches!(namespace, "codex" | "chatgpt-desktop") {
+    let explicit = uri.path().starts_with("/imagegen/");
+    if explicit || !matches!(namespace, "codex" | "chatgpt-desktop") {
         let target = crate::services::skill::ImagegenTarget::parse(namespace)
             .map_err(|_| ProxyError::InvalidRequest("未知图片应用路由".into()))?;
         let enabled = state
@@ -175,9 +189,21 @@ fn selected_provider(state: &ProxyState, uri: &Uri) -> Result<Provider, ProxyErr
                 "当前工具的元衡图像技能未启用".into(),
             ));
         }
-        return crate::commands::imagegen_provider(&state.db, namespace)
-            .map_err(ProxyError::ConfigError)?
-            .ok_or(ProxyError::NoProvidersConfigured);
+        if !explicit
+            && crate::commands::has_explicit_imagegen_connection(&state.db, namespace)
+                .map_err(ProxyError::ConfigError)?
+        {
+            return Err(ProxyError::ConfigError(
+                "当前已选择独立图像分组，请刷新技能连接后重试".into(),
+            ));
+        }
+        return (if explicit {
+            crate::commands::imagegen_core_provider(&state.db, namespace)
+        } else {
+            crate::commands::imagegen_provider(&state.db, namespace)
+        })
+        .map_err(ProxyError::ConfigError)?
+        .ok_or(ProxyError::NoProvidersConfigured);
     }
     let id = if namespace == "codex" {
         crate::settings::get_effective_current_provider(&state.db, &AppType::Codex)
@@ -268,6 +294,66 @@ fn prepare_model_catalog_request(provider: &Provider) -> Result<(String, HeaderM
     headers.insert("accept", HeaderValue::from_static("application/json"));
     headers.insert("accept-encoding", HeaderValue::from_static("identity"));
     Ok((adapter.build_url(&base_url, "/models"), headers))
+}
+
+/// The same single-attempt, redacted catalog implementation is used by the UI
+/// capability check and explicit group setup. It never calls image generation.
+pub(crate) async fn image_model_ids(provider: &Provider) -> Result<Vec<String>, String> {
+    let (url, headers) = prepare_model_catalog_request(provider).map_err(|e| e.to_string())?;
+    let client = http_client::image_client()?;
+    let response = fetch_image_models(
+        &client,
+        &url,
+        headers,
+        MODEL_CATALOG_TIMEOUT,
+        MODEL_CATALOG_LIMIT,
+    )
+    .await;
+    model_ids_response(response).await
+}
+
+pub(crate) async fn local_image_model_ids(
+    port: u16,
+    surface: &str,
+    explicit: bool,
+) -> Result<Vec<String>, String> {
+    if port == 0 || !IMAGE_NAMESPACES.contains(&surface) {
+        return Err("图像连接的 Core 路由不可用".into());
+    }
+    let client = http_client::image_no_replay_policy(reqwest::Client::builder().no_proxy())
+        .build()
+        .map_err(|_| "无法检查本机图片模型目录")?;
+    let prefix = if explicit { "/imagegen" } else { "" };
+    let url = format!("http://127.0.0.1:{port}{prefix}/{surface}/v1/images/models");
+    let response = fetch_image_models(
+        &client,
+        &url,
+        HeaderMap::new(),
+        MODEL_CATALOG_TIMEOUT,
+        MODEL_CATALOG_LIMIT,
+    )
+    .await;
+    model_ids_response(response).await
+}
+
+async fn model_ids_response(response: Response) -> Result<Vec<String>, String> {
+    let status = response.status();
+    if !status.is_success() {
+        return Err(format!(
+            "图片模型目录检查失败（HTTP {}），请检查分组权限或网络后重试",
+            status.as_u16()
+        ));
+    }
+    let bytes = axum::body::to_bytes(response.into_body(), MODEL_CATALOG_LIMIT)
+        .await
+        .map_err(|_| "图片模型目录格式无效")?;
+    let value: Value = serde_json::from_slice(&bytes).map_err(|_| "图片模型目录格式无效")?;
+    Ok(value["data"]
+        .as_array()
+        .ok_or("图片模型目录格式无效")?
+        .iter()
+        .filter_map(|entry| entry["id"].as_str().map(str::to_owned))
+        .collect())
 }
 
 async fn fetch_image_models(
@@ -779,6 +865,146 @@ mod tests {
         task.abort();
     }
 
+    #[tokio::test]
+    #[serial_test::serial]
+    async fn independent_image_groups_are_isolated_from_native_codex_and_chat_keys() {
+        use crate::commands::{
+            imagegen_connection_test_support as connections, imagegen_test_support as skills,
+        };
+        let _home = skills::TestHome::new();
+        crate::secure_storage::clear_for_tests();
+        let db = Arc::new(Database::memory().unwrap());
+        let state = state(db.clone());
+        connections::account(&db, "fixture-account", false);
+        skills::install(&db, "dsh", "sk-chat-dsh");
+        for (surface, key) in [
+            ("codex", "sk-chat-cli"),
+            ("chatgpt-desktop", "sk-chat-desktop"),
+        ] {
+            db.save_provider(surface, &managed(key)).unwrap();
+            db.set_current_provider(surface, crate::commands::MANAGED_PROVIDER_ID)
+                .unwrap();
+        }
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+        let (url, task) = serve(Router::new().fallback(any(move |uri: Uri, headers: HeaderMap, body: Bytes| {
+            let tx = tx.clone();
+            async move {
+                tx.send((headers, body)).unwrap();
+                if uri.path().ends_with("models") {
+                    (StatusCode::OK, Json(json!({"data":[{"id":"openai/gpt-image-2.5-sunburst", "key":"private"}]})))
+                } else { (StatusCode::SERVICE_UNAVAILABLE, Json(json!({"error":"no replay"}))) }
+            }
+        }))).await;
+        for surface in ["codex", "chatgpt-desktop", "dsh"] {
+            let image_key = format!("sk-image-{surface}");
+            connections::install(&db, surface, "OpenAI · image", &image_key);
+            skills::enable(&db, surface, true);
+            crate::imagegen_core::replace(
+                &db,
+                &crate::commands::imagegen_credential_snapshot(&db).unwrap(),
+            )
+            .unwrap();
+            for operation in ["models", "generations", "edits"] {
+                let uri: Uri = format!("/imagegen/{surface}/v1/images/{operation}")
+                    .parse()
+                    .unwrap();
+                let provider = selected_provider(&state, &uri).unwrap();
+                let (_, headers) = if operation == "models" {
+                    prepare_model_catalog_request(&provider).unwrap()
+                } else {
+                    prepare_request(&provider, &uri, &oauth_headers()).unwrap()
+                };
+                let raw = Bytes::from_static(
+                    br#"{"model":"openai/gpt-image-2.5-sunburst","opaque":true}"#,
+                );
+                let response = if operation == "models" {
+                    fetch_image_models(
+                        &client(),
+                        &format!("{url}/models"),
+                        headers,
+                        Duration::from_secs(2),
+                        1024,
+                    )
+                    .await
+                } else {
+                    send_once(
+                        &client(),
+                        &format!("{url}/{operation}"),
+                        headers,
+                        raw.clone(),
+                        Duration::from_secs(2),
+                        1024,
+                    )
+                    .await
+                };
+                let (seen, body) = rx.recv().await.unwrap();
+                assert_eq!(seen["authorization"], format!("Bearer {image_key}"));
+                assert!(!seen.contains_key("cookie"));
+                assert!(!seen.contains_key("chatgpt-account-id"));
+                if operation == "models" {
+                    assert_eq!(response.status(), StatusCode::OK);
+                    let body: Value = serde_json::from_slice(
+                        &to_bytes(response.into_body(), 1024).await.unwrap(),
+                    )
+                    .unwrap();
+                    assert_eq!(
+                        body["data"],
+                        json!([{"id":"openai/gpt-image-2.5-sunburst"}])
+                    );
+                } else {
+                    assert_eq!(body, raw);
+                    assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+                }
+                assert!(
+                    rx.try_recv().is_err(),
+                    "single attempt, even for upstream 503"
+                );
+            }
+        }
+        // Native Codex calls keep each existing account, with no skill gate.
+        skills::enable(&db, "codex", false);
+        for (surface, key) in [
+            ("codex", "sk-chat-cli"),
+            ("chatgpt-desktop", "sk-chat-desktop"),
+        ] {
+            let provider = selected_provider(
+                &state,
+                &format!("/{surface}/v1/images/generations").parse().unwrap(),
+            )
+            .unwrap();
+            assert_eq!(provider.settings_config["auth"]["OPENAI_API_KEY"], key);
+            assert!(selected_provider(
+                &state,
+                &format!("/imagegen/{surface}/v1/images/models")
+                    .parse()
+                    .unwrap()
+            )
+            .is_err());
+        }
+        assert!(selected_provider(&state, &"/dsh/v1/images/models".parse().unwrap()).is_err());
+        skills::enable(&db, "dsh", false);
+        assert!(
+            selected_provider(&state, &"/imagegen/dsh/v1/images/models".parse().unwrap()).is_err()
+        );
+        skills::enable(&db, "dsh", true);
+        connections::revoke(&db);
+        // A stale dedicated URL must not fall back to the chat credential.
+        assert!(selected_provider(
+            &state,
+            &"/imagegen/dsh/v1/images/generations".parse().unwrap()
+        )
+        .is_err());
+        let provider =
+            selected_provider(&state, &"/dsh/v1/images/models".parse().unwrap()).unwrap();
+        assert_eq!(
+            provider.settings_config["auth"]["OPENAI_API_KEY"],
+            "sk-chat-dsh"
+        );
+        assert!(rx.try_recv().is_err());
+        task.abort();
+        crate::secure_storage::clear_for_tests();
+    }
+
     #[test]
     fn catalog_requires_genuine_current_yuanheng_provider_and_own_bearer() {
         let valid = managed("test-platform-key");
@@ -1013,6 +1239,31 @@ mod tests {
                 .unwrap(),
             json!({"object":"list", "data":[{"id":"gpt-image-2.5-sunburst"}]})
         );
+        task.abort();
+    }
+
+    #[tokio::test]
+    async fn status_catalog_uses_the_selected_dedicated_core_route_and_no_credentials() {
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+        let (url, task) = serve(Router::new().fallback(any(
+            move |uri: Uri, headers: HeaderMap| {
+                let tx = tx.clone();
+                async move {
+                    tx.send((uri.path().to_string(), headers)).unwrap();
+                    Json(json!({"data":[{"id":"vendor/gpt-image-2.5-sunburst"}]}))
+                }
+            },
+        )))
+        .await;
+        let port = url::Url::parse(&url).unwrap().port().unwrap();
+        let models = local_image_model_ids(port, "dsh", true).await.unwrap();
+        assert_eq!(models, vec!["vendor/gpt-image-2.5-sunburst"]);
+        let (path, headers) = rx.recv().await.unwrap();
+        assert_eq!(path, "/imagegen/dsh/v1/images/models");
+        assert!(!headers.contains_key("authorization"));
+        assert!(!headers.contains_key("cookie"));
+        assert!(local_image_model_ids(port, "unknown", true).await.is_err());
+        assert!(rx.try_recv().is_err());
         task.abort();
     }
 

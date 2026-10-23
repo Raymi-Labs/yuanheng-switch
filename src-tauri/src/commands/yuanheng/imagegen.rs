@@ -107,12 +107,29 @@ fn configured_surfaces(
     if target == ImagegenTarget::Codex {
         Ok([CodexSurface::Terminal, CodexSurface::Desktop]
             .into_iter()
-            .filter(|surface| active_route(state, *surface))
+            .filter(
+                |surface| match imagegen_connection::group(&state.db, surface.namespace()) {
+                    Ok(Some(_)) => {
+                        imagegen_connection::active_reference(&state.db, surface.namespace())
+                            .ok()
+                            .flatten()
+                            .is_some()
+                    }
+                    Ok(None) => active_route(state, *surface),
+                    Err(_) => false,
+                },
+            )
             .map(|surface| surface.namespace())
             .collect())
     } else {
         Ok(
-            if imagegen_provider(&state.db, target.as_str())?.is_some() {
+            if (if imagegen_connection::group(&state.db, target.as_str())?.is_some() {
+                imagegen_connection::active_reference(&state.db, target.as_str())?.map(|_| ())
+            } else {
+                imagegen_provider(&state.db, target.as_str())?.map(|_| ())
+            })
+            .is_some()
+            {
                 vec![target.as_str()]
             } else {
                 vec![]
@@ -144,6 +161,37 @@ fn runtime(target: ImagegenTarget, port: u16, surfaces: &[&str]) -> Value {
     json!({ "owner": "yuanheng-imagegen", "version": 2, "target": target.as_str(),
         "enabled": !routes.is_empty(), "defaultSurface": default_surface,
         "directOnly": target != ImagegenTarget::Codex, "routes": routes })
+}
+
+fn connection_runtime(
+    db: &crate::database::Database,
+    target: ImagegenTarget,
+    port: u16,
+    surfaces: &[&str],
+) -> Result<Value, String> {
+    let mut value = runtime(target, port, surfaces);
+    for surface in surfaces.iter().filter(|_| port != 0) {
+        if imagegen_connection::group(db, surface)?.is_some() {
+            value["routes"][*surface] =
+                json!(format!("http://127.0.0.1:{port}/imagegen/{surface}/v1"));
+        }
+    }
+    // The helper enforces direct-only on the selected dedicated route. Keeping
+    // Codex's global flag false preserves another surface's native fallback.
+    Ok(value)
+}
+
+fn legacy_surfaces<'a>(value: &Value, surfaces: &[&'a str]) -> Vec<&'a str> {
+    surfaces
+        .iter()
+        .copied()
+        .filter(|surface| {
+            value["routes"][*surface]
+                .as_str()
+                .and_then(|s| url::Url::parse(s).ok())
+                .is_some_and(|url| url.path() == format!("/{surface}/v1"))
+        })
+        .collect()
 }
 
 fn read_runtime(path: &Path, target: ImagegenTarget) -> Result<Option<Value>, String> {
@@ -184,6 +232,7 @@ fn current_port(
 }
 
 fn publish_runtime(
+    db: &crate::database::Database,
     target: ImagegenTarget,
     port: u16,
     surfaces: &[&str],
@@ -195,9 +244,16 @@ fn publish_runtime(
         .lock()
         .map_err(|_| "图像连接同步锁不可用".to_string())?;
     let port = current_port(&epoch, observed_generation, port, can_enable);
-    write_runtime_unlocked(target, &runtime(target, port, surfaces), create)?;
+    let value = connection_runtime(db, target, port, surfaces)?;
+    write_runtime_unlocked(target, &value, create)?;
     if target == ImagegenTarget::Codex {
-        write_codex_legacy(port, surfaces)?;
+        let legacy = legacy_surfaces(&value, surfaces);
+        // v1 has one ambiguous baseUrl: any override must disable it entirely,
+        // otherwise a desktop helper could silently choose the CLI account.
+        let has_override = ["codex", "chatgpt-desktop"]
+            .into_iter()
+            .any(|s| !matches!(imagegen_connection::group(db, s), Ok(None)));
+        write_codex_legacy(if has_override { 0 } else { port }, &legacy)?;
     }
     Ok(port)
 }
@@ -230,7 +286,7 @@ pub(crate) fn refresh_port(port: u16) -> Result<(), String> {
     for target in ImagegenTarget::all() {
         let result = (|| {
             let path = target.runtime_path().map_err(|e| e.to_string())?;
-            let Some(value) = read_runtime(&path, target)? else {
+            let Some(mut value) = read_runtime(&path, target)? else {
                 return Ok(());
             };
             if value["enabled"] != true {
@@ -254,7 +310,8 @@ pub(crate) fn refresh_port(port: u16) -> Result<(), String> {
                         .is_some_and(|url| {
                             url.scheme() == "http"
                                 && url.host_str() == Some("127.0.0.1")
-                                && url.path() == format!("/{surface}/v1")
+                                && (url.path() == format!("/{surface}/v1")
+                                    || url.path() == format!("/imagegen/{surface}/v1"))
                                 && url.username().is_empty()
                                 && url.password().is_none()
                                 && url.query().is_none()
@@ -262,9 +319,35 @@ pub(crate) fn refresh_port(port: u16) -> Result<(), String> {
                         })
                 })
                 .collect();
-            write_runtime_unlocked(target, &runtime(target, port, &surfaces), false)?;
+            let mut routes = serde_json::Map::new();
+            for surface in &surfaces {
+                let mut url = url::Url::parse(
+                    value["routes"][*surface]
+                        .as_str()
+                        .ok_or("图像连接地址无效")?,
+                )
+                .map_err(|_| "图像连接地址无效")?;
+                url.set_port(Some(port)).map_err(|_| "图像连接端口无效")?;
+                routes.insert((*surface).to_string(), json!(url.as_str()));
+            }
+            value["routes"] = json!(routes);
+            value["enabled"] = json!(!surfaces.is_empty());
+            write_runtime_unlocked(target, &value, false)?;
             if target == ImagegenTarget::Codex {
-                write_codex_legacy(port, &surfaces)?;
+                let legacy = legacy_surfaces(&value, &surfaces);
+                let overridden = legacy.len() != surfaces.len();
+                // A disabled v1 may reflect an invalidated/removed override.
+                // Port refresh must not resurrect its ambiguous default route.
+                let path = ImagegenTarget::Codex
+                    .skills_dir()
+                    .map_err(|e| e.to_string())?
+                    .parent()
+                    .ok_or("Codex 技能目录缺少父目录")?
+                    .join("yuanheng-imagegen.json");
+                let was_enabled = crate::config::read_json_file::<Value>(&path)
+                    .ok()
+                    .is_some_and(|v| v["owner"] == "yuanheng-imagegen" && v["enabled"] == true);
+                write_codex_legacy(if overridden || !was_enabled { 0 } else { port }, &legacy)?;
             }
             Ok::<_, String>(())
         })();
@@ -329,6 +412,11 @@ async fn sync_targets(
         }
         status = state.proxy_service.get_status().await?;
     }
+    if status.running {
+        if let Err(error) = state.proxy_service.sync_imagegen_credentials().await {
+            errors.push(format!("图像凭据同步失败：{error}"));
+        }
+    }
     // All asynchronous work precedes this snapshot. User disable/switch syncs
     // queue on this lock and cannot be overwritten by an older start result.
     for &target in targets {
@@ -358,6 +446,7 @@ async fn sync_targets(
                 0
             };
             publish_runtime(
+                &state.db,
                 target,
                 port,
                 &surfaces,
@@ -389,12 +478,50 @@ pub struct ImagegenToolStatus {
     ready: bool,
     error: Option<String>,
     scope: String,
+    image_group: Option<String>,
+    image_models: Vec<String>,
+    selected_image_model: Option<String>,
+    catalog_checked: bool,
+}
+
+impl ImagegenToolStatus {
+    pub(super) fn set_error(&mut self, error: String) {
+        self.ready = false;
+        self.error = Some(error);
+    }
 }
 
 pub(crate) async fn tool_status(
     state: &AppState,
     tool: &str,
 ) -> Result<ImagegenToolStatus, String> {
+    tool_status_with_catalog(state, tool, || async move {
+        state.proxy_service.sync_imagegen_credentials().await?;
+        let core = state.proxy_service.get_status().await?;
+        if !core.running {
+            return Err("图像连接的 Core 尚未运行，请重新启用图像技能".into());
+        }
+        // Check through the actual Core process: desktop Keychain access alone
+        // cannot prove that the background process can read the selected item.
+        crate::proxy::images::local_image_model_ids(
+            core.port,
+            tool,
+            imagegen_connection::has_connection(&state.db, tool)?,
+        )
+        .await
+    })
+    .await
+}
+
+pub(super) async fn tool_status_with_catalog<F, Fut>(
+    state: &AppState,
+    tool: &str,
+    fetch: F,
+) -> Result<ImagegenToolStatus, String>
+where
+    F: FnOnce() -> Fut,
+    Fut: std::future::Future<Output = Result<Vec<String>, String>>,
+{
     let mut result = ImagegenToolStatus {
         tool: tool.into(),
         target: None,
@@ -404,6 +531,10 @@ pub(crate) async fn tool_status(
         ready: false,
         error: None,
         scope: "unsupported".into(),
+        image_group: None,
+        image_models: Vec::new(),
+        selected_image_model: None,
+        catalog_checked: false,
     };
     let Ok(target) = ImagegenTarget::parse(tool) else {
         return Ok(result);
@@ -417,6 +548,13 @@ pub(crate) async fn tool_status(
     }
     .into();
     let core = state.proxy_service.get_status().await?;
+    result.image_group = match imagegen_connection::group(&state.db, tool) {
+        Ok(group) => group,
+        Err(error) => {
+            result.error = Some(error);
+            None
+        }
+    };
     result.enabled = enabled(state, target)?;
     let surfaces = match configured_surfaces(state, target) {
         Ok(surfaces) => surfaces,
@@ -438,7 +576,7 @@ pub(crate) async fn tool_status(
                     Ok(Some(value)) => {
                         result.ready = result.configured
                             && core.running
-                            && value == runtime(target, core.port, &surfaces)
+                            && value == connection_runtime(&state.db, target, core.port, &surfaces)?
                     }
                     Ok(None) => {}
                     Err(error) => result.error = Some(error),
@@ -446,12 +584,220 @@ pub(crate) async fn tool_status(
             }
         }
     }
+    if result.enabled && result.configured {
+        let identity = status_identity(state, tool);
+        match identity {
+            Ok(Some(identity)) => {
+                let checked = fetch().await;
+                // An in-flight read cannot publish a previous account/group as
+                // ready after a switch, logout, replacement, or skill disable.
+                let unchanged = enabled(state, target)?
+                    && imagegen_connection::group(&state.db, tool).ok().as_ref()
+                        == Some(&result.image_group)
+                    && status_identity(state, tool).ok().flatten().as_ref() == Some(&identity);
+                if !unchanged {
+                    result.set_error("图像连接已变化，请刷新状态".into());
+                } else {
+                    apply_catalog(&mut result, checked);
+                }
+            }
+            Ok(None) => result.set_error("当前工具没有可用的元衡图像连接".into()),
+            Err(error) => result.set_error(error),
+        }
+    } else if result.image_group.is_some() {
+        if let Err(error) = imagegen_connection::active_reference(&state.db, tool) {
+            result.set_error(error);
+        }
+    }
     Ok(result)
+}
+
+fn status_identity(state: &AppState, tool: &str) -> Result<Option<Value>, String> {
+    if let Some(reference) = imagegen_connection::active_reference(&state.db, tool)? {
+        return Ok(Some(json!({"imageConnectionRef": reference})));
+    }
+    if matches!(tool, "codex" | "chatgpt-desktop") {
+        let selected = if tool == "codex" {
+            crate::settings::get_current_provider(&AppType::Codex).or(state
+                .db
+                .get_current_provider(tool)
+                .map_err(|e| e.to_string())?)
+        } else {
+            state
+                .db
+                .get_current_provider(tool)
+                .map_err(|e| e.to_string())?
+        };
+        if selected.as_deref() != Some(MANAGED_PROVIDER_ID) {
+            return Ok(None);
+        }
+        return state
+            .db
+            .get_provider_by_id(MANAGED_PROVIDER_ID, tool)
+            .map(|p| p.map(|p| p.settings_config))
+            .map_err(|e| e.to_string());
+    }
+    imagegen_provider(&state.db, tool).map(|p| p.map(|p| p.settings_config))
+}
+
+fn apply_catalog(result: &mut ImagegenToolStatus, checked: Result<Vec<String>, String>) {
+    match checked {
+        Ok(models) => {
+            result.catalog_checked = true;
+            result.image_models = models
+                .into_iter()
+                .filter(|m| imagegen_connection::select_model(std::slice::from_ref(m)).is_some())
+                .collect();
+            result.selected_image_model = imagegen_connection::select_model(&result.image_models);
+            if result.selected_image_model.is_none() {
+                result.set_error("当前图像连接未授权带版本号的 GPT Image 模型，请选择支持图像生成的独立分组；聊天配置无需改变".into());
+            }
+        }
+        Err(error) => result.set_error(error),
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    #[serial_test::serial]
+    async fn actual_catalog_permission_controls_ready_and_stale_group_results_are_rejected() {
+        use crate::commands::{
+            imagegen_connection_test_support as connections, imagegen_test_support as fixture,
+        };
+        use std::sync::Arc;
+        let _home = fixture::TestHome::new();
+        crate::secure_storage::clear_for_tests();
+        let db = Arc::new(crate::database::Database::memory().unwrap());
+        let state = AppState::new(db.clone());
+        let mut config = db.get_proxy_config().await.unwrap();
+        config.listen_port = 0;
+        db.update_proxy_config(config).await.unwrap();
+        fixture::install(&db, "dsh", "sk-chat-synthetic");
+        connections::account(&db, "A", false);
+        connections::install(&db, "dsh", "image-old", "sk-image-old");
+        sync(&state, true).await.unwrap();
+        let empty = tool_status_with_catalog(&state, "dsh", || async {
+            Ok(vec!["qwen-image".into(), "gpt-image-latest".into()])
+        })
+        .await
+        .unwrap();
+        assert!(!empty.ready && empty.catalog_checked);
+        assert!(empty.image_models.is_empty() && empty.selected_image_model.is_none());
+        assert!(empty.error.unwrap().contains("独立分组"));
+        let failed =
+            tool_status_with_catalog(&state, "dsh", || async { Err("synthetic HTTP 403".into()) })
+                .await
+                .unwrap();
+        assert!(!failed.ready && !failed.catalog_checked);
+        let stale = tool_status_with_catalog(&state, "dsh", || async {
+            connections::install(&db, "dsh", "image-new", "sk-image-new");
+            Ok(vec!["gpt-image-2.5-sunburst".into()])
+        })
+        .await
+        .unwrap();
+        assert!(!stale.ready && !stale.catalog_checked && stale.selected_image_model.is_none());
+        let good = tool_status_with_catalog(&state, "dsh", || async {
+            Ok(vec![
+                "gpt-image-2.5-flare".into(),
+                "OpenAI/gpt-image-2.5-sunburst".into(),
+            ])
+        })
+        .await
+        .unwrap();
+        assert!(good.ready && good.catalog_checked);
+        assert_eq!(good.image_group.as_deref(), Some("image-new"));
+        assert_eq!(
+            good.selected_image_model.as_deref(),
+            Some("OpenAI/gpt-image-2.5-sunburst")
+        );
+        assert_eq!(
+            imagegen_provider(&db, "dsh")
+                .unwrap()
+                .unwrap()
+                .settings_config["auth"]["OPENAI_API_KEY"],
+            "sk-chat-synthetic"
+        );
+        fixture::enable(&db, "dsh", false);
+        let disabled = tool_status_with_catalog(&state, "dsh", || async {
+            panic!("disabled skill must not query a catalog")
+        })
+        .await
+        .unwrap();
+        assert!(!disabled.ready && !disabled.catalog_checked);
+        state.proxy_service.stop().await.unwrap();
+        crate::secure_storage::clear_for_tests();
+    }
+
+    #[test]
+    #[serial_test::serial]
+    fn inactive_codex_override_disables_legacy_across_core_port_refresh() {
+        use crate::commands::{
+            imagegen_connection_test_support as connections, imagegen_test_support as fixture,
+        };
+        let _home = fixture::TestHome::new();
+        crate::secure_storage::clear_for_tests();
+        let db = crate::database::Database::memory().unwrap();
+        connections::account(&db, "A", false);
+        connections::install(&db, "chatgpt-desktop", "images", "sk-image-desktop");
+        write_codex_legacy(1234, &["codex", "chatgpt-desktop"]).unwrap();
+        let epoch = RUNTIME_LOCK.lock().unwrap().generation;
+        publish_runtime(
+            &db,
+            ImagegenTarget::Codex,
+            1234,
+            &["codex"],
+            true,
+            true,
+            epoch,
+        )
+        .unwrap();
+        let path = ImagegenTarget::Codex
+            .skills_dir()
+            .unwrap()
+            .parent()
+            .unwrap()
+            .join("yuanheng-imagegen.json");
+        let legacy: Value = crate::config::read_json_file(&path).unwrap();
+        assert_eq!(legacy["enabled"], false);
+        refresh_port(5678).unwrap();
+        let legacy: Value = crate::config::read_json_file(&path).unwrap();
+        assert_eq!(legacy["enabled"], false);
+        let value = read_runtime(
+            &ImagegenTarget::Codex.runtime_path().unwrap(),
+            ImagegenTarget::Codex,
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(value["routes"]["codex"], "http://127.0.0.1:5678/codex/v1");
+        let epoch = RUNTIME_LOCK.lock().unwrap().generation;
+        publish_runtime(
+            &db,
+            ImagegenTarget::Codex,
+            5678,
+            &["codex", "chatgpt-desktop"],
+            true,
+            true,
+            epoch,
+        )
+        .unwrap();
+        refresh_port(6789).unwrap();
+        let value = read_runtime(
+            &ImagegenTarget::Codex.runtime_path().unwrap(),
+            ImagegenTarget::Codex,
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(
+            value["routes"]["chatgpt-desktop"],
+            "http://127.0.0.1:6789/imagegen/chatgpt-desktop/v1"
+        );
+        assert_eq!(value["routes"]["codex"], "http://127.0.0.1:6789/codex/v1");
+        assert!(!value.to_string().contains("sk-image"));
+        crate::secure_storage::clear_for_tests();
+    }
 
     #[test]
     fn newer_core_port_wins_over_an_in_flight_snapshot_without_reenabling_disabled() {

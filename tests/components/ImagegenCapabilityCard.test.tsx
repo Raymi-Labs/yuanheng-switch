@@ -11,8 +11,15 @@ import type { ImagegenToolStatus } from "@/lib/api/skills";
 import type { YuanhengToolId } from "@/lib/api/yuanheng";
 import { createTestQueryClient } from "../utils/testQueryClient";
 
+Object.defineProperty(Element.prototype, "scrollIntoView", {
+  configurable: true,
+  value: vi.fn(),
+});
+
 const api = vi.hoisted(() => ({
   getStatus: vi.fn(),
+  listGroups: vi.fn(),
+  configureGroup: vi.fn(),
   install: vi.fn(),
   setEnabled: vi.fn(),
   exportSkill: vi.fn(),
@@ -65,6 +72,10 @@ const status = (
   enabled: true,
   configured: true,
   ready: true,
+  imageGroup: null,
+  imageModels: ["gpt-image-2.5-sunburst", "gpt-image-2"],
+  selectedImageModel: "gpt-image-2.5-sunburst",
+  catalogChecked: true,
   scope: tool === "workbuddy" ? "code-and-office-import" : "local-skill",
   ...updates,
 });
@@ -105,6 +116,9 @@ beforeEach(() => {
   api.getStatus.mockImplementation(async (tool: YuanhengToolId) =>
     status(tool),
   );
+  api.listGroups.mockResolvedValue([
+    { id: "image-standard", description: "图片标准", ratio: 1 },
+  ]);
   api.install.mockImplementation(async (tool: YuanhengToolId) => status(tool));
   api.setEnabled.mockImplementation(
     async (tool: YuanhengToolId, enabled: boolean) =>
@@ -116,6 +130,133 @@ beforeEach(() => {
 });
 
 describe("tool-scoped image capability", () => {
+  it("keeps a DSH chat connection without image models unready until an image group is explicitly selected", async () => {
+    let current = status("dsh", {
+      ready: false,
+      imageModels: [],
+      selectedImageModel: null,
+    });
+    api.getStatus.mockImplementation(async () => current);
+    api.configureGroup.mockImplementation(async (tool, group) => {
+      current = status(tool, { imageGroup: group });
+      return current;
+    });
+    const view = mount("dsh");
+    await screen.findByText(/当前连接没有可用的 GPT 图像模型/);
+    expect(screen.queryByText("图像能力已就绪")).not.toBeInTheDocument();
+    expect(api.configureGroup).not.toHaveBeenCalled();
+    expect(
+      screen.getByRole("combobox", { name: "DSH 图片分组" }),
+    ).toHaveTextContent("使用聊天连接");
+    await waitFor(() => expect(api.listGroups).toHaveBeenCalledWith("dsh"));
+    fireEvent.click(screen.getByRole("combobox", { name: "DSH 图片分组" }));
+    fireEvent.click(
+      await screen.findByRole("option", { name: "image-standard · 图片标准" }),
+    );
+    await waitFor(() =>
+      expect(api.configureGroup).toHaveBeenCalledWith("dsh", "image-standard"),
+    );
+    await screen.findByText("图像能力已就绪");
+    expect(
+      screen.getByText("当前自动选择：gpt-image-2.5-sunburst"),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/聊天模型和分组保持不变/)).toBeInTheDocument();
+    view.unmount();
+    view.client.clear();
+  });
+
+  it("resets the independent image group to the chat connection explicitly", async () => {
+    let current = status("dsh", { imageGroup: "image-standard" });
+    api.getStatus.mockImplementation(async () => current);
+    api.configureGroup.mockImplementation(async (tool, group) => {
+      current = status(tool, { imageGroup: group });
+      return current;
+    });
+    const view = mount("dsh");
+    await screen.findByText("图像能力已就绪");
+    await waitFor(() =>
+      expect(
+        screen.getByRole("combobox", { name: "DSH 图片分组" }),
+      ).toBeEnabled(),
+    );
+    fireEvent.click(screen.getByRole("combobox", { name: "DSH 图片分组" }));
+    fireEvent.click(
+      await screen.findByRole("option", { name: "使用聊天连接" }),
+    );
+    await waitFor(() =>
+      expect(api.configureGroup).toHaveBeenCalledWith("dsh", null),
+    );
+    expect(api.install).not.toHaveBeenCalled();
+    view.unmount();
+    view.client.clear();
+  });
+
+  it("can reset an existing image group even when listing groups fails", async () => {
+    api.getStatus.mockResolvedValue(
+      status("dsh", { imageGroup: "saved-image-group" }),
+    );
+    api.listGroups.mockRejectedValue(new Error("Group catalog unavailable"));
+    api.configureGroup.mockResolvedValue(status("dsh"));
+    const view = mount("dsh");
+    await screen.findByText("无法读取图片分组，请重新检查图像能力。");
+    fireEvent.click(screen.getByRole("combobox", { name: "DSH 图片分组" }));
+    fireEvent.click(
+      await screen.findByRole("option", { name: "使用聊天连接" }),
+    );
+    await waitFor(() =>
+      expect(api.configureGroup).toHaveBeenCalledWith("dsh", null),
+    );
+    view.unmount();
+    view.client.clear();
+  });
+
+  it.each([
+    { catalogChecked: false },
+    { imageModels: [], selectedImageModel: null },
+    { selectedImageModel: "gpt-image-99-unconfirmed" },
+    { error: "图片目录不可用" },
+  ])(
+    "does not claim readiness without a verified selected image model: %s",
+    async (updates) => {
+      api.getStatus.mockResolvedValue(status("dsh", updates));
+      const view = mount("dsh");
+      await screen.findByText("图像技能已启用");
+      expect(screen.queryByText("图像能力已就绪")).not.toBeInTheDocument();
+      view.unmount();
+      view.client.clear();
+    },
+  );
+
+  it("retains the saved group and does not announce success when image group configuration fails", async () => {
+    api.configureGroup.mockRejectedValue(new Error("该分组没有可用图片模型"));
+    api.getStatus.mockResolvedValue(
+      status("dsh", {
+        ready: false,
+        imageModels: [],
+        selectedImageModel: null,
+      }),
+    );
+    const view = mount("dsh");
+    await screen.findByText(/当前连接没有可用的 GPT 图像模型/);
+    await waitFor(() =>
+      expect(
+        screen.getByRole("combobox", { name: "DSH 图片分组" }),
+      ).toBeEnabled(),
+    );
+    fireEvent.click(screen.getByRole("combobox", { name: "DSH 图片分组" }));
+    fireEvent.click(
+      await screen.findByRole("option", { name: "image-standard · 图片标准" }),
+    );
+    await waitFor(() => expect(state.error).toHaveBeenCalled());
+    expect(state.success).not.toHaveBeenCalled();
+    expect(
+      screen.getByRole("combobox", { name: "DSH 图片分组" }),
+    ).toHaveTextContent("使用聊天连接");
+    expect(screen.queryByText("图像能力已就绪")).not.toBeInTheDocument();
+    view.unmount();
+    view.client.clear();
+  });
+
   it.each(["dsh", "workbuddy"] as const)(
     "uses selected %s for image actions while ordinary capability APIs retain Codex",
     async (tool) => {

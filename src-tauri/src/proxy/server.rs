@@ -344,6 +344,10 @@ impl ProxyServer {
                 post(handlers::cancel_core_route_probe),
             )
             .route("/__yuanheng/core/reload", post(handlers::reload_core))
+            .route(
+                "/__yuanheng/core/imagegen/credentials",
+                post(handlers::sync_imagegen_credentials),
+            )
             .route("/__yuanheng/core/shutdown", post(handlers::shutdown_core))
             .route(
                 "/__yuanheng/core/reset-circuit-breaker",
@@ -479,6 +483,108 @@ mod image_route_tests {
         body::Body,
         http::{Request, StatusCode},
     };
+
+    #[tokio::test]
+    #[serial_test::serial]
+    async fn imagegen_admin_authenticates_before_body_and_exposes_only_public_refs() {
+        use http_body_util::BodyExt;
+        let (_cleanup, db, entries) = crate::imagegen_core::test_support::fixture();
+        let db = Arc::new(db);
+        let mut server = ProxyServer::new(ProxyConfig::default(), db.clone(), None);
+        let (command_tx, _command_rx) = tokio::sync::mpsc::unbounded_channel();
+        server.state.core_control = Some(CoreControl {
+            token: "synthetic-admin-token".into(),
+            command_tx,
+            binary_id: "synthetic-core".into(),
+            config_dir: Arc::new(std::path::PathBuf::from("synthetic-config")),
+            routes: crate::route_selection::Selector::new(db),
+        });
+        let pending_body = Body::from_stream(futures::stream::pending::<
+            Result<bytes::Bytes, std::io::Error>,
+        >());
+        let mut router = server.build_router();
+        let response = tokio::time::timeout(
+            std::time::Duration::from_secs(1),
+            tower::Service::call(
+                &mut router,
+                Request::builder()
+                    .method("POST")
+                    .uri("/__yuanheng/core/imagegen/credentials")
+                    .body(pending_body)
+                    .unwrap(),
+            ),
+        )
+        .await
+        .expect("unauthorized requests must not wait for a body")
+        .unwrap();
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+        let valid = serde_json::to_vec(&crate::imagegen_core::CredentialSnapshot {
+            entries: entries.clone(),
+        })
+        .unwrap();
+        for (auth, body, expected) in [
+            (
+                None,
+                vec![b'x'; crate::imagegen_core::MAX_BODY + 1],
+                StatusCode::UNAUTHORIZED,
+            ),
+            (Some("wrong"), valid.clone(), StatusCode::UNAUTHORIZED),
+            (
+                Some("synthetic-admin-token"),
+                vec![b'x'; crate::imagegen_core::MAX_BODY + 1],
+                StatusCode::PAYLOAD_TOO_LARGE,
+            ),
+            (
+                Some("synthetic-admin-token"),
+                b"{".to_vec(),
+                StatusCode::BAD_REQUEST,
+            ),
+            (
+                Some("synthetic-admin-token"),
+                b"{\"entries\":[]}".to_vec(),
+                StatusCode::CONFLICT,
+            ),
+            (Some("synthetic-admin-token"), valid, StatusCode::OK),
+        ] {
+            let mut request = Request::builder()
+                .method("POST")
+                .uri("/__yuanheng/core/imagegen/credentials")
+                .header("content-type", "application/json");
+            if let Some(auth) = auth {
+                request = request.header("authorization", format!("Bearer {auth}"));
+            }
+            let response = tower::Service::call(
+                &mut server.build_router(),
+                request.body(Body::from(body)).unwrap(),
+            )
+            .await
+            .unwrap();
+            assert_eq!(response.status(), expected);
+            let body = response.into_body().collect().await.unwrap().to_bytes();
+            assert!(!String::from_utf8_lossy(&body).contains("sk-synthetic"));
+            if expected == StatusCode::OK {
+                assert_eq!(body.as_ref(), br#"{"ok":true}"#);
+            }
+        }
+        let response = tower::Service::call(
+            &mut server.build_router(),
+            Request::builder()
+                .uri("/__yuanheng/core/info")
+                .header("authorization", "Bearer synthetic-admin-token")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+        assert!(!String::from_utf8_lossy(&body).contains("sk-synthetic"));
+        let info: crate::core_daemon::CoreInfo = serde_json::from_slice(&body).unwrap();
+        assert_eq!(
+            info.imagegen_credential_refs.get("dsh"),
+            Some(&entries[0].connection_ref)
+        );
+    }
 
     #[tokio::test]
     #[serial_test::serial]

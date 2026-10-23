@@ -2,6 +2,7 @@
 pub(crate) mod credential_session;
 mod dsh;
 mod imagegen;
+mod imagegen_connection;
 mod imagegen_credentials;
 mod model_catalog;
 
@@ -10,6 +11,16 @@ pub(crate) use imagegen::sync as sync_yuanheng_imagegen;
 pub(crate) use imagegen::{
     sync_tool as sync_yuanheng_imagegen_tool, tool_status as imagegen_tool_status,
     ImagegenToolStatus,
+};
+#[cfg(test)]
+pub(crate) use imagegen_connection::test_support as imagegen_connection_test_support;
+pub(crate) use imagegen_connection::{
+    configure as configure_imagegen_connection, core_provider as imagegen_core_provider,
+    credential_refs as imagegen_credential_refs,
+    credential_snapshot as imagegen_credential_snapshot,
+    has_connection as has_explicit_imagegen_connection,
+    list_groups as list_imagegen_connection_groups,
+    validate_core_entry as validate_imagegen_core_entry,
 };
 pub(crate) use imagegen_credentials::imagegen_provider;
 #[cfg(test)]
@@ -558,6 +569,7 @@ fn delete_yuanheng_secret(state: &AppState, key: &str) -> Result<(), String> {
 }
 
 fn invalidate_yuanheng_session(state: &AppState) -> Result<(), String> {
+    imagegen_connection::invalidate(&state.db)?;
     #[cfg(any(target_os = "macos", test))]
     if credential_session::has_session(state)? {
         return credential_session::clear(state);
@@ -1470,6 +1482,7 @@ fn persist_connection(
     api_token_id: i64,
     status: &YuanhengConnectionStatus,
 ) -> Result<(), String> {
+    imagegen_connection::account_will_change(&state.db, user_id)?;
     #[cfg(any(target_os = "macos", test))]
     {
         credential_session::persist(
@@ -4017,6 +4030,7 @@ fn restore_managed_tools_inner(state: &AppState) -> Result<YuanhengDisconnectRes
 }
 
 fn disconnect_yuanheng_inner(state: &AppState) -> Result<YuanhengDisconnectResult, String> {
+    imagegen_connection::invalidate(&state.db)?;
     let mut result = restore_managed_tools_inner(state)?;
     result.disconnected = true;
     #[cfg(any(target_os = "macos", test))]
@@ -6777,9 +6791,14 @@ mod tests {
         sync_yuanheng_imagegen(&state, true).await.unwrap();
         assert!(state.proxy_service.is_running().await);
         for target in [ImagegenTarget::Dsh, ImagegenTarget::WorkBuddy] {
-            let status =
-                serde_json::to_value(imagegen_tool_status(&state, target.as_str()).await.unwrap())
-                    .unwrap();
+            let status = serde_json::to_value(
+                imagegen::tool_status_with_catalog(&state, target.as_str(), || async {
+                    Ok(vec!["gpt-image-2.5-sunburst".into()])
+                })
+                .await
+                .unwrap(),
+            )
+            .unwrap();
             assert_eq!(status["ready"], true, "{status}");
             let runtime: Value =
                 crate::config::read_json_file(&target.runtime_path().unwrap()).unwrap();
@@ -6796,8 +6815,14 @@ mod tests {
         assert_eq!(dsh["enabled"], false);
         assert_eq!(dsh["routes"], json!({}));
         assert_eq!(
-            serde_json::to_value(imagegen_tool_status(&state, "workbuddy").await.unwrap()).unwrap()
-                ["ready"],
+            serde_json::to_value(
+                imagegen::tool_status_with_catalog(&state, "workbuddy", || async {
+                    Ok(vec!["gpt-image-2.5-sunburst".into()])
+                })
+                .await
+                .unwrap(),
+            )
+            .unwrap()["ready"],
             true
         );
         restore_workbuddy_config(&state).unwrap();
@@ -6807,8 +6832,14 @@ mod tests {
                 .unwrap();
         assert_eq!(workbuddy["enabled"], false);
         assert_eq!(
-            serde_json::to_value(imagegen_tool_status(&state, "workbuddy").await.unwrap()).unwrap()
-                ["configured"],
+            serde_json::to_value(
+                imagegen::tool_status_with_catalog(&state, "workbuddy", || async {
+                    Ok(vec!["gpt-image-2.5-sunburst".into()])
+                })
+                .await
+                .unwrap(),
+            )
+            .unwrap()["configured"],
             false
         );
         assert_eq!(

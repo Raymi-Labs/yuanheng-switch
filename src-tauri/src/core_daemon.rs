@@ -100,6 +100,9 @@ pub struct CoreInfo {
     /// Optional for older Core binaries; absence must not mean a healthy probe.
     #[serde(default)]
     pub(crate) request_diagnostics: Option<crate::core_diagnostics::Snapshot>,
+    /// Public references only; credentials never appear in status or on disk.
+    #[serde(default)]
+    pub(crate) imagegen_credential_refs: std::collections::BTreeMap<String, String>,
 }
 
 impl CoreInfo {
@@ -117,6 +120,7 @@ impl CoreInfo {
             config_dir: control.config_dir.display().to_string(),
             status,
             request_diagnostics: crate::core_diagnostics::snapshot(),
+            imagegen_credential_refs: crate::imagegen_core::refs(),
         }
     }
 }
@@ -284,6 +288,82 @@ impl CoreSupervisor {
             .await
             .map_err(|error| format!("读取代理配置失败: {error}"))?;
         self.post_admin(&token, &config, "reload").await
+    }
+
+    pub(crate) async fn sync_imagegen_credentials(
+        &self,
+        db: &Database,
+        entries: &[crate::imagegen_core::CredentialEntry],
+    ) -> Result<(), String> {
+        let expected: std::collections::BTreeMap<_, _> = entries
+            .iter()
+            .map(|entry| (entry.surface.clone(), entry.connection_ref.clone()))
+            .collect();
+        if crate::commands::imagegen_credential_refs(db)? != expected {
+            return Err("图像连接已变化，请重新同步".into());
+        }
+        let token =
+            read_admin_token(&self.config_dir).map_err(|_| "图像凭据同步需要运行中的 Core")?;
+        let config = db
+            .get_proxy_config()
+            .await
+            .map_err(|_| "无法读取 Core 连接配置")?;
+        let client = reqwest::Client::builder()
+            .no_proxy()
+            .redirect(reqwest::redirect::Policy::none())
+            .retry(reqwest::retry::never())
+            .connect_timeout(Duration::from_millis(800))
+            .timeout(CORE_REQUEST_TIMEOUT)
+            .build()
+            .map_err(|_| "无法创建图像凭据同步连接")?;
+        let snapshot = crate::imagegen_core::CredentialSnapshot {
+            entries: entries.to_vec(),
+        };
+        let body = serde_json::to_vec(&snapshot).map_err(|_| "无法编码图像凭据同步请求")?;
+        if body.len() > crate::imagegen_core::MAX_BODY {
+            return Err("图像凭据同步请求过大".into());
+        }
+        for (address, port) in candidate_ports(&self.config_dir, &config) {
+            let Some(origin) = imagegen_loopback_origin(&address, port) else {
+                continue;
+            };
+            // A read-only probe may try another candidate. Once a credential
+            // POST is attempted, never replay it at a different address.
+            let response = match client
+                .get(format!("{origin}{CORE_ADMIN_PREFIX}/info"))
+                .bearer_auth(&token)
+                .send()
+                .await
+            {
+                Ok(response) if response.status().is_success() => response,
+                _ => continue,
+            };
+            let info: CoreInfo = match response.json().await {
+                Ok(info) => info,
+                Err(_) => continue,
+            };
+            if info.protocol_version != CORE_PROTOCOL_VERSION {
+                return Err("请更新 YuanHeng Core 后同步图像连接".into());
+            }
+            if crate::commands::imagegen_credential_refs(db)? != expected {
+                return Err("图像连接已变化，请重新同步".into());
+            }
+            let response = client
+                .post(format!("{origin}{CORE_ADMIN_PREFIX}/imagegen/credentials"))
+                .bearer_auth(&token)
+                .header(reqwest::header::CONTENT_TYPE, "application/json")
+                .body(body)
+                .send()
+                .await
+                .map_err(|_| "图像凭据同步未确认，请重新检查图像能力")?;
+            return match response.status() {
+                reqwest::StatusCode::OK => Ok(()),
+                reqwest::StatusCode::NOT_FOUND => Err("请更新 YuanHeng Core 后同步图像连接".into()),
+                reqwest::StatusCode::CONFLICT => Err("图像连接已变化，请重新同步".into()),
+                _ => Err("Core 未接受图像凭据，请重新检查图像能力".into()),
+            };
+        }
+        Err("无法通过本机回环连接同步图像凭据，请打开元衡后重试".into())
     }
 
     pub async fn reset_circuit_breaker(
@@ -815,6 +895,21 @@ fn proxy_origin(address: &str, port: u16) -> String {
     format!("http://{host}:{port}")
 }
 
+fn imagegen_loopback_origin(address: &str, port: u16) -> Option<String> {
+    if port == 0 {
+        return None;
+    }
+    let address = match address {
+        "0.0.0.0" | "localhost" => "127.0.0.1",
+        "::" => "::1",
+        value => value,
+    };
+    let address: std::net::IpAddr = address.parse().ok()?;
+    address
+        .is_loopback()
+        .then(|| proxy_origin(&address.to_string(), port))
+}
+
 fn candidate_ports(config_dir: &Path, config: &ProxyConfig) -> Vec<(String, u16)> {
     let mut candidates = Vec::new();
     if let Ok(record) = read_runtime_record(config_dir) {
@@ -1276,6 +1371,122 @@ mod tests {
     #[cfg(windows)]
     use super::CORE_EXECUTABLE_NAME;
     use super::{activate_core_version, current_core_path, install_versioned_core};
+
+    #[test]
+    fn imagegen_credentials_only_target_literal_loopback_addresses() {
+        for address in [
+            "127.0.0.1",
+            "127.0.0.2",
+            "::1",
+            "localhost",
+            "0.0.0.0",
+            "::",
+        ] {
+            assert!(super::imagegen_loopback_origin(address, 15721).is_some());
+        }
+        for address in [
+            "192.168.1.10",
+            "example.test",
+            "localhost.example.test",
+            "127.0.0.1@example.test",
+            "[::1]",
+        ] {
+            assert!(super::imagegen_loopback_origin(address, 15721).is_none());
+        }
+        assert!(super::imagegen_loopback_origin("127.0.0.1", 0).is_none());
+    }
+
+    #[tokio::test]
+    #[serial_test::serial]
+    async fn imagegen_credentials_never_follow_redirects_or_replay_a_post() {
+        use axum::{
+            http::StatusCode,
+            routing::{get, post},
+            Json, Router,
+        };
+        use std::sync::{
+            atomic::{AtomicUsize, Ordering},
+            Arc,
+        };
+        let (_cleanup, db, entries) = crate::imagegen_core::test_support::fixture();
+        let calls = Arc::new(AtomicUsize::new(0));
+        let fallback_calls = Arc::new(AtomicUsize::new(0));
+        let fallback_seen = fallback_calls.clone();
+        let fallback = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let fallback_port = fallback.local_addr().unwrap().port();
+        let fallback_router = Router::new().fallback(move || {
+            let seen = fallback_seen.clone();
+            async move {
+                seen.fetch_add(1, Ordering::SeqCst);
+                StatusCode::OK
+            }
+        });
+        let fallback_task = tokio::spawn(async move {
+            axum::serve(fallback, fallback_router).await.unwrap();
+        });
+        let first = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let first_port = first.local_addr().unwrap().port();
+        let seen = calls.clone();
+        let info = serde_json::json!({
+            "protocolVersion": super::CORE_PROTOCOL_VERSION, "version": "synthetic",
+            "buildProfile":"test", "pid":0, "binaryId":"test", "configDir":"test",
+            "status": crate::proxy::ProxyStatus::default()
+        });
+        let first_router = Router::new()
+            .route(
+                "/__yuanheng/core/info",
+                get(move || {
+                    let info = info.clone();
+                    async move { Json(info) }
+                }),
+            )
+            .route(
+                "/__yuanheng/core/imagegen/credentials",
+                post(move || {
+                    seen.fetch_add(1, Ordering::SeqCst);
+                    async move {
+                        (
+                            StatusCode::TEMPORARY_REDIRECT,
+                            [(
+                                "location",
+                                format!("http://127.0.0.1:{fallback_port}/capture"),
+                            )],
+                        )
+                    }
+                }),
+            );
+        let first_task = tokio::spawn(async move {
+            axum::serve(first, first_router).await.unwrap();
+        });
+        let dir = tempfile::tempdir().unwrap();
+        super::write_private_file(&super::admin_token_path(dir.path()), b"synthetic-admin")
+            .unwrap();
+        super::write_runtime_record(
+            dir.path(),
+            &crate::proxy::ProxyServerInfo {
+                address: "127.0.0.1".into(),
+                port: first_port,
+                started_at: String::new(),
+            },
+            "synthetic",
+        )
+        .unwrap();
+        let mut config = db.get_proxy_config().await.unwrap();
+        config.listen_address = "127.0.0.1".into();
+        config.listen_port = fallback_port;
+        db.update_proxy_config(config).await.unwrap();
+        let result = super::CoreSupervisor::new(dir.path().into())
+            .sync_imagegen_credentials(&db, &entries)
+            .await;
+        first_task.abort();
+        fallback_task.abort();
+        let _ = first_task.await;
+        let _ = fallback_task.await;
+        assert!(result.is_err());
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+        assert_eq!(fallback_calls.load(Ordering::SeqCst), 0);
+        assert!(!result.unwrap_err().contains("synthetic"));
+    }
 
     #[test]
     fn proxy_origin_normalizes_bind_all_addresses() {

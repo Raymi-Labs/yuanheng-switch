@@ -19,23 +19,24 @@ pub(crate) fn imagegen_provider(db: &Database, surface: &str) -> Result<Option<P
         // In particular, an unknown namespace must never borrow Codex's key.
         _ => return Err("该工具不支持元衡自动图像路由".into()),
     };
-    key.map(|key| {
-        if !valid_platform_key(&key) {
-            return Err("当前工具缺少有效的元衡 API 凭据".into());
-        }
-        let mut provider = Provider::with_id(
-            MANAGED_PROVIDER_ID.into(),
-            MANAGED_PROVIDER_DISPLAY_NAME.into(),
-            json!({"base_url": OPENAI_BASE_URL, "auth": {"OPENAI_API_KEY": key}}),
-            None,
-        );
-        provider.category = Some("managed".into());
-        Ok(provider)
-    })
-    .transpose()
+    key.map(provider_from_key).transpose()
 }
 
-fn valid_platform_key(key: &str) -> bool {
+pub(super) fn provider_from_key(key: String) -> Result<Provider, String> {
+    if !valid_platform_key(&key) {
+        return Err("当前工具缺少有效的元衡 API 凭据".into());
+    }
+    let mut provider = Provider::with_id(
+        MANAGED_PROVIDER_ID.into(),
+        MANAGED_PROVIDER_DISPLAY_NAME.into(),
+        json!({"base_url": OPENAI_BASE_URL, "auth": {"OPENAI_API_KEY": key}}),
+        None,
+    );
+    provider.category = Some("managed".into());
+    Ok(provider)
+}
+
+pub(super) fn valid_platform_key(key: &str) -> bool {
     let upper = key.to_ascii_uppercase();
     !key.is_empty()
         && key.len() <= 4096

@@ -108,13 +108,54 @@ impl ProxyService {
         crate::core_daemon::CoreSupervisor::new(self.core_config_dir.as_ref().clone())
     }
 
+    /// Desktop alone reads its system-store items. The independent Core receives
+    /// a complete, current snapshot over the authenticated loopback channel.
+    pub(crate) async fn sync_imagegen_credentials(&self) -> Result<(), String> {
+        static SYNC: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+        let _guard = SYNC.lock().await;
+        let expected = crate::commands::imagegen_credential_refs(&self.db)?;
+        if self.uses_managed_core() {
+            let supervisor = self.core_supervisor();
+            let info = match supervisor.status(&self.db).await {
+                Ok(info) => info,
+                Err(_) if expected.is_empty() => return Ok(()),
+                Err(_) => return Err("请打开元衡并启动本地 Core 后同步图像连接".into()),
+            };
+            if info.imagegen_credential_refs == expected {
+                return Ok(());
+            }
+            let entries = crate::commands::imagegen_credential_snapshot(&self.db)?;
+            supervisor
+                .sync_imagegen_credentials(&self.db, &entries)
+                .await
+        } else {
+            if crate::imagegen_core::refs() == expected {
+                return Ok(());
+            }
+            let entries = crate::commands::imagegen_credential_snapshot(&self.db)?;
+            crate::imagegen_core::replace(&self.db, &entries)
+        }
+    }
+
+    async fn refresh_imagegen_credentials(&self) {
+        if let Err(error) = self.sync_imagegen_credentials().await {
+            log::warn!("图像凭据待同步: {error}");
+        }
+    }
+
+    async fn reload_managed_core(&self) -> Result<(), String> {
+        self.core_supervisor().reload(&self.db).await?;
+        self.refresh_imagegen_credentials().await;
+        Ok(())
+    }
+
     pub async fn maintain_managed_core(&self) -> Result<(), String> {
         if !self.uses_managed_core() {
             return Ok(());
         }
 
         let supervisor = self.core_supervisor();
-        match supervisor.status(&self.db).await {
+        let result = match supervisor.status(&self.db).await {
             Ok(info)
                 if info.protocol_version == crate::core_daemon::CORE_PROTOCOL_VERSION
                     && (cfg!(debug_assertions) || info.version == env!("CARGO_PKG_VERSION")) =>
@@ -134,7 +175,11 @@ impl ProxyService {
                     crate::commands::refresh_yuanheng_imagegen_routes_at_port(info.status.port);
                 codex.and(images)
             }
+        };
+        if result.is_ok() {
+            self.refresh_imagegen_credentials().await;
         }
+        result
     }
 
     pub async fn prepare_for_config_dir_change(&self) -> Result<(), String> {
@@ -503,7 +548,7 @@ impl ProxyService {
             return;
         };
         if self.uses_managed_core() {
-            if let Err(error) = self.core_supervisor().reload(&self.db).await {
+            if let Err(error) = self.reload_managed_core().await {
                 log::debug!(
                     "通知 Core 刷新 {} 活跃目标失败（Core 可能尚未启动）: {error}",
                     app_type.as_str()
@@ -621,6 +666,7 @@ impl ProxyService {
 
         if self.uses_managed_core() {
             let info = self.core_supervisor().ensure_running(&self.db).await?;
+            self.refresh_imagegen_credentials().await;
             if let Err(error) =
                 crate::commands::refresh_codex_history_routes_at_port(info.status.port)
             {
@@ -673,6 +719,8 @@ impl ProxyService {
 
         // 5. 保存服务器实例
         *self.server.write().await = Some(server);
+
+        self.refresh_imagegen_credentials().await;
 
         log::info!("代理服务器已启动: {}:{}", info.address, info.port);
         Ok(info)
@@ -2725,7 +2773,7 @@ impl ProxyService {
                 .set_active_target(app_type_enum.as_str(), &provider.id, &provider.name)
                 .await;
         } else if self.uses_managed_core() {
-            if let Err(error) = self.core_supervisor().reload(&self.db).await {
+            if let Err(error) = self.reload_managed_core().await {
                 log::debug!("热切换后通知 Core 刷新失败: {error}");
             }
         }
@@ -3241,13 +3289,14 @@ impl ProxyService {
                 || new_config.listen_port != previous.listen_port;
             if require_restart {
                 let info = self.core_supervisor().restart(&self.db).await?;
+                self.refresh_imagegen_credentials().await;
                 if let Err(error) =
                     crate::commands::refresh_yuanheng_imagegen_routes_at_port(info.status.port)
                 {
                     log::warn!("图像连接端口待同步: {error}");
                 }
             } else {
-                self.core_supervisor().reload(&self.db).await?;
+                self.reload_managed_core().await?;
             }
             self.sync_takeover_urls_after_config_change().await?;
             return Ok(());
@@ -3346,7 +3395,7 @@ impl ProxyService {
         if self.uses_managed_core() {
             let _ = config;
             if self.is_running().await {
-                self.core_supervisor().reload(&self.db).await?;
+                self.reload_managed_core().await?;
             }
             return Ok(());
         }
@@ -3368,7 +3417,7 @@ impl ProxyService {
         if self.uses_managed_core() {
             let _ = (app_type, config);
             if self.is_running().await {
-                self.core_supervisor().reload(&self.db).await?;
+                self.reload_managed_core().await?;
             }
             return Ok(());
         }

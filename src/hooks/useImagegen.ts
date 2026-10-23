@@ -31,6 +31,14 @@ export function useImagegen(tool: YuanhengToolId) {
     refetchOnMount: "always",
     refetchOnWindowFocus: true,
   });
+  const groups = useQuery({
+    queryKey: [...key, "groups"],
+    queryFn: () => imagegenApi.listGroups(tool),
+    enabled: Boolean(connection?.connected && query.data?.supported),
+    retry: false,
+    staleTime: 30_000,
+    refetchOnMount: "always",
+  });
   const settled = () => {
     void client.invalidateQueries({ queryKey: imagegenKeys });
     void client.invalidateQueries({ queryKey: ["skills", "installed"] });
@@ -53,6 +61,15 @@ export function useImagegen(tool: YuanhengToolId) {
     onSuccess,
     onSettled: settled,
   });
+  const configureGroup = useMutation({
+    mutationFn: async ({
+      tool,
+      group,
+    }: MutationContext & { group: string | null }) =>
+      statusForTool(await imagegenApi.configureGroup(tool, group), tool),
+    onSuccess,
+    onSettled: settled,
+  });
   const exportSkill = useMutation({
     mutationFn: ({ tool, filePath }: MutationContext & { filePath: string }) =>
       imagegenApi.exportSkill(tool, filePath),
@@ -60,11 +77,18 @@ export function useImagegen(tool: YuanhengToolId) {
   });
   return {
     query,
+    groups,
     contextKey: JSON.stringify(key),
-    busy: install.isPending || toggle.isPending || exportSkill.isPending,
+    busy:
+      install.isPending ||
+      toggle.isPending ||
+      configureGroup.isPending ||
+      exportSkill.isPending,
     install: () => install.mutateAsync({ tool, key }),
     setEnabled: (enabled: boolean) =>
       toggle.mutateAsync({ tool, key, enabled }),
+    configureGroup: (group: string | null) =>
+      configureGroup.mutateAsync({ tool, key, group }),
     exportSkill: (filePath: string) =>
       exportSkill.mutateAsync({ tool, key, filePath }),
   };

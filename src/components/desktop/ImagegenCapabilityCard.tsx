@@ -14,6 +14,7 @@ import { toolLabel } from "@/config/desktopTools";
 import { useImagegen } from "@/hooks/useImagegen";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
+import { CompactSelectPicker } from "./CompactSelectPicker";
 import { dt } from "./desktopI18n";
 
 export function ImagegenCapabilityCard({
@@ -37,6 +38,24 @@ export function ImagegenCapabilityCard({
   const status = capability.query.data;
   const statusKnown = Boolean(status) && !capability.query.isError;
   const supported = statusKnown && Boolean(status?.supported);
+  const selectedModel =
+    status?.catalogChecked &&
+    status.selectedImageModel &&
+    status.imageModels.includes(status.selectedImageModel)
+      ? status.selectedImageModel
+      : null;
+  const ready = Boolean(status?.ready && selectedModel && !status.error);
+  const groupOptions = [
+    { value: "", label: dt("使用聊天连接") },
+    ...(capability.groups.isError ? [] : (capability.groups.data ?? [])).map(
+      (group) => ({
+        value: group.id,
+        label: group.description
+          ? `${group.id} · ${group.description}`
+          : group.id,
+      }),
+    ),
+  ];
   const busy = capability.busy || saving;
   const label = toolLabel(tool);
   const reportError = (error: unknown) =>
@@ -56,6 +75,22 @@ export function ImagegenCapabilityCard({
     } catch (error) {
       reportError(error);
     }
+  };
+  const configureGroup = async (group: string) => {
+    if ((status?.imageGroup ?? "") === group) return;
+    const context = capability.contextKey;
+    try {
+      await capability.configureGroup(group || null);
+      if (alive.current && currentContext.current === context)
+        toast.success(dt("图片分组已更新"));
+    } catch (error) {
+      if (alive.current && currentContext.current === context)
+        reportError(error);
+    }
+  };
+  const refresh = () => {
+    void capability.query.refetch();
+    if (supported) void capability.groups.refetch();
   };
   const exportOffice = async () => {
     const context = capability.contextKey;
@@ -100,7 +135,7 @@ export function ImagegenCapabilityCard({
             </span>
           </div>
           <p className="mt-2 text-xs leading-5 text-muted-foreground">
-            {dt("使用当前工具的元衡连接，按需生成或编辑图片，完成后继续对话。")}
+            {dt("聊天中需要图片时可调用此技能，生成或编辑后继续对话。")}
           </p>
           {capability.query.isPending && (
             <p role="status" className="mt-2 text-xs text-muted-foreground">
@@ -133,7 +168,7 @@ export function ImagegenCapabilityCard({
                     ? dt("元衡连接已配置")
                     : dt("元衡连接未配置")}
                 </span>
-                {status?.ready && !status.error && (
+                {ready && (
                   <span className="flex items-center gap-1 text-emerald-600">
                     <CheckCircle2 className="h-3.5 w-3.5" />
                     {dt("图像能力已就绪")}
@@ -141,12 +176,55 @@ export function ImagegenCapabilityCard({
                 )}
                 {status?.enabled &&
                   status.configured &&
+                  selectedModel &&
                   !status.ready &&
                   !status.error && (
                     <span className="text-muted-foreground">
                       {dt("等待本地连接就绪")}
                     </span>
                   )}
+              </div>
+              <div className="mt-3 space-y-2 rounded-md border bg-background/50 p-3">
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+                  <span className="text-xs font-medium">{dt("图片分组")}</span>
+                  <CompactSelectPicker
+                    label={dt("{{tool}} 图片分组", { tool: label })}
+                    value={status?.imageGroup ?? ""}
+                    options={groupOptions}
+                    disabled={busy || capability.groups.isLoading}
+                    triggerClassName="w-full sm:w-72 text-xs"
+                    onChange={(group) => void configureGroup(group)}
+                  />
+                </div>
+                <p className="text-xs leading-5 text-muted-foreground">
+                  {dt(
+                    "可为图片单独选择分组，聊天模型和分组保持不变；生成费用按所选分组结算。",
+                  )}
+                </p>
+                {capability.groups.isLoading && (
+                  <p role="status" className="text-xs text-muted-foreground">
+                    {dt("正在读取可选图片分组…")}
+                  </p>
+                )}
+                {capability.groups.isError && (
+                  <p role="alert" className="text-xs text-destructive">
+                    {dt("无法读取图片分组，请重新检查图像能力。")}
+                  </p>
+                )}
+                {status?.configured && !status.error && (
+                  <p
+                    role="status"
+                    className="break-words text-xs text-muted-foreground"
+                  >
+                    {selectedModel
+                      ? dt("当前自动选择：{{model}}", { model: selectedModel })
+                      : status.catalogChecked && status.imageModels.length === 0
+                        ? dt(
+                            "当前连接没有可用的 GPT 图像模型，请选择其他图片分组。",
+                          )
+                        : dt("图片模型目录尚未确认，请检查图像能力。")}
+                  </p>
+                )}
               </div>
               {status?.error && (
                 <p
@@ -218,7 +296,7 @@ export function ImagegenCapabilityCard({
               size="sm"
               variant="ghost"
               disabled={busy || capability.query.isFetching}
-              onClick={() => void capability.query.refetch()}
+              onClick={refresh}
             >
               <RefreshCw
                 className={`h-4 w-4${capability.query.isFetching ? " animate-spin" : ""}`}

@@ -41,7 +41,10 @@ A wait timeout is not a failed generation and must not start a new command.
 
 Each installed copy has a credential-free `yuanheng-binding.json` pointing to
 that tool's runtime file managed by YuanHeng. The helper uses this binding to
-reach the local Core and the current tool's platform credential and group.
+reach the local Core and the image connection configured for that tool in
+YuanHeng. Its image group can differ from the tool's chat group. Keep the
+YuanHeng client open so it can restore an independent image connection if Core
+restarts; a missing credential sync requires reopening YuanHeng.
 Missing, invalid, or disabled bindings/routes require reconfiguration in
 YuanHeng. Do not borrow another application's route or read Codex credentials
 for DSH, WorkBuddy, or another host.
@@ -61,8 +64,10 @@ computer's stable runtime file, so later Core port changes are picked up without
 reimporting. A ZIP copied to another computer needs configuration there.
 
 The helper reads the model directory through that same route and selects the
-newest numbered `gpt-image-*` version. Within one version, quality takes
-priority: available 2.5 Sunburst is preferred over 2.5 Flare. New numeric versions
+newest numbered `gpt-image-*` version, including namespaced IDs such as
+`openai/gpt-image-2.5-sunburst`; the full directory ID is preserved in requests.
+Within one version, quality takes priority: available 2.5 Sunburst is preferred
+over 2.5 Flare. New numeric versions
 are discovered automatically. A directory failure or empty eligible catalog
 stops generation; an unavailable model is never invented. Honor an explicit user
 model choice with `--image-model <id>`, which skips automatic selection.
@@ -87,11 +92,20 @@ older Codex integrations; do not bypass this skill's binding by invoking it.
 
 ## Failure handling
 
+When the image directory has no eligible model, relay that error and direct the
+user to choose a group with GPT Image access in YuanHeng's Image Generation
+capability. The current chat group may only provide text models. Do not assume
+the whole account lacks image access, guess model IDs, or try another group's
+credential. `--image-model` selects a model; it does not grant permission. A
+directory failure occurs before generation and must not trigger guessed image
+requests.
+
 Generation uses the Images API. For routes supporting compatibility fallback,
 only an explicit unsupported-endpoint response permits one Responses attempt;
 the selected image model is passed to the image tool separately from the outer
-chat model. Other tool routes use the direct Images API exclusively. Masks are
-never discarded to enable fallback.
+chat model. An independently configured image group uses its dedicated Images
+route and cannot fall back through the chat connection. Other tool routes use
+the direct Images API exclusively. Masks are never discarded to enable fallback.
 
 Network, rate-limit, quota/model/content, server, incomplete stream, or local
 save failures must not cause the agent to rerun generation automatically. A

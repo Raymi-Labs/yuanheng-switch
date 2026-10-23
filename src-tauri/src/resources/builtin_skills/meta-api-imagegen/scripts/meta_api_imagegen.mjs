@@ -93,9 +93,10 @@ async function explicitRuntimeConnection(args) {
   for (const [surface, url] of Object.entries(runtime.routes)) {
     if (!allowed.includes(surface) || typeof url !== "string")
       throw new Error("Runtime route does not belong to this tool");
-    const match = /^http:\/\/127\.0\.0\.1:([0-9]{1,5})\/([a-z-]+)\/v1$/.exec(
-      url,
-    );
+    const match =
+      /^http:\/\/127\.0\.0\.1:([0-9]{1,5})\/(?:imagegen\/)?([a-z-]+)\/v1$/.exec(
+        url,
+      );
     if (
       !match ||
       Number(match[1]) < 1 ||
@@ -126,12 +127,16 @@ async function explicitRuntimeConnection(args) {
     throw new Error(
       "Image routing is unavailable for the requested tool surface",
     );
+  const baseUrl = runtime.routes[surface];
   return {
-    baseUrl: runtime.routes[surface],
+    baseUrl,
     headers: {},
     catalogPath: "/images/models",
     source: "yuanheng-local",
-    directOnly: runtime.target !== "codex" || runtime.directOnly === true,
+    directOnly:
+      runtime.target !== "codex" ||
+      runtime.directOnly === true ||
+      baseUrl.includes("/imagegen/"),
   };
 }
 
@@ -483,7 +488,12 @@ async function readJson(response) {
 }
 
 function modelParts(id) {
-  const match = /^gpt-image-(\d+(?:\.\d+)*)(?:-([a-z0-9-]+))?$/i.exec(id);
+  if (!id || id.length > 256 || id.trim() !== id || /\p{Cc}/u.test(id))
+    return null;
+  // Match the capability registry's namespace handling while preserving the
+  // exact authorized ID for the image request.
+  const name = id.slice(id.lastIndexOf("/") + 1);
+  const match = /^gpt-image-(\d+(?:\.\d+)*)(?:-([a-z0-9-]+))?$/i.exec(name);
   if (!match) return null;
   const suffix = (match[2] || "").toLowerCase();
   const quality =
@@ -521,11 +531,15 @@ async function chooseImageModel(args, connection) {
       const difference = (b.version[index] || 0) - (a.version[index] || 0);
       if (difference) return difference;
     }
-    return b.quality - a.quality || a.id.localeCompare(b.id);
+    // Match the Core status selector's UTF-8 ordering, independent of locale.
+    return (
+      b.quality - a.quality ||
+      Buffer.compare(Buffer.from(a.id), Buffer.from(b.id))
+    );
   });
   if (!models.length)
     throw new Error(
-      "No versioned GPT Image model is available to this credential; refresh platform access or specify --image-model explicitly",
+      "No versioned GPT Image model is available in the configured image group. Choose a group with GPT Image access in YuanHeng's Image Generation capability; the current chat group may not include image models. No image request was sent. --image-model selects a model but does not grant access.",
     );
   return models[0].id;
 }

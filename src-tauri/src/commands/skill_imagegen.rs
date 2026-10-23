@@ -7,6 +7,23 @@ use std::path::Path;
 use tauri::State;
 
 #[tauri::command]
+pub async fn list_imagegen_groups(
+    tool: String,
+    app_state: State<'_, AppState>,
+) -> Result<Vec<crate::commands::yuanheng::YuanhengGroupOption>, String> {
+    crate::commands::yuanheng::list_imagegen_connection_groups(&app_state, &tool).await
+}
+
+#[tauri::command]
+pub async fn configure_imagegen_group(
+    tool: String,
+    group: Option<String>,
+    app_state: State<'_, AppState>,
+) -> Result<ImagegenToolStatus, String> {
+    crate::commands::yuanheng::configure_imagegen_connection(&app_state, &tool, group).await
+}
+
+#[tauri::command]
 pub async fn get_imagegen_tool_status(
     tool: String,
     app_state: State<'_, AppState>,

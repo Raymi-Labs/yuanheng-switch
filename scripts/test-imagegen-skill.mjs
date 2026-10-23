@@ -248,6 +248,99 @@ test("numeric version selection handles future minor and major versions", async 
     );
 });
 
+test("namespaced model IDs preserve the authorized ID and latest quality ordering", async (t) => {
+  for (const [models, expected] of [
+    [
+      ["gpt-image-2.5-flare", "openai/gpt-image-2.5-sunburst"],
+      "openai/gpt-image-2.5-sunburst",
+    ],
+    [
+      ["gpt-image-2.10-sunburst", "vendor/models/gpt-image-3-flare"],
+      "vendor/models/gpt-image-3-flare",
+    ],
+    [
+      ["gpt-image-2.9-sunburst", "Provider/GPT-IMAGE-2.10-SUNBURST"],
+      "Provider/GPT-IMAGE-2.10-SUNBURST",
+    ],
+    [
+      ["gpt-image-2.5-sunburst", "OpenAI/gpt-image-2.5-sunburst"],
+      "OpenAI/gpt-image-2.5-sunburst",
+    ],
+    [
+      ["open_ai/gpt-image-2.5", "open-ai/gpt-image-2.5"],
+      "open-ai/gpt-image-2.5",
+    ],
+    [["gpt-image-99/deepseek-chat", "gpt-image-1.5"], "gpt-image-1.5"],
+  ])
+    await t.test(expected, () =>
+      scenario({
+        projectedTarget: "dsh",
+        models,
+        check: (result) => {
+          successful(result);
+          assert.equal(result.calls[0].path, "/dsh/v1/images/models");
+          assert.equal(posts(result.calls).length, 1);
+          assert.equal(result.calls[1].path, "/dsh/v1/images/generations");
+          assert.equal(JSON.parse(result.calls[1].body).model, expected);
+        },
+      }),
+    );
+});
+
+test("editing preserves the full namespaced model ID in multipart", async () => {
+  const model = "openai/gpt-image-2.5-sunburst";
+  await scenario({
+    projectedTarget: "dsh",
+    models: [model],
+    setup: ({ directory }) => writeFile(resolve(directory, "source.png"), png),
+    args: ({ directory }) => ["--image", resolve(directory, "source.png")],
+    check: (result) => {
+      successful(result);
+      assert.equal(result.calls.length, 2);
+      assert.equal(result.calls[1].path, "/dsh/v1/images/edits");
+      assert(result.calls[1].body.includes(`name="model"\r\n\r\n${model}\r\n`));
+    },
+  });
+});
+
+test("unavailable or unversioned image IDs give group guidance without guessing a paid request", async (t) => {
+  for (const [label, models] of [
+    ["empty image group", []],
+    ["text-only chat group", ["gpt-6-astra"]],
+    ["unversioned aliases", ["openai/gpt-image-latest", "openai/dall-e-3"]],
+    [
+      "invalid version tails",
+      ["openai/gpt-image-2.5:high", "openai/gpt-image-2.5/extra"],
+    ],
+    [
+      "invalid namespace IDs",
+      [
+        " openai/gpt-image-2.5",
+        "unsafe\nprefix/gpt-image-2.5",
+        `${"a".repeat(256)}/gpt-image-2.5`,
+      ],
+    ],
+  ])
+    await t.test(label, () =>
+      scenario({
+        projectedTarget: "dsh",
+        models,
+        check: (result) => {
+          failed(result);
+          assert.equal(result.calls.length, 1);
+          assert.equal(posts(result.calls).length, 0);
+          assert.match(result.stderr, /configured image group/);
+          assert.match(result.stderr, /YuanHeng's Image Generation capability/);
+          assert.match(
+            result.stderr,
+            /chat group may not include image models/,
+          );
+          assert.match(result.stderr, /does not grant access/);
+        },
+      }),
+    );
+});
+
 test("explicit model bypasses catalog and preserves requested image settings", async () => {
   await scenario({
     args: [
@@ -852,6 +945,142 @@ test("non-Codex bound tools ignore inherited Codex surface environment", async (
       assert.equal(result.calls[0].path, "/codex/v1/images/models");
     },
   });
+});
+
+test("dedicated image group routes remain scoped to each tool surface", async (t) => {
+  for (const surface of [
+    "claude",
+    "codex",
+    "chatgpt-desktop",
+    "gemini",
+    "grokbuild",
+    "opencode",
+    "hermes",
+    "dsh",
+    "workbuddy",
+  ])
+    await t.test(surface, () =>
+      scenario({
+        projectedTarget: surface === "chatgpt-desktop" ? "codex" : surface,
+        setup: async ({ runtimePath, origin }) => {
+          const runtime = JSON.parse(await readFile(runtimePath));
+          runtime.defaultSurface = surface;
+          runtime.routes[surface] = `${origin}/imagegen/${surface}/v1`;
+          await writeFile(runtimePath, JSON.stringify(runtime));
+        },
+        check: (result) => {
+          successful(result);
+          assert.equal(result.calls.length, 2);
+          assert.equal(
+            result.calls[0].path,
+            `/imagegen/${surface}/v1/images/models`,
+          );
+          assert.equal(
+            result.calls[1].path,
+            `/imagegen/${surface}/v1/images/generations`,
+          );
+          assert(result.calls.every((call) => !call.headers.authorization));
+        },
+      }),
+    );
+});
+
+test("dedicated Codex image routes cannot use the chat fallback despite missing or false directOnly", async (t) => {
+  for (const directOnly of [undefined, false]) {
+    for (const responsesOnly of [false, true])
+      await t.test(`${directOnly}: responses-only=${responsesOnly}`, () =>
+        scenario({
+          projectedTarget: "codex",
+          setup: async ({ runtimePath, origin }) => {
+            const runtime = JSON.parse(await readFile(runtimePath));
+            runtime.routes["chatgpt-desktop"] =
+              `${origin}/imagegen/chatgpt-desktop/v1`;
+            runtime.directOnly = directOnly;
+            await writeFile(runtimePath, JSON.stringify(runtime));
+          },
+          args: responsesOnly ? ["--responses-only"] : [],
+          handler: (call, res) => {
+            if (call.method === "POST") {
+              json(res, 404, { error: { code: "unsupported_endpoint" } });
+              return true;
+            }
+          },
+          check: (result) => {
+            failed(result);
+            assert.equal(result.calls.length, responsesOnly ? 0 : 2);
+            assert.equal(posts(result.calls).length, responsesOnly ? 0 : 1);
+            assert(
+              result.calls.every((call) => !call.path.endsWith("/responses")),
+            );
+          },
+        }),
+      );
+  }
+});
+
+test("a separate desktop image group does not change the selected legacy Codex route", async () => {
+  await scenario({
+    projectedTarget: "codex",
+    env: { YUANHENG_IMAGEGEN_SURFACE: "codex" },
+    setup: async ({ runtimePath, origin }) => {
+      const runtime = JSON.parse(await readFile(runtimePath));
+      runtime.routes["chatgpt-desktop"] =
+        `${origin}/imagegen/chatgpt-desktop/v1`;
+      await writeFile(runtimePath, JSON.stringify(runtime));
+    },
+    handler: (call, res) => {
+      if (call.path === "/codex/v1/images/generations") {
+        json(res, 404, { error: { code: "unsupported_endpoint" } });
+        return true;
+      }
+      if (call.path === "/codex/v1/responses") {
+        res.writeHead(200, { "Content-Type": "text/event-stream" });
+        res.end(sse(finalEvent));
+        return true;
+      }
+    },
+    check: (result) => {
+      successful(result);
+      assert.deepEqual(
+        result.calls.map((call) => call.path),
+        [
+          "/codex/v1/images/models",
+          "/codex/v1/images/generations",
+          "/codex/v1/responses",
+        ],
+      );
+    },
+  });
+});
+
+test("dedicated image route validation rejects cross-tool and nonlocal paths", async (t) => {
+  for (const route of [
+    "/imagegen/codex/v1",
+    "/imagegen/unknown/v1",
+    "/imagegen/dsh/v1/extra",
+    "/imagegen/dsh/v1?target=codex",
+    "/imagegen/dsh/v1#codex",
+    "/imagegen/dsh/../codex/v1",
+    "http://localhost:1234/imagegen/dsh/v1",
+    "https://example.com/imagegen/dsh/v1",
+  ])
+    await t.test(route, () =>
+      scenario({
+        projectedTarget: "dsh",
+        setup: async ({ runtimePath, origin }) => {
+          const runtime = JSON.parse(await readFile(runtimePath));
+          runtime.routes.dsh = route.startsWith("/")
+            ? `${origin}${route}`
+            : route;
+          await writeFile(runtimePath, JSON.stringify(runtime));
+        },
+        check: (result) => {
+          failed(result);
+          assert.equal(result.calls.length, 0);
+          assert.match(result.stderr, /namespace/);
+        },
+      }),
+    );
 });
 
 test("OpenCode rejects discovered skills bound to other tools before any request", async (t) => {

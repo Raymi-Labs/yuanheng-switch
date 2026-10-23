@@ -6,6 +6,22 @@ import { DESKTOP_ZH_TW } from "./desktopI18n.zhTW";
 type Values = Record<string, string | number | null | undefined>;
 
 export const DESKTOP_EN: Record<string, string> = {
+  图片分组: "Image group",
+  "{{tool}} 图片分组": "{{tool}} image group",
+  使用聊天连接: "Use chat connection",
+  图片分组已更新: "Image group updated",
+  "聊天中需要图片时可调用此技能，生成或编辑后继续对话。":
+    "Use this skill when images are needed in a conversation, then continue chatting after generation or editing.",
+  "可为图片单独选择分组，聊天模型和分组保持不变；生成费用按所选分组结算。":
+    "Choose a separate group for images while keeping your chat model and group. Image generation is billed under the selected group.",
+  "正在读取可选图片分组…": "Loading image group options…",
+  "无法读取图片分组，请重新检查图像能力。":
+    "Could not load image groups. Check image capability again.",
+  "当前自动选择：{{model}}": "Current automatic selection: {{model}}",
+  "当前连接没有可用的 GPT 图像模型，请选择其他图片分组。":
+    "This connection has no available GPT image models. Choose another image group.",
+  "图片模型目录尚未确认，请检查图像能力。":
+    "The image model catalog has not been verified. Check image capability.",
   图像能力操作失败: "Image capability action failed",
   图像能力已安装或更新: "Image capability installed or updated",
   办公技能包已导出: "Office skill package exported",

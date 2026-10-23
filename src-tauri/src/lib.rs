@@ -20,6 +20,7 @@ mod gemini_config;
 mod gemini_mcp;
 mod grok_config;
 pub mod hermes_config;
+mod imagegen_core;
 mod init_status;
 mod lightweight;
 #[cfg(target_os = "linux")]
@@ -1217,7 +1218,10 @@ pub fn run() {
                         let managed_codex_routes = commands::managed_codex_routes_require_core(
                             db_for_core_maintenance.as_ref(),
                         );
-                        if takeover_active || managed_codex_routes {
+                        let managed_images =
+                            commands::imagegen_credential_refs(db_for_core_maintenance.as_ref())
+                                .is_ok_and(|refs| !refs.is_empty());
+                        if takeover_active || managed_codex_routes || managed_images {
                             if let Err(error) = proxy_for_maintenance.maintain_managed_core().await {
                                 log::warn!("YuanHeng Core 健康巡检恢复失败: {error}");
                             }
@@ -1540,6 +1544,8 @@ pub fn run() {
             commands::install_skills_from_zip,
             commands::install_builtin_imagegen_skill,
             commands::get_imagegen_tool_status,
+            commands::list_imagegen_groups,
+            commands::configure_imagegen_group,
             commands::install_imagegen_for_tool,
             commands::set_imagegen_tool_enabled,
             commands::export_imagegen_skill,
