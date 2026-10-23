@@ -405,6 +405,8 @@ async fn handle_terminal(
     let executable_parent = codex_executable.parent().map(PathBuf::from);
     let mut command = Command::new(&codex_executable);
     if let Some(profile_path) = model_profile.as_deref().filter(|path| path.is_file()) {
+        command.env("YUANHENG_IMAGEGEN_SURFACE", "codex");
+        command.env("CODEX_HOME", crate::codex_config::get_codex_config_dir());
         // App Server 禁用 --profile；只覆盖非敏感路由字段，凭据继续来自 live 配置。
         for config_override in codex_profile_overrides(profile_path)? {
             command.args(["-c", &config_override]);

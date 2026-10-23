@@ -1,7 +1,10 @@
 #[cfg(any(target_os = "macos", test))]
 pub(crate) mod credential_session;
 mod dsh;
+mod imagegen;
 mod model_catalog;
+
+pub(crate) use imagegen::sync as sync_yuanheng_imagegen;
 use std::collections::{BTreeSet, HashMap};
 use std::sync::OnceLock;
 use std::time::Duration;
@@ -2851,11 +2854,15 @@ async fn configure_codex_surface(
         };
     }
 
+    let mut warnings = Vec::new();
+    if let Err(error) = sync_yuanheng_imagegen(state, true).await {
+        warnings.push(format!("图像能力自动启用未完成，请在能力中心重试：{error}"));
+    }
     Ok(YuanhengToolConfigureResult {
         app: surface.namespace().to_string(),
         configured: true,
         model: Some(model.to_string()),
-        warnings: Vec::new(),
+        warnings,
         error: None,
     })
 }
@@ -4614,7 +4621,14 @@ pub async fn switch_codex_account_mode(
         return Err("本地安全路由尚未就绪".to_string());
     }
     let proxy_origin = format!("http://127.0.0.1:{}", proxy_status.port);
-    switch_codex_account_mode_at_origin(&state, mode, expectedMode.as_deref(), &proxy_origin)
+    let mut result =
+        switch_codex_account_mode_at_origin(&state, mode, expectedMode.as_deref(), &proxy_origin)?;
+    if let Err(error) = sync_yuanheng_imagegen(&state, mode == "yuanheng").await {
+        result.message = Some(format!(
+            "使用方式已切换；图像能力同步未完成，请在能力中心重试：{error}"
+        ));
+    }
+    Ok(result)
 }
 
 async fn diagnose_yuanheng_inner(state: &AppState) -> Result<YuanhengDiagnosticReport, String> {
@@ -7927,8 +7941,38 @@ mod tests {
             )
             .await
             .unwrap();
-            state.proxy_service.stop().await.unwrap();
             assert!(result.configured);
+            assert!(result.warnings.is_empty(), "{:?}", result.warnings);
+            let image_skill = state
+                .db
+                .get_installed_skill("builtin:meta-api-imagegen")
+                .unwrap()
+                .expect("first Codex configuration installs the image skill");
+            assert!(image_skill.apps.codex);
+            let image_runtime_path =
+                crate::codex_config::get_codex_config_dir().join("yuanheng-imagegen.json");
+            let image_runtime: Value = crate::config::read_json_file(&image_runtime_path).unwrap();
+            assert_eq!(image_runtime["enabled"], true);
+            assert_eq!(
+                image_runtime["baseUrl"],
+                format!(
+                    "http://127.0.0.1:{}/{}/v1",
+                    proxy.port,
+                    surface.route_prefix()
+                )
+            );
+            // A subsequent startup must respect the user's disabled choice.
+            crate::services::SkillService::toggle_app(
+                &state.db,
+                &image_skill.id,
+                &AppType::Codex,
+                false,
+            )
+            .unwrap();
+            sync_yuanheng_imagegen(&state, true).await.unwrap();
+            let disabled: Value = crate::config::read_json_file(&image_runtime_path).unwrap();
+            assert_eq!(disabled["enabled"], false);
+            state.proxy_service.stop().await.unwrap();
             let connection = YuanhengConnectionStatus {
                 models: vec!["gpt-5.6-sol".into()],
                 terminal_models: vec!["gpt-5.6-sol".into()],

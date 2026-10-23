@@ -187,27 +187,39 @@ pub async fn inspect_skill_security(
 
 /// 卸载 Skill（新版统一卸载）
 #[tauri::command]
-pub fn uninstall_skill_unified(
+pub async fn uninstall_skill_unified(
     id: String,
     app_state: State<'_, AppState>,
 ) -> Result<SkillUninstallResult, String> {
-    SkillService::uninstall(&app_state.db, &id).map_err(|e| e.to_string())
+    let result = SkillService::uninstall(&app_state.db, &id).map_err(|e| e.to_string())?;
+    if id == "builtin:meta-api-imagegen" {
+        super::yuanheng::sync_yuanheng_imagegen(&app_state, false)
+            .await
+            .map_err(|error| format!("技能已卸载，但图像连接同步未完成：{error}"))?;
+    }
+    Ok(result)
 }
 
 #[tauri::command]
-pub fn restore_skill_backup(
+pub async fn restore_skill_backup(
     backup_id: String,
     current_app: String,
     app_state: State<'_, AppState>,
 ) -> Result<InstalledSkill, String> {
     let app_type = parse_app_type(&current_app)?;
-    SkillService::restore_from_backup(&app_state.db, &backup_id, &app_type)
-        .map_err(|e| e.to_string())
+    let skill = SkillService::restore_from_backup(&app_state.db, &backup_id, &app_type)
+        .map_err(|e| e.to_string())?;
+    if skill.id == "builtin:meta-api-imagegen" {
+        super::yuanheng::sync_yuanheng_imagegen(&app_state, false)
+            .await
+            .map_err(|error| format!("技能已恢复，但图像连接同步未完成：{error}"))?;
+    }
+    Ok(skill)
 }
 
 /// 切换 Skill 的应用启用状态
 #[tauri::command]
-pub fn toggle_skill_app(
+pub async fn toggle_skill_app(
     id: String,
     app: String,
     enabled: bool,
@@ -215,6 +227,11 @@ pub fn toggle_skill_app(
 ) -> Result<bool, String> {
     let app_type = parse_app_type(&app)?;
     SkillService::toggle_app(&app_state.db, &id, &app_type, enabled).map_err(|e| e.to_string())?;
+    if id == "builtin:meta-api-imagegen" && app_type == AppType::Codex {
+        super::yuanheng::sync_yuanheng_imagegen(&app_state, false)
+            .await
+            .map_err(|error| format!("启用状态已保存，但图像连接同步未完成：{error}"))?;
+    }
     Ok(true)
 }
 
@@ -384,16 +401,16 @@ pub async fn install_skill_for_app(
 
 /// 卸载技能（兼容旧 API）
 #[tauri::command]
-pub fn uninstall_skill(
+pub async fn uninstall_skill(
     directory: String,
     app_state: State<'_, AppState>,
 ) -> Result<SkillUninstallResult, String> {
-    uninstall_skill_for_app("claude".to_string(), directory, app_state)
+    uninstall_skill_for_app("claude".to_string(), directory, app_state).await
 }
 
 /// 卸载指定应用的技能（兼容旧 API）
 #[tauri::command]
-pub fn uninstall_skill_for_app(
+pub async fn uninstall_skill_for_app(
     app: String,
     directory: String,
     app_state: State<'_, AppState>,
@@ -408,7 +425,7 @@ pub fn uninstall_skill_for_app(
         .find(|s| s.directory.eq_ignore_ascii_case(&directory))
         .ok_or_else(|| format!("未找到已安装的 Skill: {directory}"))?;
 
-    SkillService::uninstall(&app_state.db, &skill.id).map_err(|e| e.to_string())
+    uninstall_skill_unified(skill.id, app_state).await
 }
 
 // ========== 仓库管理命令 ==========
@@ -458,10 +475,17 @@ pub fn install_skills_from_zip(
 
 /// 安装或刷新客户端内置的 YuanHeng 图像生成 Skill。
 #[tauri::command]
-pub fn install_builtin_imagegen_skill(
+pub async fn install_builtin_imagegen_skill(
     current_app: String,
     app_state: State<'_, AppState>,
 ) -> Result<InstalledSkill, String> {
     let app_type = parse_app_type(&current_app)?;
-    SkillService::install_builtin_imagegen(&app_state.db, &app_type).map_err(|e| e.to_string())
+    let skill = SkillService::install_builtin_imagegen(&app_state.db, &app_type)
+        .map_err(|e| e.to_string())?;
+    if app_type == AppType::Codex {
+        super::yuanheng::sync_yuanheng_imagegen(&app_state, false)
+            .await
+            .map_err(|error| format!("技能已安装，但图像连接同步未完成：{error}"))?;
+    }
+    Ok(skill)
 }

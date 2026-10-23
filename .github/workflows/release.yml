@@ -42,6 +42,7 @@ jobs:
           pnpm check:release-version
           pnpm typecheck
           pnpm test:unit
+          node --test scripts/test-imagegen-skill.mjs
           python3 scripts/test_apple_release_tools.py
           python3 scripts/test_verify_macos_release.py
           python3 scripts/test_sync_desktop_r2.py

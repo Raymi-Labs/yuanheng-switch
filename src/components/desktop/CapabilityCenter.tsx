@@ -52,7 +52,7 @@ interface CapabilityCenterProps {
 export function CapabilityCenter({ activeApp, onOpen }: CapabilityCenterProps) {
   const { t } = useTranslation();
   const [blenderGuideOpen, setBlenderGuideOpen] = useState(true);
-  const { data: skills = [] } = useInstalledSkills();
+  const { data: skills = [] } = useInstalledSkills(true);
   const installImagegen = useInstallBuiltinImagegen();
   const { data: mcpServers = {} } = useAllMcpServers();
   const upsertMcp = useUpsertMcpServer();
@@ -233,7 +233,7 @@ export function CapabilityCenter({ activeApp, onOpen }: CapabilityCenterProps) {
                   {dt("YuanHeng 图像生成")}
                 </h2>
                 <span className="rounded bg-emerald-500/10 px-2 py-0.5 text-[9px] font-semibold text-emerald-700 dark:text-emerald-300">
-                  gpt-image-2
+                  {dt("自动选模 · 质量优先")}
                 </span>
                 <span className="rounded bg-muted px-2 py-0.5 text-[9px] font-medium text-muted-foreground">
                   Images API
@@ -241,7 +241,7 @@ export function CapabilityCenter({ activeApp, onOpen }: CapabilityCenterProps) {
               </div>
               <p className="mt-1 text-[11px] leading-5 text-muted-foreground">
                 {dt(
-                  "在 Codex 中直接生成或编辑图片，直连接口失败时自动兼容回退。",
+                  "配置元衡 Codex 后自动启用，按需在对话中生成或编辑图片。使用当前连接可用的最新 GPT Image 模型，生成后继续对话。",
                 )}
               </p>
             </div>

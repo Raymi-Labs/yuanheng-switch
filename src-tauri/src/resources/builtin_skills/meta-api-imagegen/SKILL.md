@@ -1,43 +1,45 @@
 ---
 name: meta-api-imagegen
-description: Generate or edit raster images with the YuanHeng Meta API. Use for posters, promotional images, product images, thumbnails, image generation, image editing, gpt-image-2, Image 2, or when the user provides one or more reference images.
+description: Generate or edit raster images through YuanHeng when the user requests an image, poster, thumbnail, illustration, or visual asset, or an image would help complete their ongoing task. Use reference images for requested edits. Viewing, describing, or analyzing an image alone does not require generation.
 ---
 
 # YuanHeng ImageGen
 
-Generate and edit images through YuanHeng's OpenAI-compatible API.
+Use the bundled helper for image generation and editing during the conversation.
+The user does not need to name this skill. Preserve the purpose of the current
+task: generate the needed image, show it in the conversation, then continue the
+remaining work. A request to inspect or explain an existing image does not itself
+request a new image.
 
-## Routing
+## Connection and model selection
 
-Use the bundled helper. Its default route is the direct Images API:
+The helper first reads `${CODEX_HOME:-$HOME/.codex}/yuanheng-imagegen.json`, a
+credential-free runtime descriptor managed by YuanHeng. Requests go through the
+local Core, which uses the configured tool's current platform credential and
+group. Codex desktop uses the descriptor's default route (desktop preferred);
+YuanHeng's terminal bridge sets `YUANHENG_IMAGEGEN_SURFACE=codex` to use its
+separate terminal route. A missing surface, disabled route, invalid descriptor,
+or stopped Core must be fixed in YuanHeng; do not switch accounts to bypass it.
 
-- Generation: `POST /v1/images/generations`
-- Editing: `POST /v1/images/edits`
-- Model: `gpt-image-2`
+Before generation, the helper reads the available model directory from that
+same route and selects the newest numbered `gpt-image-*` version. Within the
+same version, quality takes priority: for example, available 2.5 Sunburst is
+preferred over 2.5 Flare. Version numbers are compared numerically, so newer
+versions do not require a skill update. No unavailable model is invented. If the
+directory fails or has no recognized image model, stop and explain the problem.
+Respect an explicit user model choice with `--image-model <id>`; it takes priority
+and skips automatic selection. `--quality` controls the API quality parameter
+separately and defaults to `auto` for model compatibility.
 
-If the direct route is unavailable, the helper automatically falls back to:
+For an explicitly requested direct connection, `--base-url` or `--api-key`
+overrides the YuanHeng runtime. Without a runtime, direct mode also supports
+`NAN_API_KEY`/`OPENAI_API_KEY` in the environment, then API-key credentials in
+`${CODEX_HOME:-$HOME/.codex}/auth.json`. The default direct base is
+`https://meta-api.vip/v1`; direct automatic selection reads `/models`. OAuth login
+tokens and proxy placeholders are not API keys. Never print credentials or copy
+them into commands, logs, or final responses; prefer existing configured access.
 
-- `POST /v1/responses`
-- Outer model: `gpt-5.5`
-- Tool: `image_generation`
-- Streaming enabled
-
-When reporting results, state which route succeeded. Do not claim that the
-Responses fallback used `gpt-image-2`, because the provider controls the
-internal image model mapping.
-
-## Credentials
-
-The helper reads credentials in this order:
-
-1. `--api-key`, when explicitly supplied.
-2. `NAN_API_KEY` or `OPENAI_API_KEY` in `~/.codex/auth.json`.
-3. `NAN_API_KEY` or `OPENAI_API_KEY` in the process environment.
-
-The default base URL is `https://meta-api.vip`. Never print or repeat API
-keys in logs or final responses.
-
-## Generate
+## Generate or edit
 
 ```bash
 node "${CODEX_HOME:-$HOME/.codex}/skills/meta-api-imagegen/scripts/meta_api_imagegen.mjs" \
@@ -45,7 +47,7 @@ node "${CODEX_HOME:-$HOME/.codex}/skills/meta-api-imagegen/scripts/meta_api_imag
   --out "output/imagegen/poster.png"
 ```
 
-## Edit
+For edits, inspect the reference first and preserve the user's specified details:
 
 ```bash
 node "${CODEX_HOME:-$HOME/.codex}/skills/meta-api-imagegen/scripts/meta_api_imagegen.mjs" \
@@ -54,20 +56,45 @@ node "${CODEX_HOME:-$HOME/.codex}/skills/meta-api-imagegen/scripts/meta_api_imag
   --out "output/imagegen/product-edited.png"
 ```
 
-Repeat `--image` for multiple references. Use `--mask mask.png` for masked
-editing when the direct Images Edit API supports it.
+Repeat `--image` for multiple references. Use a PNG `--mask` for a masked edit;
+masked requests require the direct Images Edit API. Choose a new output filename
+unless the user requested replacing an existing output. The helper validates
+inputs and output access before sending an image request.
 
 Useful options:
 
-- `--size 1024x1024`
-- `--quality standard`
-- `--output-format png`
-- `--image-model gpt-image-2`
-- `--responses-model gpt-5.5`
-- `--direct-only` to forbid fallback
-- `--responses-only` to bypass the direct route
-- `--force` to overwrite an existing output
-- `--dry-run` to inspect the request without sending it
+- `--image-model <id>` to honor an explicit model choice; default is `auto`.
+- `--size 1024x1024`, `--quality auto`, `--output-format png` (also jpeg or webp).
+- `--responses-model <id>` to choose the outer Responses chat model.
+- `--responses-quality <value>` to override quality on the compatibility route.
+- `--direct-only` to forbid compatibility fallback.
+- `--responses-only` to use the compatibility route intentionally (no mask).
+- `--force` to replace an existing output after successful generation.
+- `--dry-run` to inspect the plan without network requests; automatic model
+  selection is explicitly unresolved until a real execution reads the directory.
 
-Always inspect the saved image before reporting success. Return the absolute
-output path to the user.
+## Routing and failure handling
+
+The helper uses `POST /images/generations` or multipart `POST /images/edits`.
+Only an explicit unsupported-endpoint response (404, 405, or 501, with no business
+error) permits one fallback to `POST /responses`. Its `image_generation` tool
+explicitly requests the selected image model; the outer chat model is separate.
+Report the requested image model and successful route without claiming knowledge
+of an upstream's undisclosed internal mapping.
+
+Network failures, rate limits, quota/model/content errors, other server errors,
+missing final image data, and local save failures do not trigger automatic
+replay. A failed request may already have been billed: explain the error and
+wait for the user's retry decision. Do not rerun with another model merely
+because one request failed. Masks are never silently dropped for fallback.
+Only a completed final image counts as success; partial or truncated streams do
+not.
+
+## Show the result and continue
+
+Inspect the saved image before reporting success. Embed it using its absolute
+filesystem path, for example `![Generated poster](/absolute/path/poster.png)`,
+with a brief description and any material limitation. Do not stop at a path or a
+statement that the image was generated. If the original request also includes
+writing, design, coding, or another deliverable, continue that work with the
+image after displaying it. Keep any user-requested output format and scope.

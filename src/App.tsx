@@ -339,6 +339,10 @@ function App() {
     });
   });
 
+  useTauriEvent<null | undefined>("yuanheng-imagegen-updated", async () => {
+    await queryClient.invalidateQueries({ queryKey: ["skills", "installed"] });
+  });
+
   useEffect(() => {
     const checkEnvironment = async () => {
       try {

@@ -15,22 +15,28 @@ use axum::{
     extract::{rejection::BytesRejection, DefaultBodyLimit, OriginalUri, State},
     http::{HeaderMap, HeaderValue, Uri},
     response::{IntoResponse, Response},
-    routing::post,
-    Router,
+    routing::{get, post},
+    Json, Router,
 };
 use futures::StreamExt;
-use std::time::Duration;
+use serde_json::{json, Value};
+use std::{collections::BTreeSet, time::Duration};
 
 const IMAGE_REQUEST_LIMIT: usize = 200 * 1024 * 1024;
 const IMAGE_RESPONSE_LIMIT: usize = 256 * 1024 * 1024;
 const IMAGE_TIMEOUT: Duration = Duration::from_secs(15 * 60);
+const MODEL_CATALOG_TIMEOUT: Duration = Duration::from_secs(15);
+const MODEL_CATALOG_LIMIT: usize = 2 * 1024 * 1024;
 
 pub(super) fn routes() -> Router<ProxyState> {
     let mut router = Router::new();
-    for prefix in ["", "/v1", "/v1/v1", "/codex/v1"] {
+    for prefix in ["", "/v1", "/v1/v1", "/codex/v1", "/chatgpt-desktop/v1"] {
         for operation in ["generations", "edits"] {
             router = router.route(&format!("{prefix}/images/{operation}"), post(handle_images));
         }
+    }
+    for prefix in ["/codex/v1", "/chatgpt-desktop/v1"] {
+        router = router.route(&format!("{prefix}/images/models"), get(handle_image_models));
     }
     router.layer(DefaultBodyLimit::max(IMAGE_REQUEST_LIMIT))
 }
@@ -50,7 +56,7 @@ async fn handle_images(
         status.last_request_at = Some(chrono::Utc::now().to_rfc3339());
     }
     let mut response = match body {
-        Ok(body) => match selected_provider(&state) {
+        Ok(body) => match selected_provider(&state, &uri) {
             Ok(provider) => match prepare_request(&provider, &uri, &headers) {
                 Ok((url, outgoing)) => match http_client::image_client() {
                     Ok(client) => {
@@ -119,17 +125,194 @@ async fn handle_images(
     Response::from_parts(parts, Body::from_stream(stream))
 }
 
-fn selected_provider(state: &ProxyState) -> Result<Provider, ProxyError> {
+fn provider_namespace(uri: &Uri) -> &'static str {
+    if uri.path().starts_with("/chatgpt-desktop/v1/") {
+        "chatgpt-desktop"
+    } else {
+        "codex"
+    }
+}
+
+fn selected_provider(state: &ProxyState, uri: &Uri) -> Result<Provider, ProxyError> {
     // Deliberately bypass the chat failover queue and circuit breaker. Even its
     // first entry could differ from the user's selected account/provider.
-    let id = crate::settings::get_effective_current_provider(&state.db, &AppType::Codex)
-        .map_err(|e| ProxyError::DatabaseError(e.to_string()))?
-        .ok_or(ProxyError::NoProvidersConfigured)?;
+    let namespace = provider_namespace(uri);
+    let id = if namespace == "codex" {
+        crate::settings::get_effective_current_provider(&state.db, &AppType::Codex)
+    } else {
+        // Desktop has its own account/group selection. Never fall back to the
+        // CLI namespace, including when both use the same managed provider ID.
+        state.db.get_current_provider(namespace)
+    }
+    .map_err(|e| ProxyError::DatabaseError(e.to_string()))?
+    .ok_or(ProxyError::NoProvidersConfigured)?;
     state
         .db
-        .get_provider_by_id(&id, "codex")
+        .get_provider_by_id(&id, namespace)
         .map_err(|e| ProxyError::DatabaseError(e.to_string()))?
         .ok_or(ProxyError::NoAvailableProvider)
+}
+
+async fn handle_image_models(
+    State(state): State<ProxyState>,
+    OriginalUri(uri): OriginalUri,
+) -> Response {
+    let _guard = ActiveConnectionGuard::acquire(state.status.clone()).await;
+    let request_id = uuid::Uuid::new_v4().to_string();
+    let mut response = match selected_provider(&state, &uri)
+        .and_then(|provider| prepare_model_catalog_request(&provider))
+    {
+        Ok((url, headers)) => match http_client::image_client() {
+            Ok(client) => {
+                fetch_image_models(
+                    &client,
+                    &url,
+                    headers,
+                    MODEL_CATALOG_TIMEOUT,
+                    MODEL_CATALOG_LIMIT,
+                )
+                .await
+            }
+            Err(_) => local_error(ProxyError::ConfigError("无法创建图片模型目录连接".into())),
+        },
+        Err(error) => local_error(error),
+    };
+    response.headers_mut().insert(
+        "x-yuanheng-request-id",
+        HeaderValue::from_str(&request_id).expect("UUID is a valid header"),
+    );
+    response
+        .headers_mut()
+        .insert("cache-control", HeaderValue::from_static("no-store"));
+    log::info!(
+        "[ImageModels] request_id={} namespace={} status={}",
+        request_id,
+        provider_namespace(&uri),
+        response.status().as_u16(),
+    );
+    response
+}
+
+fn prepare_model_catalog_request(provider: &Provider) -> Result<(String, HeaderMap), ProxyError> {
+    // This endpoint exposes only YuanHeng's real, token-scoped authorization
+    // catalog. Chat /models is a filtered compatibility catalog, not evidence
+    // that an image model is authorized. Never borrow an account's global key.
+    if provider.id != crate::commands::MANAGED_PROVIDER_ID
+        || provider.category.as_deref() != Some("managed")
+        || is_codex_official_provider(provider)
+        || provider.uses_managed_account_auth()
+    {
+        return Err(ProxyError::ConfigError(
+            "自动图片模型目录仅支持当前工具的元衡中转配置".into(),
+        ));
+    }
+    let adapter = CodexAdapter::new();
+    let base_url = adapter.extract_base_url(provider)?;
+    if !crate::yuanheng_endpoints::is_managed_endpoint(&base_url, &["", "/v1"], false) {
+        return Err(ProxyError::ConfigError(
+            "当前工具的元衡接口配置无效，请重新应用元衡中转配置".into(),
+        ));
+    }
+    let auth = adapter
+        .extract_auth(provider)
+        .filter(|auth| auth.strategy == AuthStrategy::Bearer && !auth.api_key.trim().is_empty())
+        .ok_or_else(|| ProxyError::AuthError("当前工具缺少元衡 API 凭据".into()))?;
+    let mut headers = HeaderMap::new();
+    // Construct from scratch: caller OAuth, cookies, organization and account
+    // headers must never be sent to the token-scoped platform catalog.
+    for (name, value) in adapter.get_auth_headers(&auth)? {
+        headers.insert(name, value);
+    }
+    headers.insert("accept", HeaderValue::from_static("application/json"));
+    headers.insert("accept-encoding", HeaderValue::from_static("identity"));
+    Ok((adapter.build_url(&base_url, "/models"), headers))
+}
+
+async fn fetch_image_models(
+    client: &reqwest::Client,
+    url: &str,
+    headers: HeaderMap,
+    timeout: Duration,
+    response_limit: usize,
+) -> Response {
+    let upstream = match client
+        .get(url)
+        .headers(headers)
+        .timeout(timeout)
+        .send()
+        .await
+    {
+        Ok(response) => response,
+        Err(error) => return catalog_transport_error(error),
+    };
+    if !upstream.status().is_success() {
+        // Preserve useful 4xx/5xx status but never proxy response bodies or
+        // headers: upstream failures may echo credentials or private metadata.
+        let status = if upstream.status().is_redirection() {
+            502
+        } else {
+            upstream.status().as_u16()
+        };
+        let mut response = local_error(ProxyError::UpstreamError { status, body: None });
+        mark_source(&mut response, "upstream");
+        return response;
+    }
+    let mut stream = upstream.bytes_stream();
+    let mut bytes = bytes::BytesMut::new();
+    while let Some(chunk) = stream.next().await {
+        match chunk {
+            Ok(chunk) if bytes.len().saturating_add(chunk.len()) <= response_limit => {
+                bytes.extend_from_slice(&chunk);
+            }
+            Ok(_) => return local_error(ProxyError::ResponseBodyTooLarge(response_limit)),
+            Err(error) => return catalog_transport_error(error),
+        }
+    }
+    match parse_image_models(&bytes) {
+        Ok(models) => {
+            let mut response = Json(models).into_response();
+            mark_source(&mut response, "upstream");
+            response
+        }
+        Err(error) => local_error(error),
+    }
+}
+
+fn catalog_transport_error(error: reqwest::Error) -> Response {
+    // Avoid even URL-free transport details: lower-level sources can include
+    // proxy configuration. Catalog lookup has no paid image side effects.
+    local_error(if error.is_timeout() {
+        ProxyError::Timeout("读取图片模型目录超时".into())
+    } else {
+        ProxyError::ForwardFailed("读取图片模型目录失败".into())
+    })
+}
+
+fn parse_image_models(bytes: &[u8]) -> Result<Value, ProxyError> {
+    let invalid = || ProxyError::ForwardFailed("上游图片模型目录格式无效".into());
+    let body: Value = serde_json::from_slice(bytes).map_err(|_| invalid())?;
+    let entries = body
+        .get("data")
+        .and_then(Value::as_array)
+        .ok_or_else(invalid)?;
+    let mut models = BTreeSet::new();
+    for entry in entries {
+        let id = entry
+            .get("id")
+            .and_then(Value::as_str)
+            .ok_or_else(invalid)?;
+        if id.is_empty() || id.len() > 256 || id.trim() != id || id.chars().any(char::is_control) {
+            return Err(invalid());
+        }
+        if crate::model_capabilities::is_image_generation_only_model(id) {
+            models.insert(id);
+        }
+    }
+    // No owner, permission, URLs, pricing or other upstream fields cross this
+    // boundary. An empty authorized image catalog is valid and stays empty.
+    Ok(
+        json!({"object": "list", "data": models.into_iter().map(|id| json!({"id": id})).collect::<Vec<_>>() }),
+    )
 }
 
 fn prepare_request(
@@ -314,12 +497,184 @@ fn mark_source(response: &mut Response, source: &'static str) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::database::Database;
+    use crate::proxy::{
+        failover_switch::FailoverSwitchManager,
+        provider_router::ProviderRouter,
+        providers::{codex_chat_history::CodexChatHistoryStore, gemini_shadow::GeminiShadowStore},
+        types::{ProxyConfig, ProxyStatus},
+    };
     use axum::{body::to_bytes, http::StatusCode, routing::any};
     use serde_json::json;
     use std::sync::{
         atomic::{AtomicUsize, Ordering},
         Arc,
     };
+    use tokio::sync::RwLock;
+
+    fn managed(key: &str) -> Provider {
+        let mut provider = Provider::with_id(
+            crate::commands::MANAGED_PROVIDER_ID.into(),
+            "YuanHeng".into(),
+            json!({"base_url": crate::yuanheng_endpoints::API_URL, "auth": {"OPENAI_API_KEY": key}}),
+            None,
+        );
+        provider.category = Some("managed".into());
+        provider
+    }
+
+    fn state(db: Arc<Database>) -> ProxyState {
+        ProxyState {
+            db: db.clone(),
+            config: Arc::new(RwLock::new(ProxyConfig::default())),
+            status: Arc::new(RwLock::new(ProxyStatus::default())),
+            start_time: Arc::new(RwLock::new(None)),
+            current_providers: Arc::new(RwLock::new(std::collections::HashMap::new())),
+            provider_router: Arc::new(ProviderRouter::new(db.clone())),
+            gemini_shadow: Arc::new(GeminiShadowStore::default()),
+            codex_chat_history: Arc::new(CodexChatHistoryStore::default()),
+            app_handle: None,
+            core_control: None,
+            auth_managers: None,
+            failover_manager: Arc::new(FailoverSwitchManager::new(db)),
+        }
+    }
+
+    #[test]
+    #[serial_test::serial]
+    fn image_namespaces_use_their_own_current_account_and_never_fall_back() {
+        struct RestoreHome(Option<std::ffi::OsString>);
+        impl Drop for RestoreHome {
+            fn drop(&mut self) {
+                match self.0.take() {
+                    Some(value) => std::env::set_var("YUANHENG_SWITCH_TEST_HOME", value),
+                    None => std::env::remove_var("YUANHENG_SWITCH_TEST_HOME"),
+                }
+                let _ = crate::settings::reload_settings();
+            }
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let _restore = RestoreHome(std::env::var_os("YUANHENG_SWITCH_TEST_HOME"));
+        std::env::set_var("YUANHENG_SWITCH_TEST_HOME", dir.path());
+        crate::settings::reload_settings().unwrap();
+        let db = Arc::new(Database::memory().unwrap());
+        for (namespace, key) in [("codex", "cli-key"), ("chatgpt-desktop", "desktop-key")] {
+            let provider = managed(key);
+            db.save_provider(namespace, &provider).unwrap();
+            db.set_current_provider(namespace, &provider.id).unwrap();
+        }
+        let state = state(db.clone());
+        for (prefix, expected) in [
+            ("", "Bearer cli-key"),
+            ("/v1", "Bearer cli-key"),
+            ("/v1/v1", "Bearer cli-key"),
+            ("/codex/v1", "Bearer cli-key"),
+            ("/chatgpt-desktop/v1", "Bearer desktop-key"),
+        ] {
+            for operation in ["generations", "edits", "models"] {
+                let uri = format!("{prefix}/images/{operation}").parse().unwrap();
+                let provider = selected_provider(&state, &uri).unwrap();
+                let (_, headers) = if operation == "models" {
+                    prepare_model_catalog_request(&provider).unwrap()
+                } else {
+                    prepare_request(&provider, &uri, &oauth_headers()).unwrap()
+                };
+                assert_eq!(headers["authorization"], expected, "{uri}");
+                assert!(!headers.contains_key("chatgpt-account-id"));
+            }
+        }
+        db.delete_provider("chatgpt-desktop", &managed("unused").id)
+            .unwrap();
+        let uri = "/chatgpt-desktop/v1/images/models".parse().unwrap();
+        assert!(matches!(
+            selected_provider(&state, &uri),
+            Err(ProxyError::NoProvidersConfigured)
+        ));
+        assert!(selected_provider(&state, &"/codex/v1/images/models".parse().unwrap()).is_ok());
+    }
+
+    #[test]
+    fn catalog_requires_genuine_current_yuanheng_provider_and_own_bearer() {
+        let valid = managed("test-platform-key");
+        let (url, headers) = prepare_model_catalog_request(&valid).unwrap();
+        assert_eq!(url, "https://meta-api.vip/v1/models");
+        assert_eq!(headers["authorization"], "Bearer test-platform-key");
+        assert_eq!(headers.len(), 3);
+        assert_eq!(headers["accept-encoding"], "identity");
+        let mut wrong_id = valid.clone();
+        wrong_id.id = "external-provider".into();
+        let mut wrong_category = valid.clone();
+        wrong_category.category = Some("custom".into());
+        let mut managed_oauth = valid.clone();
+        managed_oauth.meta = Some(crate::provider::ProviderMeta {
+            provider_type: Some("codex_oauth".into()),
+            ..Default::default()
+        });
+        for provider in [official(), wrong_id, wrong_category, managed_oauth] {
+            assert!(matches!(
+                prepare_model_catalog_request(&provider),
+                Err(ProxyError::ConfigError(_))
+            ));
+        }
+        for endpoint in [
+            "https://cn.meta-api.vip/v1",
+            "https://outside.example/v1",
+            "https://meta-api.vip.evil.example/v1",
+            "http://meta-api.vip/v1",
+            "https://meta-api.vip/v1?key=secret",
+        ] {
+            let mut provider = valid.clone();
+            provider.settings_config["base_url"] = json!(endpoint);
+            assert!(matches!(
+                prepare_model_catalog_request(&provider),
+                Err(ProxyError::ConfigError(_))
+            ));
+        }
+        let mut no_key = valid;
+        no_key.settings_config["auth"] = json!({});
+        assert!(matches!(
+            prepare_model_catalog_request(&no_key),
+            Err(ProxyError::AuthError(_))
+        ));
+    }
+
+    #[test]
+    fn image_catalog_validates_shape_filters_images_and_drops_upstream_fields() {
+        let raw = json!({"private":"secret", "data":[
+            {"id":"gpt-6-astra", "owner":"account-a"},
+            {"id":"gpt-image-2.5-sunburst", "permission":{"key":"secret"}},
+            {"id":"gpt-image-2.5-flare", "url":"https://private.example"},
+            {"id":"gpt-image-2.5-sunburst"},
+            {"id":"gpt-image-3"}
+        ]});
+        assert_eq!(
+            parse_image_models(&serde_json::to_vec(&raw).unwrap()).unwrap(),
+            json!({"object":"list", "data":[
+                {"id":"gpt-image-2.5-flare"},
+                {"id":"gpt-image-2.5-sunburst"},
+                {"id":"gpt-image-3"}
+            ]})
+        );
+        for raw in [r#"{"data":[]}"#, r#"{"data":[{"id":"text-model"}]}"#] {
+            assert_eq!(
+                parse_image_models(raw.as_bytes()).unwrap(),
+                json!({"object":"list","data":[]})
+            );
+        }
+        for raw in [
+            "not json",
+            r#"{"error":"secret"}"#,
+            r#"{"data":{}}"#,
+            r#"{"data":["gpt-image-2.5"]}"#,
+            r#"{"data":[{"id":5}]}"#,
+            r#"{"data":[{"id":" gpt-image-2.5"}]}"#,
+            r#"{"data":[{"id":"gpt-image-2.5\nsecret"}]}"#,
+        ] {
+            let error = parse_image_models(raw.as_bytes()).unwrap_err();
+            assert!(!error.to_string().contains("secret"));
+            assert!(matches!(error, ProxyError::ForwardFailed(_)));
+        }
+    }
 
     fn official() -> Provider {
         let mut provider = Provider::with_id(
@@ -426,6 +781,135 @@ mod tests {
         http_client::image_no_replay_policy(reqwest::Client::builder().no_proxy())
             .build()
             .unwrap()
+    }
+
+    #[tokio::test]
+    async fn catalog_get_uses_only_provider_credentials_and_returns_only_model_ids() {
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+        let (url, task) = serve(Router::new().route(
+            "/v1/models",
+            get(move |headers: HeaderMap| {
+                let tx = tx.clone();
+                async move {
+                    tx.send(headers).unwrap();
+                    (
+                        [("x-private", "secret"), ("set-cookie", "secret-cookie")],
+                        Json(json!({"data":[{"id":"gpt-image-2.5-sunburst", "owner":"secret-owner"}, {"id":"gpt-6-astra"}]})),
+                    )
+                }
+            }),
+        ))
+        .await;
+        let (_, headers) = prepare_model_catalog_request(&managed("own-test-key")).unwrap();
+        let response = fetch_image_models(
+            &client(),
+            &format!("{url}/v1/models"),
+            headers,
+            Duration::from_secs(2),
+            1024,
+        )
+        .await;
+        let received = rx.recv().await.unwrap();
+        assert_eq!(received["authorization"], "Bearer own-test-key");
+        for name in [
+            "chatgpt-account-id",
+            "openai-organization",
+            "openai-project",
+            "cookie",
+        ] {
+            assert!(!received.contains_key(name));
+        }
+        assert_eq!(response.status(), StatusCode::OK);
+        assert!(!response.headers().contains_key("x-private"));
+        assert!(!response.headers().contains_key("set-cookie"));
+        assert_eq!(
+            serde_json::from_slice::<Value>(&to_bytes(response.into_body(), 1024).await.unwrap())
+                .unwrap(),
+            json!({"object":"list", "data":[{"id":"gpt-image-2.5-sunburst"}]})
+        );
+        task.abort();
+    }
+
+    #[tokio::test]
+    async fn catalog_errors_and_redirects_are_redacted_and_never_replayed() {
+        for status in [
+            StatusCode::UNAUTHORIZED,
+            StatusCode::FORBIDDEN,
+            StatusCode::TOO_MANY_REQUESTS,
+            StatusCode::SERVICE_UNAVAILABLE,
+            StatusCode::TEMPORARY_REDIRECT,
+        ] {
+            let count = Arc::new(AtomicUsize::new(0));
+            let seen = count.clone();
+            let (url, task) = serve(Router::new().fallback(any(move || {
+                let seen = seen.clone();
+                async move {
+                    seen.fetch_add(1, Ordering::SeqCst);
+                    (
+                        status,
+                        [("location", "/redirect"), ("x-private", "secret")],
+                        "test-oauth test-platform-key secret-account",
+                    )
+                }
+            })))
+            .await;
+            let response = fetch_image_models(
+                &client(),
+                &url,
+                HeaderMap::new(),
+                Duration::from_secs(2),
+                1024,
+            )
+            .await;
+            assert_eq!(
+                response.status(),
+                if status.is_redirection() {
+                    StatusCode::BAD_GATEWAY
+                } else {
+                    status
+                }
+            );
+            assert!(!response.headers().contains_key("location"));
+            assert!(!response.headers().contains_key("x-private"));
+            let body = to_bytes(response.into_body(), 1024).await.unwrap();
+            let text = String::from_utf8_lossy(&body);
+            for secret in ["test-oauth", "test-platform-key", "secret-account"] {
+                assert!(!text.contains(secret));
+            }
+            assert_eq!(count.load(Ordering::SeqCst), 1);
+            task.abort();
+        }
+    }
+
+    #[tokio::test]
+    async fn catalog_response_size_timeout_and_invalid_json_fail_without_retry() {
+        let count = Arc::new(AtomicUsize::new(0));
+        let seen = count.clone();
+        let (url, task) = serve(Router::new().fallback(any(move || {
+            let seen = seen.clone();
+            async move {
+                seen.fetch_add(1, Ordering::SeqCst);
+                Body::from_stream(async_stream::stream! {
+                    yield Ok::<_, std::io::Error>(Bytes::from_static(b"private-error-contents"));
+                    tokio::time::sleep(Duration::from_millis(100)).await;
+                    yield Ok(Bytes::from_static(b"invalid-json"));
+                })
+            }
+        })))
+        .await;
+        for (timeout, limit, expected) in [
+            (Duration::from_secs(2), 4, StatusCode::BAD_GATEWAY),
+            (Duration::from_millis(30), 1024, StatusCode::GATEWAY_TIMEOUT),
+            (Duration::from_secs(2), 1024, StatusCode::BAD_GATEWAY),
+        ] {
+            let response =
+                fetch_image_models(&client(), &url, HeaderMap::new(), timeout, limit).await;
+            assert_eq!(response.status(), expected);
+            let body = to_bytes(response.into_body(), 1024).await.unwrap();
+            assert!(!String::from_utf8_lossy(&body).contains("private-error-contents"));
+        }
+        assert_eq!(count.load(Ordering::SeqCst), 3);
+        task.abort();
     }
 
     #[tokio::test]

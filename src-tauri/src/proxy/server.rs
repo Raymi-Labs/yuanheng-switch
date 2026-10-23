@@ -579,5 +579,24 @@ mod image_route_tests {
                 assert_eq!(response.headers()["allow"], "POST");
             }
         }
+        for (path, method) in [
+            ("/chatgpt-desktop/v1/images/generations", "POST"),
+            ("/chatgpt-desktop/v1/images/edits", "POST"),
+            ("/codex/v1/images/models", "GET,HEAD"),
+            ("/chatgpt-desktop/v1/images/models", "GET,HEAD"),
+        ] {
+            let response = tower::Service::call(
+                &mut server.build_router(),
+                Request::builder()
+                    .method("OPTIONS")
+                    .uri(path)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+            assert_eq!(response.status(), StatusCode::METHOD_NOT_ALLOWED, "{path}");
+            assert_eq!(response.headers()["allow"], method, "{path}");
+        }
     }
 }

@@ -1197,6 +1197,11 @@ pub fn run() {
                 // 确保独立 Core 存活，并校验各应用的 Live 接管配置。
                 restore_proxy_state_on_startup(&state).await;
 
+                if let Err(error) = commands::sync_yuanheng_imagegen(&state, true).await {
+                    log::warn!("元衡图像能力自动同步未完成，可在能力中心重试: {error}");
+                }
+                let _ = app_handle.emit("yuanheng-imagegen-updated", ());
+
                 // GUI 存活期间补充健康巡检：Core 崩溃或延后升级后自动恢复。
                 let proxy_for_maintenance = state.proxy_service.clone();
                 let db_for_core_maintenance = state.db.clone();

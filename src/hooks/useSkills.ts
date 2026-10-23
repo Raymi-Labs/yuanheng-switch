@@ -21,11 +21,12 @@ import { mergeImportedSkills } from "@/hooks/useSkills.helpers";
  * 使用 staleTime: Infinity 和 placeholderData: keepPreviousData
  * 实现首次进入使用缓存，只有刷新时才重新获取
  */
-export function useInstalledSkills() {
+export function useInstalledSkills(refreshOnMount = false) {
   return useQuery({
     queryKey: ["skills", "installed"],
     queryFn: () => skillsApi.getInstalled(),
     staleTime: Infinity,
+    refetchOnMount: refreshOnMount ? "always" : true,
     placeholderData: keepPreviousData,
   });
 }
@@ -159,6 +160,13 @@ export function useUninstallSkill() {
       skillsApi
         .uninstallUnified(id)
         .then((result) => ({ ...result, skillKey })),
+    onSettled: (_result, _error, { id }) => {
+      if (id === "builtin:meta-api-imagegen") {
+        return queryClient.invalidateQueries({
+          queryKey: ["skills", "installed"],
+        });
+      }
+    },
     onSuccess: ({ skillKey }, _vars) => {
       // 直接更新 installed 缓存，移除该 skill
       queryClient.setQueryData<InstalledSkill[]>(
@@ -196,7 +204,7 @@ export function useRestoreSkillBackup() {
       backupId: string;
       currentApp: AppId;
     }) => skillsApi.restoreBackup(backupId, currentApp),
-    onSuccess: () => {
+    onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ["skills", "installed"] });
       queryClient.invalidateQueries({ queryKey: ["skills", "backups"] });
     },
@@ -218,7 +226,7 @@ export function useToggleSkillApp() {
       app: AppId;
       enabled: boolean;
     }) => skillsApi.toggleApp(id, app, enabled),
-    onSuccess: () => {
+    onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ["skills", "installed"] });
     },
   });
@@ -335,6 +343,8 @@ export function useInstallBuiltinImagegen() {
   return useMutation({
     mutationFn: (currentApp: AppId) =>
       skillsApi.installBuiltinImagegen(currentApp),
+    onSettled: () =>
+      queryClient.invalidateQueries({ queryKey: ["skills", "installed"] }),
     onSuccess: (installedSkill) => {
       queryClient.setQueryData<InstalledSkill[]>(
         ["skills", "installed"],

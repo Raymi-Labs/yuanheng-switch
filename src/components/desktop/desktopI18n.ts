@@ -364,8 +364,9 @@ export const DESKTOP_EN: Record<string, string> = {
   自治代理编排能力仍在建设中:
     "Autonomous agent orchestration is under development",
   "YuanHeng 图像生成": "YuanHeng Image Generation",
-  "在 Codex 中直接生成或编辑图片，直连接口失败时自动兼容回退。":
-    "Generate or edit images directly in Codex, with an automatic compatibility fallback when needed.",
+  "自动选模 · 质量优先": "Auto model · Quality first",
+  "配置元衡 Codex 后自动启用，按需在对话中生成或编辑图片。使用当前连接可用的最新 GPT Image 模型，生成后继续对话。":
+    "Enabled automatically after configuring YuanHeng Codex. Generate or edit images during a conversation with the latest GPT Image model available to your connection, then continue chatting.",
   图像生成能力已更新: "Image generation capability updated",
   "图像生成能力已启用到 Codex": "Image generation capability enabled for Codex",
   图像生成能力安装失败: "Failed to install image generation capability",

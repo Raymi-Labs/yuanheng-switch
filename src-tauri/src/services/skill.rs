@@ -20,6 +20,8 @@ use crate::config::get_app_config_dir;
 use crate::database::Database;
 use crate::error::format_skill_error;
 
+mod builtin_imagegen;
+
 const BUILTIN_IMAGEGEN_ID: &str = "builtin:meta-api-imagegen";
 const BUILTIN_IMAGEGEN_DIRECTORY: &str = "meta-api-imagegen";
 const BUILTIN_IMAGEGEN_SKILL_MD: &str =
@@ -878,99 +880,6 @@ impl SkillService {
         Ok(skills.into_values().collect())
     }
 
-    /// 安装或刷新客户端内置的图像生成 Skill，并启用到指定终端。
-    pub fn install_builtin_imagegen(
-        db: &Arc<Database>,
-        current_app: &AppType,
-    ) -> Result<InstalledSkill> {
-        if matches!(current_app, AppType::ClaudeDesktop | AppType::OpenClaw) {
-            return Err(anyhow!("This application does not support Skills"));
-        }
-
-        let ssot_dir = Self::get_ssot_dir()?;
-        let destination = ssot_dir.join(BUILTIN_IMAGEGEN_DIRECTORY);
-        let staging = ssot_dir.join(format!(
-            ".{BUILTIN_IMAGEGEN_DIRECTORY}.staging-{}",
-            uuid::Uuid::new_v4()
-        ));
-        let previous = ssot_dir.join(format!(
-            ".{BUILTIN_IMAGEGEN_DIRECTORY}.previous-{}",
-            uuid::Uuid::new_v4()
-        ));
-
-        fs::create_dir_all(staging.join("agents"))?;
-        fs::create_dir_all(staging.join("scripts"))?;
-        fs::write(staging.join("SKILL.md"), BUILTIN_IMAGEGEN_SKILL_MD)?;
-        fs::write(
-            staging.join("agents").join("openai.yaml"),
-            BUILTIN_IMAGEGEN_OPENAI_YAML,
-        )?;
-        fs::write(
-            staging.join("scripts").join("meta_api_imagegen.mjs"),
-            BUILTIN_IMAGEGEN_SCRIPT,
-        )?;
-
-        let had_previous = destination.exists();
-        if had_previous {
-            fs::rename(&destination, &previous)?;
-        }
-        if let Err(error) = fs::rename(&staging, &destination) {
-            if had_previous {
-                let _ = fs::rename(&previous, &destination);
-            }
-            return Err(error.into());
-        }
-
-        let existing = db.get_all_installed_skills()?.into_values().find(|skill| {
-            skill
-                .directory
-                .eq_ignore_ascii_case(BUILTIN_IMAGEGEN_DIRECTORY)
-        });
-        let now = Utc::now().timestamp();
-        let mut apps = existing
-            .as_ref()
-            .map(|skill| skill.apps.clone())
-            .unwrap_or_default();
-        apps.set_enabled_for(current_app, true);
-        let skill = InstalledSkill {
-            id: existing
-                .as_ref()
-                .map(|skill| skill.id.clone())
-                .unwrap_or_else(|| BUILTIN_IMAGEGEN_ID.to_string()),
-            name: "YuanHeng ImageGen".to_string(),
-            description: Some(
-                "Generate and edit images with gpt-image-2 through the direct Images API."
-                    .to_string(),
-            ),
-            directory: BUILTIN_IMAGEGEN_DIRECTORY.to_string(),
-            repo_owner: None,
-            repo_name: None,
-            repo_branch: None,
-            readme_url: None,
-            apps,
-            installed_at: existing
-                .as_ref()
-                .map(|skill| skill.installed_at)
-                .unwrap_or(now),
-            content_hash: Self::compute_dir_hash(&destination).ok(),
-            updated_at: now,
-        };
-
-        if let Err(error) = db.save_skill(&skill) {
-            let _ = fs::remove_dir_all(&destination);
-            if had_previous {
-                let _ = fs::rename(&previous, &destination);
-            }
-            return Err(error.into());
-        }
-
-        if previous.exists() {
-            let _ = fs::remove_dir_all(&previous);
-        }
-        Self::sync_to_app_dir(BUILTIN_IMAGEGEN_DIRECTORY, current_app)?;
-        Ok(skill)
-    }
-
     /// 安装 Skill
     ///
     /// 流程：
@@ -1263,17 +1172,30 @@ impl SkillService {
     /// 2. 从 SSOT 删除
     /// 3. 从数据库删除
     pub fn uninstall(db: &Arc<Database>, id: &str) -> Result<SkillUninstallResult> {
+        let _imagegen_guard = builtin_imagegen::lock()?;
         // 获取 skill 信息
         let skill = db
             .get_installed_skill(id)?
             .ok_or_else(|| anyhow!("Skill not found: {id}"))?;
 
+        if skill.id == BUILTIN_IMAGEGEN_ID {
+            builtin_imagegen::remember_initialized(db)?;
+        }
+
         let backup_path =
             Self::create_uninstall_backup(&skill)?.map(|path| path.to_string_lossy().to_string());
 
-        // 从所有应用目录删除
-        for app in AppType::all() {
-            let _ = Self::remove_from_app(&skill.directory, &app);
+        // 内置技能只删除记录中曾启用的投影，保留其他工具的同名外部目录。
+        let uninstall_apps = if skill.id == BUILTIN_IMAGEGEN_ID {
+            skill.apps.enabled_apps()
+        } else {
+            AppType::all().collect()
+        };
+        for app in uninstall_apps {
+            let result = Self::remove_from_app(&skill.directory, &app);
+            if skill.id == BUILTIN_IMAGEGEN_ID {
+                result?;
+            }
         }
 
         // 从 SSOT 删除
@@ -1787,6 +1709,7 @@ impl SkillService {
         backup_id: &str,
         current_app: &AppType,
     ) -> Result<InstalledSkill> {
+        let _imagegen_guard = builtin_imagegen::lock()?;
         let backup_path = Self::backup_path_for_id(backup_id)?;
         let metadata = Self::read_backup_metadata(&backup_path)?;
         let backup_skill_dir = backup_path.join("skill");
@@ -1857,10 +1780,18 @@ impl SkillService {
     /// 启用：复制到应用目录
     /// 禁用：从应用目录删除
     pub fn toggle_app(db: &Arc<Database>, id: &str, app: &AppType, enabled: bool) -> Result<()> {
+        let _imagegen_guard = builtin_imagegen::lock()?;
         // 获取当前 skill
         let mut skill = db
             .get_installed_skill(id)?
             .ok_or_else(|| anyhow!("Skill not found: {id}"))?;
+
+        if skill.id == BUILTIN_IMAGEGEN_ID {
+            builtin_imagegen::remember_initialized(db)?;
+            if enabled {
+                builtin_imagegen::validate_current_projection(&skill, app)?;
+            }
+        }
 
         // 更新状态
         skill.apps.set_enabled_for(app, enabled);
@@ -2275,6 +2206,7 @@ impl SkillService {
 
     /// 同步所有已启用的 Skills 到指定应用
     pub fn sync_to_app(db: &Arc<Database>, app: &AppType) -> Result<()> {
+        let _imagegen_guard = builtin_imagegen::lock()?;
         if matches!(app, AppType::ClaudeDesktop) {
             return Ok(());
         }
@@ -2313,6 +2245,9 @@ impl SkillService {
 
         for skill in skills.values() {
             if skill.apps.is_enabled_for(app) {
+                if skill.id == BUILTIN_IMAGEGEN_ID {
+                    builtin_imagegen::validate_current_projection(skill, app)?;
+                }
                 Self::sync_to_app_dir(&skill.directory, app)?;
             }
         }
@@ -3812,9 +3747,9 @@ mod tests {
 
     #[test]
     fn builtin_imagegen_prefers_the_direct_images_api() {
-        assert!(BUILTIN_IMAGEGEN_SKILL_MD.contains("POST /v1/images/generations"));
-        assert!(BUILTIN_IMAGEGEN_SKILL_MD.contains("POST /v1/images/edits"));
-        assert!(BUILTIN_IMAGEGEN_SKILL_MD.contains("Model: `gpt-image-2`"));
+        assert!(BUILTIN_IMAGEGEN_SKILL_MD.contains("POST /images/generations"));
+        assert!(BUILTIN_IMAGEGEN_SKILL_MD.contains("POST /images/edits"));
+        assert!(!BUILTIN_IMAGEGEN_SCRIPT.contains("imageModel: \"gpt-image-2\""));
 
         let direct_call = BUILTIN_IMAGEGEN_SCRIPT
             .find("await directImages")
@@ -3826,8 +3761,8 @@ mod tests {
             direct_call < fallback_call,
             "direct Images API must run before the compatibility fallback"
         );
-        assert!(BUILTIN_IMAGEGEN_SCRIPT.contains("/v1/images/${"));
-        assert!(BUILTIN_IMAGEGEN_SCRIPT.contains("/v1/responses"));
+        assert!(BUILTIN_IMAGEGEN_SCRIPT.contains("/images/${"));
+        assert!(BUILTIN_IMAGEGEN_SCRIPT.contains("/responses"));
     }
 
     fn security_test_skill() -> DiscoverableSkill {

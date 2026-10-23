@@ -164,3 +164,11 @@ Claude diagnostic persistence uses a bounded background writer, not disk I/O on 
 同地址、同账号刷新失败时沿用仍在目录内的旧关联，成功空目录或移除关联生效；旧缓存无需迁移即可读取。云端厂商不是权限来源，工具模型和分组交集及后端预检继续约束可选项。旧厂商收藏仅在当前目录完整映射时转换，模型/分组收藏保持。
 
 回归：`yuanheng/model_catalog.rs`、`modelVendors.test.ts`、`ToolModelPicker.test.tsx`、`ModelPicker.groups.test.tsx`、`App.test.tsx`。见[同步决定及验证边界](../.agents/notes/implemented/bug-fix/2026-10-21-cloud-model-vendors.md)。
+
+## Codex 自动图像技能（2026-10-23）
+
+成功配置元衡 Codex、切换到元衡模式和已有元衡路由的客户端启动，复用 [SkillService](../src-tauri/src/services/skill/builtin_imagegen.rs) 自动补装或刷新未自行修改的内置技能；禁用/卸载意图及未知同名内容保留。能力中心保留手动恢复入口并显示“自动选模 · 质量优先”。
+
+[无密钥运行时描述](../src-tauri/src/commands/yuanheng/imagegen.rs) 连接现有 Core；[图片模型目录和图片路由](../src-tauri/src/proxy/images.rs) 按 Codex CLI/Desktop namespace 使用各自当前托管凭据。helper 每次读取该连接授权目录，选择最新数字版本、同版本质量优先；显式型号优先，目录失败不猜测。默认桌面连接，元衡终端桥接通过环境选择独立终端连接。
+
+[Skill](../src-tauri/src/resources/builtin_skills/meta-api-imagegen/SKILL.md) 允许隐式调用，在对话中展示图片并继续原任务；实际选择仍由 Codex 决定。接口明确不支持时最多一次兼容回退，网络/业务/保存失败不重复生成，最终图片与 partial 区分。Node 模拟 HTTP、Rust 安装/路由与配置回归不代表真实付费生成验收。取舍见[自动图像技能](../.agents/notes/implemented/feature/2026-10-23-automatic-image-skill.md)。

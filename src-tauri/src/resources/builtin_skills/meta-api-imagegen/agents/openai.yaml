@@ -1,7 +1,7 @@
 interface:
   display_name: "YuanHeng ImageGen"
-  short_description: "Generate or edit images with gpt-image-2."
-  default_prompt: "Use $meta-api-imagegen to generate or edit an image through the YuanHeng API."
+  short_description: "Generate or edit with the newest available GPT Image model."
+  default_prompt: "Use $meta-api-imagegen to create the image needed for this task, show it in the conversation, and continue the remaining work."
 
 policy:
   allow_implicit_invocation: true
