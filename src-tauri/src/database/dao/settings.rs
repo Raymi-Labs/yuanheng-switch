@@ -57,7 +57,6 @@ impl Database {
     }
 
     /// Commit related non-secret settings together, including deletions.
-    #[cfg(any(target_os = "macos", test))]
     pub(crate) fn set_settings_atomically(
         &self,
         changes: &[(&str, Option<&str>)],
