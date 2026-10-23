@@ -22,6 +22,7 @@ struct LoginState {
     session: Option<Session>,
     pending: Option<String>,
     epoch: u64,
+    ai_consent: bool,
 }
 struct MobileState {
     client: Client,
@@ -54,6 +55,14 @@ impl MobileState {
         } else {
             Err("账号已切换，请重新操作".into())
         }
+    }
+    fn begin_ai(&self, id: &str, epoch: u64) -> Result<CancellationToken, String> {
+        let login = self.login.lock().map_err(|_| "登录状态不可用")?;
+        if login.session.is_none() || !login.ai_consent || login.epoch != epoch {
+            return Err("请先阅读并同意 AI 数据处理说明".into());
+        }
+        // Hold the same lock as consent withdrawal until the task is registered.
+        self.begin(id)
     }
     fn request(&self, method: Method, path: &str, session: &Session) -> reqwest::RequestBuilder {
         self.client
@@ -109,6 +118,7 @@ async fn mobile_restore(app: AppHandle, state: State<'_, MobileState>) -> Result
     let mut login = state.login.lock().map_err(|_| "登录状态不可用")?;
     login.session = Some(session);
     login.epoch += 1;
+    login.ai_consent = false;
     Ok(account["data"].clone())
 }
 
@@ -176,6 +186,7 @@ async fn mobile_login(
     login.session = Some(session);
     login.pending = None;
     login.epoch += 1;
+    login.ai_consent = false;
     Ok(json!({"account": account["data"]}))
 }
 
@@ -189,6 +200,30 @@ async fn mobile_logout(app: AppHandle, state: State<'_, MobileState>) -> Result<
     login.session = None;
     login.pending = None;
     login.epoch += 1;
+    login.ai_consent = false;
+    Ok(())
+}
+
+#[tauri::command]
+fn mobile_capabilities(app: AppHandle) -> Value {
+    json!({"purchases": !cfg!(target_os = "ios"), "version": app.package_info().version.to_string()})
+}
+
+#[tauri::command]
+async fn mobile_ai_consent(
+    state: State<'_, MobileState>,
+    accepted: bool,
+    user_id: i64,
+) -> Result<(), String> {
+    let _lock = state.auth_lock.lock().await;
+    let mut login = state.login.lock().map_err(|_| "登录状态不可用")?;
+    if login.session.as_ref().map(|s| s.user_id) != Some(user_id) {
+        return Err("账号已切换，请重新操作".into());
+    }
+    login.ai_consent = accepted;
+    if !accepted {
+        state.cancel_all();
+    }
     Ok(())
 }
 
@@ -199,6 +234,7 @@ async fn mobile_api(
     body: Option<Value>,
 ) -> Result<Value, String> {
     let body = body.unwrap_or_else(|| json!({}));
+    transport::check_api_access(&operation, cfg!(target_os = "ios"))?;
     let (method, path) = api_route(&operation, &body)?;
     let request = state
         .client
@@ -240,7 +276,7 @@ async fn mobile_chat(
 ) -> Result<(), String> {
     transport::validate_chat(&body)?;
     let (session, epoch) = state.snapshot()?;
-    let cancel = state.begin(&id)?;
+    let cancel = state.begin_ai(&id, epoch)?;
     let work = async {
         let response = state
             .request(Method::POST, "/pg/chat/completions", &session)
@@ -328,7 +364,7 @@ async fn mobile_image(
         return Err("图片尺寸无效".into());
     }
     let (session, epoch) = state.snapshot()?;
-    let cancel = state.begin(&id)?;
+    let cancel = state.begin_ai(&id, epoch)?;
     let work = async {
         let credential = bounded_json(
             state
@@ -431,6 +467,8 @@ pub fn run() {
         .manage(MobileState::new())
         .invoke_handler(tauri::generate_handler![
             mobile_restore,
+            mobile_capabilities,
+            mobile_ai_consent,
             mobile_login,
             mobile_logout,
             mobile_api,
@@ -447,6 +485,27 @@ pub fn run() {
 #[cfg(test)]
 mod state_tests {
     use super::*;
+    #[test]
+    fn ai_tasks_require_current_account_consent() {
+        let state = MobileState::new();
+        assert!(state.begin_ai("no-session", 0).is_err());
+        {
+            let mut login = state.login.lock().unwrap();
+            login.session = Some(Session {
+                cookie: "session=test-only".into(),
+                user_id: 7,
+            });
+            login.epoch = 1;
+        }
+        assert!(state.begin_ai("no-consent", 1).is_err());
+        state.login.lock().unwrap().ai_consent = true;
+        assert!(state.begin_ai("old-account", 0).is_err());
+        let task = state.begin_ai("accepted", 1).unwrap();
+        state.login.lock().unwrap().ai_consent = false;
+        state.cancel_all();
+        assert!(task.is_cancelled());
+        assert!(state.begin_ai("withdrawn", 1).is_err());
+    }
     #[test]
     fn switching_account_invalidates_old_snapshot_and_cancels_work() {
         let state = MobileState::new();

@@ -1,0 +1,95 @@
+name: iOS App Store
+on:
+  workflow_dispatch:
+    inputs:
+      build_number:
+        description: "CFBundleVersion（每次上传必须递增）"
+        required: true
+        default: "1"
+        type: string
+      upload:
+        description: "将已验证 IPA 上传 App Store Connect（不会自动提交审核）"
+        default: false
+        type: boolean
+permissions:
+  contents: read
+concurrency:
+  group: ios-app-store
+  cancel-in-progress: false
+jobs:
+  build:
+    if: github.ref == 'refs/heads/main'
+    runs-on: macos-15
+    timeout-minutes: 60
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
+      APPLE_DEVELOPMENT_TEAM: ${{ secrets.APPLE_TEAM_ID }}
+      IOS_BUILD_NUMBER: ${{ inputs.build_number }}
+    defaults:
+      run:
+        working-directory: mobile
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+      - uses: pnpm/action-setup@v6
+        with:
+          package_json_file: mobile/package.json
+      - uses: dtolnay/rust-toolchain@1.95.0
+        with:
+          targets: aarch64-apple-ios, aarch64-apple-ios-sim
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: mobile/src-tauri -> target
+          cache-on-failure: true
+      - name: Validate release inputs
+        run: |
+          [[ "$IOS_BUILD_NUMBER" =~ ^[1-9][0-9]{0,8}$ ]] || exit 1
+          xcodebuild -version
+          xcrun --sdk iphoneos --show-sdk-version
+      - run: pnpm install --frozen-lockfile
+      - name: Checks
+        run: |
+          pnpm test
+          pnpm build
+          cargo fmt --manifest-path src-tauri/Cargo.toml --check
+          cargo test --locked --manifest-path src-tauri/Cargo.toml --lib
+          cargo clippy --locked --manifest-path src-tauri/Cargo.toml --lib -- -D warnings
+          python3 -m unittest discover -s scripts -p 'test_ios_*.py'
+      - run: pnpm tauri ios init --ci --skip-targets-install
+      - run: pnpm tauri icon src-tauri/icons/icon.png
+      - name: Build App Store IPA
+        env:
+          IOS_CERTIFICATE: ${{ secrets.YUANHENG_IOS_CERTIFICATE_BASE64 }}
+          IOS_CERTIFICATE_PASSWORD: ${{ secrets.YUANHENG_IOS_CERTIFICATE_PASSWORD }}
+          IOS_MOBILE_PROVISION: ${{ secrets.YUANHENG_IOS_MOBILE_PROVISION }}
+        run: |
+          for name in IOS_CERTIFICATE IOS_CERTIFICATE_PASSWORD IOS_MOBILE_PROVISION APPLE_DEVELOPMENT_TEAM; do
+            test -n "${!name}" || { echo "Missing secret: $name"; exit 1; }
+          done
+          pnpm tauri ios build --ci --target aarch64 --export-method app-store-connect --build-number "$IOS_BUILD_NUMBER"
+          python3 scripts/verify_ios_store.py
+      - name: Build and launch simulator
+        run: |
+          pnpm tauri ios build --ci --target aarch64-sim --archive-only --build-number "$IOS_BUILD_NUMBER"
+          python3 scripts/smoke_ios.py
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: yuanheng-ios-app-store-${{ inputs.build_number }}
+          path: mobile/artifacts/*
+          if-no-files-found: error
+      - name: Upload to App Store Connect
+        if: inputs.upload
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+        run: |
+          test -n "$APPLE_ID" && test -n "$APPLE_PASSWORD"
+          ipa=(artifacts/*-appstore.ipa)
+          test "${#ipa[@]}" -eq 1 && test -f "${ipa[0]}"
+          xcrun altool --validate-app -f "${ipa[0]}" -t ios -u "$APPLE_ID" -p @env:APPLE_PASSWORD
+          xcrun altool --upload-app -f "${ipa[0]}" -t ios -u "$APPLE_ID" -p @env:APPLE_PASSWORD
+          echo 'IPA uploaded. Processing and App Review are separate steps.' >> "$GITHUB_STEP_SUMMARY"

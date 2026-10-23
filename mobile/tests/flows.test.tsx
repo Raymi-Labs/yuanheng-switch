@@ -17,6 +17,8 @@ vi.mock("../src/api", async (importOriginal) => {
     ...original,
     api: {
       restore: vi.fn(),
+      capabilities: vi.fn(),
+      aiConsent: vi.fn(),
       login: vi.fn(),
       twoFactor: vi.fn(),
       logout: vi.fn(),
@@ -37,6 +39,11 @@ const account = {
 beforeEach(() => {
   vi.clearAllMocks();
   localStorage.clear();
+  vi.mocked(api.capabilities).mockResolvedValue({
+    purchases: true,
+    version: "0.1.0-alpha.1",
+  });
+  vi.mocked(api.aiConsent).mockResolvedValue();
   vi.mocked(api.get).mockImplementation(async (op) => {
     if (op === "status") return { quota_per_unit: 500000 };
     if (op === "account") return account;
@@ -47,6 +54,49 @@ beforeEach(() => {
   });
 });
 afterEach(cleanup);
+it("removes purchase and console navigation from the iOS account and login screens", async () => {
+  vi.mocked(api.capabilities).mockResolvedValue({
+    purchases: false,
+    version: "1.0.0",
+  });
+  vi.mocked(api.restore).mockResolvedValue(account);
+  vi.mocked(api.logout).mockResolvedValue();
+  render(<App />);
+  fireEvent.click(await screen.findByRole("button", { name: "我的" }));
+  expect(
+    screen.queryByRole("button", {
+      name: /官网充值|使用兑换码|充值与支付记录|账号与安全设置|消费记录/,
+    }),
+  ).toBeNull();
+  expect(screen.getAllByText("$10.00").length).toBeGreaterThan(0);
+  expect(screen.getByText("元衡移动端 · 1.0.0")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "退出登录" }));
+  await screen.findByRole("button", { name: "登录元衡" });
+  expect(screen.queryByRole("button", { name: /前往官网注册/ })).toBeNull();
+  expect(api.open).not.toHaveBeenCalled();
+});
+
+it("requires explicit AI consent and removes AI entry points after withdrawal", async () => {
+  vi.mocked(api.restore).mockResolvedValue(account);
+  render(<App />);
+  expect(
+    await screen.findByRole("button", { name: "同意数据处理并继续" }),
+  ).toBeTruthy();
+  expect(screen.queryByLabelText("输入消息")).toBeNull();
+  expect(api.aiConsent).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("button", { name: "同意数据处理并继续" }));
+  await screen.findByLabelText("输入消息");
+  expect(api.aiConsent).toHaveBeenCalledWith(true, account.id);
+  fireEvent.click(screen.getByRole("button", { name: "我的" }));
+  fireEvent.click(screen.getByRole("button", { name: "撤回 AI 数据处理同意" }));
+  await waitFor(() =>
+    expect(api.aiConsent).toHaveBeenLastCalledWith(false, account.id),
+  );
+  await waitFor(() => expect(screen.queryByLabelText("输入消息")).toBeNull());
+  fireEvent.click(screen.getByRole("button", { name: "生图" }));
+  expect(screen.queryByRole("button", { name: "生成图片" })).toBeNull();
+});
+
 it("opens the existing website for recharge without crediting the balance locally", async () => {
   vi.mocked(api.restore).mockResolvedValue(account);
   vi.mocked(api.open).mockResolvedValue();

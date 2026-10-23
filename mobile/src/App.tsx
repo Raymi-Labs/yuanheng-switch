@@ -39,6 +39,9 @@ export function App() {
   const [perUnit, setPerUnit] = useState(0);
   const [tab, setTab] = useState<Tab>("chat");
   const [refreshing, setRefreshing] = useState(false);
+  const [purchases, setPurchases] = useState(false);
+  const [version, setVersion] = useState("");
+  const [aiConsent, setAiConsent] = useState(false);
   const mounted = useRef(true);
   const epoch = useRef(0);
   const loadUnit = useCallback(async () => {
@@ -86,6 +89,15 @@ export function App() {
   }, [loadUnit]);
   useEffect(() => {
     mounted.current = true;
+    void api
+      .capabilities()
+      .then((value) => {
+        if (mounted.current) {
+          setPurchases(value.purchases);
+          setVersion(value.version);
+        }
+      })
+      .catch(() => {});
     void restore();
     return () => {
       mounted.current = false;
@@ -104,6 +116,12 @@ export function App() {
       window.removeEventListener("focus", visible);
     };
   }, [account?.id, refresh]);
+  const changeAiConsent = async (accepted: boolean) => {
+    if (!account) return;
+    const current = epoch.current;
+    await api.aiConsent(accepted, account.id);
+    if (mounted.current && epoch.current === current) setAiConsent(accepted);
+  };
   const logout = async () => {
     try {
       await api.logout();
@@ -111,6 +129,7 @@ export function App() {
       setAccount(null);
       setError("");
       setTab("chat");
+      setAiConsent(false);
     } catch (e) {
       setError(errorText(e));
     }
@@ -124,6 +143,7 @@ export function App() {
         </div>
       ) : !account ? (
         <Login
+          purchases={purchases}
           error={error}
           onReset={logout}
           onRetry={restore}
@@ -131,6 +151,7 @@ export function App() {
             epoch.current++;
             setAccount(value);
             setError("");
+            setAiConsent(false);
           }}
         />
       ) : (
@@ -154,14 +175,22 @@ export function App() {
           <main className="main" key={account.id}>
             <Notice text={error} />
             <div hidden={tab !== "chat"} className="panel">
-              <Chat
-                userId={account.id}
-                defaultGroup={account.group}
-                refresh={refresh}
-              />
+              {aiConsent ? (
+                <Chat
+                  userId={account.id}
+                  defaultGroup={account.group}
+                  refresh={refresh}
+                />
+              ) : (
+                <AiConsent onAccept={() => changeAiConsent(true)} />
+              )}
             </div>
             <div hidden={tab !== "images"} className="panel">
-              <Images active={tab === "images"} refresh={refresh} />
+              {aiConsent ? (
+                <Images active={tab === "images"} refresh={refresh} />
+              ) : (
+                <AiConsent onAccept={() => changeAiConsent(true)} />
+              )}
             </div>
             <div hidden={tab !== "tokens"} className="panel">
               <Tokens active={tab === "tokens"} perUnit={perUnit} />
@@ -172,6 +201,10 @@ export function App() {
                 perUnit={perUnit}
                 refresh={refresh}
                 logout={logout}
+                purchases={purchases}
+                version={version}
+                aiConsent={aiConsent}
+                revokeConsent={() => changeAiConsent(false)}
               />
             </div>
           </main>
@@ -205,11 +238,13 @@ function Brand({ compact = false }: { compact?: boolean }) {
   );
 }
 function Login({
+  purchases,
   error,
   onLogin,
   onReset,
   onRetry,
 }: {
+  purchases: boolean;
   error: string;
   onLogin: (a: Account) => void;
   onReset: () => Promise<void>;
@@ -323,12 +358,14 @@ function Login({
             返回账号登录
           </button>
         )}
-        <button
-          className="text-button full"
-          onClick={() => void open("register")}
-        >
-          还没有账号？前往官网注册 <ChevronRight size={15} />
-        </button>
+        {purchases && (
+          <button
+            className="text-button full"
+            onClick={() => void open("register")}
+          >
+            还没有账号？前往官网注册 <ChevronRight size={15} />
+          </button>
+        )}
         {error && (
           <div className="row">
             <button className="text-button" onClick={() => void onRetry()}>
@@ -354,14 +391,23 @@ function AccountPage({
   perUnit,
   refresh,
   logout,
+  purchases,
+  version,
+  aiConsent,
+  revokeConsent,
 }: {
   account: Account;
   perUnit: number;
   refresh: () => Promise<void>;
   logout: () => Promise<void>;
+  purchases: boolean;
+  version: string;
+  aiConsent: boolean;
+  revokeConsent: () => Promise<void>;
 }) {
   const [redeem, setRedeem] = useState(false);
   const [message, setMessage] = useState("");
+  const [busy, setBusy] = useState(false);
   const open = async (
     destination: "topup" | "account" | "usage" | "privacy" | "terms",
   ) => {
@@ -394,34 +440,59 @@ function AccountPage({
         <span>账户余额</span>
         <strong>{quotaAmount(account.quota, perUnit)}</strong>
         <p>累计用量 {quotaAmount(account.used_quota, perUnit)}</p>
-        <div className="row">
-          <button onClick={() => void open("topup")}>
-            官网充值 <ArrowUpRight size={16} />
-          </button>
-          <button onClick={() => setRedeem(true)}>使用兑换码</button>
-        </div>
+        {purchases && (
+          <div className="row">
+            <button onClick={() => void open("topup")}>
+              官网充值 <ArrowUpRight size={16} />
+            </button>
+            <button onClick={() => setRedeem(true)}>使用兑换码</button>
+          </div>
+        )}
       </section>
       <Notice text={message} />
       <div className="menu-list">
-        <button onClick={() => void open("topup")}>
-          <Wallet size={19} />
-          充值与支付记录
-          <ChevronRight size={17} />
-        </button>
-        <button onClick={() => void open("usage")}>
-          <MessageSquare size={19} />
-          消费记录
-          <ChevronRight size={17} />
-        </button>
-        <button onClick={() => void open("account")}>
-          <UserRound size={19} />
-          账号与安全设置
-          <ChevronRight size={17} />
-        </button>
+        {purchases && (
+          <>
+            <button onClick={() => void open("topup")}>
+              <Wallet size={19} />
+              充值与支付记录
+              <ChevronRight size={17} />
+            </button>
+            <button onClick={() => void open("usage")}>
+              <MessageSquare size={19} />
+              消费记录
+              <ChevronRight size={17} />
+            </button>
+            <button onClick={() => void open("account")}>
+              <UserRound size={19} />
+              账号与安全设置
+              <ChevronRight size={17} />
+            </button>
+          </>
+        )}
         <button onClick={() => void open("privacy")}>
           <ShieldCheck size={19} />
           隐私政策
           <ChevronRight size={17} />
+        </button>
+        <button
+          disabled={!aiConsent || busy}
+          onClick={async () => {
+            setBusy(true);
+            try {
+              await revokeConsent();
+              setMessage(
+                "已撤回 AI 数据处理同意，后续生成需重新同意。已发送的请求可能仍在服务端处理。",
+              );
+            } catch (e) {
+              setMessage(errorText(e));
+            } finally {
+              setBusy(false);
+            }
+          }}
+        >
+          <ShieldCheck size={19} />
+          {aiConsent ? "撤回 AI 数据处理同意" : "尚未同意 AI 数据处理"}
         </button>
       </div>
       <p className="footnote">
@@ -431,8 +502,8 @@ function AccountPage({
         <LogOut size={17} />
         退出登录
       </button>
-      <p className="version">元衡移动端 · 0.1.0-alpha.1</p>
-      {redeem && (
+      <p className="version">元衡移动端{version && ` · ${version}`}</p>
+      {purchases && redeem && (
         <Redeem
           perUnit={perUnit}
           close={() => setRedeem(false)}
@@ -440,5 +511,49 @@ function AccountPage({
         />
       )}
     </div>
+  );
+}
+
+function AiConsent({ onAccept }: { onAccept: () => Promise<void> }) {
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState("");
+  return (
+    <section className="page consent-page">
+      <ShieldCheck size={32} />
+      <h1>使用 AI 前，请了解数据如何处理</h1>
+      <p>
+        你发送的文字、对话上下文，以及主动选择并提交的参考图片，会通过元衡（meta-api.vip）转交给所选模型对应的第三方
+        AI 服务，用于生成回复或图片。
+      </p>
+      <p>
+        仅选择参考图片不会上传；点击发送或生成时才会提交内容。请勿提交未经授权的他人信息。生成结果可能不准确，请核实重要信息。
+      </p>
+      <p>你可以在“我的”撤回同意。未同意时仍可查看额度和管理令牌。</p>
+      <button
+        className="text-button"
+        onClick={() =>
+          void api.open("privacy").catch((e) => setMessage(errorText(e)))
+        }
+      >
+        查看隐私政策
+      </button>
+      <Notice text={message} />
+      <button
+        className="primary full"
+        disabled={busy}
+        onClick={async () => {
+          setBusy(true);
+          try {
+            await onAccept();
+          } catch (e) {
+            setMessage(errorText(e));
+          } finally {
+            setBusy(false);
+          }
+        }}
+      >
+        {busy ? "正在保存…" : "同意数据处理并继续"}
+      </button>
+    </section>
   );
 }

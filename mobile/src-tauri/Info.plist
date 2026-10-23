@@ -12,5 +12,11 @@
 	<string>用于选择参考图片，让元衡根据图片进行 AI 编辑。</string>
 	<key>NSCameraUsageDescription</key>
 	<string>用于拍摄参考图片，让元衡根据图片进行 AI 编辑。</string>
+	<key>CFBundleLocalizations</key>
+	<array>
+		<string>zh-Hans</string>
+	</array>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>zh-Hans</string>
 </dict>
 </plist>

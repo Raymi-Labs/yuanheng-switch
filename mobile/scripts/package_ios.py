@@ -9,7 +9,7 @@ root = Path(__file__).resolve().parents[1]
 kind = sys.argv[1]
 if kind not in ('device', 'simulator'):
     raise SystemExit('Expected device or simulator')
-version = json.loads((root / 'package.json').read_text())['version']
+version = json.loads((root / 'src-tauri/tauri.ios.conf.json').read_text())['version']
 candidates = []
 for archive in (root / 'src-tauri/gen/apple').rglob('*.xcarchive'):
     for app in (archive / 'Products/Applications').glob('*.app'):

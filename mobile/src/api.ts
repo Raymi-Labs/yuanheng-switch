@@ -50,6 +50,10 @@ export type Redemption = {
 };
 
 export const api = {
+  capabilities: () =>
+    invoke<{ purchases: boolean; version: string }>("mobile_capabilities"),
+  aiConsent: (accepted: boolean, userId: number) =>
+    invoke<void>("mobile_ai_consent", { accepted, userId }),
   restore: () => invoke<Account | null>("mobile_restore"),
   login: (username: string, password: string) =>
     invoke<{ account?: Account; requiresTwoFactor?: boolean }>("mobile_login", {

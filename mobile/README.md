@@ -1,6 +1,6 @@
 # 元衡移动端
 
-独立的 Android / iOS Tauri 2 客户端，首版 `0.1.0-alpha.1`。React 本地界面 + Rust 网络层 + Kotlin / Swift 原生安全存储和相册桥接；不是 SwiftUI/Kotlin 全原生界面。复用元衡账号、额度和模型服务，不包含桌面 Core、工具配置或本机代理。
+独立的 Android / iOS Tauri 2 客户端，Android 首版 `0.1.0-alpha.1`，iOS 商店首版 `1.0.0`。React 本地界面 + Rust 网络层 + Kotlin / Swift 原生安全存储和相册桥接；不是 SwiftUI/Kotlin 全原生界面。复用元衡账号、额度和模型服务，不包含桌面 Core、工具配置或本机代理。
 
 ## 功能
 
@@ -8,8 +8,9 @@
 - 流式 AI 聊天、模型与分组选择、停止生成、历史删除与复制。
 - 文生图、单张参考图编辑、系统相册保存；图片暂存在当前页面，重要图片请保存。
 - 查看余额、创建令牌、设置额度/有效期/模型限制、查看密钥、停用/启用。
-- 兑换码核销、充值额度/套餐权益结果区分；需要领取的权益跳转官网处理。
-- **Android 和 iPhone 都通过系统浏览器打开现有官网充值**。返回后重新查询余额，浏览器可能需要单独登录。不会把登录 cookie 或令牌拼进网址。
+- Android 保留兑换码核销、权益领取和系统浏览器官网充值，返回后重新查询余额，不会把会话或令牌拼进网址。
+- iOS 首发供已有账号使用，界面与 Rust 层均关闭充值、兑换码、注册和通向购买的控制台跳转；保留聊天、生图、余额、令牌、隐私政策。所有用户使用相同规则。
+- AI 请求前显式征求数据处理同意，可在“我的”撤回；撤回会停止本机等待并阻止后续请求，不保证服务端已接收的任务停止计费。退出或重启需重新同意。
 
 ## 本地开发
 
@@ -37,7 +38,7 @@ pnpm ios:dev
 
 - Android：首版 Android 10+、ARM64 APK，首版 versionCode=1（后续 alpha 必须递增）、固定 release keystore 签名，校验签名和 16 KB zip 对齐。Secrets：`YUANHENG_ANDROID_KEYSTORE_BASE64`、`YUANHENG_ANDROID_KEYSTORE_PASSWORD`；PKCS12 alias 为 `yuanheng`。必须保留同一签名密钥，后续更新才能覆盖安装。下载后核对 SHA256，在浏览器安装权限中允许当前下载来源。
 - iOS：CI 编译 iPhone 和 ARM64 模拟器 archive，并在模拟器安装启动、检查进程存活、保存截图。`*-device-unsigned.xcarchive.zip` **未签名，不能直接安装**；`*-simulator-adhoc.xcarchive.zip` 由 Xcode 生成模拟器 ad-hoc 签名与权限，仅用于 Xcode 模拟器。真机安装 / TestFlight / App Store 分发仍需有效的 iOS 开发者签名、匹配 `com.nanashiwang.yuanhengmobile` 的描述文件以及选定的发行渠道。现有 macOS Developer ID 证书不能替代这些条件。
-- 本轮按用户要求保留网页充值。发行地区和苹果审核是独立事项；没有审核隐藏逻辑，也不将测试构建说成已上架。普通中国区 iPhone 不能把网站上的 unsigned archive 当作 APK 安装。
+- iOS 正式分发使用 [iOS App Store](../.github/workflows/ios-app-store.yml)，独立配置 `tauri.ios.conf.json`，不改变 Android 版本。首发美区、免费客户端下载，不含购买入口；详见 [商店发布记录](app-store/README.md)。App Store 类型 IPA 只用于苹果分发，不能在官网下载后直接安装。
 
 官网安卓入口位于 `https://meta-api.vip/download#android`。已发布 APK 的分发复用 [Android website download delivery](../.github/workflows/mobile-delivery.yml)，手动输入 `0.1.0-alpha.1` 等已有版本；版本必须具有 `mobile/releases/<version>.json` 校验元数据。仅发布通过摘要与固定签名证书核对的 APK 和 SHA256 文件到 `download.meta-api.vip/mobile/releases/<version>/`，不改变桌面更新清单。新版本需在官网仓库明确更新入口，不能把普通构建视作已开放下载。
 

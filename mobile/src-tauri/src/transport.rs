@@ -116,6 +116,7 @@ pub fn api_route(operation: &str, body: &Value) -> Result<(Method, String), Stri
     Ok((Method::GET, path))
 }
 pub fn website_url(destination: &str) -> Result<String, String> {
+    check_website_access(destination, cfg!(target_os = "ios"))?;
     let path = match destination {
         "topup" => "/console/topup",
         "register" => "/register",
@@ -126,6 +127,20 @@ pub fn website_url(destination: &str) -> Result<String, String> {
         _ => return Err("不支持的网页入口".into()),
     };
     Ok(format!("{BASE}{path}"))
+}
+
+pub fn check_website_access(destination: &str, ios: bool) -> Result<(), String> {
+    if ios && !["privacy", "terms"].contains(&destination) {
+        return Err("iOS 版不提供购买、兑换或控制台网页入口".into());
+    }
+    Ok(())
+}
+
+pub fn check_api_access(operation: &str, ios: bool) -> Result<(), String> {
+    if ios && ["redeem", "records"].contains(&operation) {
+        return Err("iOS 版不提供充值或兑换功能".into());
+    }
+    Ok(())
 }
 pub fn validate_chat(body: &Value) -> Result<(), String> {
     let messages = body
@@ -192,6 +207,29 @@ pub fn image_mime(bytes: &[u8]) -> Result<&'static str, String> {
 mod tests {
     use super::*;
     use serde_json::json;
+    #[test]
+    fn ios_blocks_purchase_paths_without_changing_android() {
+        for destination in ["topup", "register", "account", "usage"] {
+            assert!(check_website_access(destination, true).is_err());
+            assert!(check_website_access(destination, false).is_ok());
+        }
+        for destination in ["privacy", "terms"] {
+            assert!(check_website_access(destination, true).is_ok());
+        }
+        for operation in ["redeem", "records"] {
+            assert!(check_api_access(operation, true).is_err());
+            assert!(check_api_access(operation, false).is_ok());
+        }
+        for operation in [
+            "account",
+            "models",
+            "groups",
+            "token_create",
+            "token_status",
+        ] {
+            assert!(check_api_access(operation, true).is_ok());
+        }
+    }
     #[test]
     fn rejects_arbitrary_credential_destinations() {
         for name in ["https://evil.test", "../topup", "/api/user/self"] {

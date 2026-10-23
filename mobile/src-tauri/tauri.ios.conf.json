@@ -1,4 +1,11 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "YuanHeng"
+  "productName": "YuanHeng",
+  "version": "1.0.0",
+  "bundle": {
+    "iOS": {
+      "bundleVersion": "1",
+      "template": "ios.project.yml"
+    }
+  }
 }
