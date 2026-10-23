@@ -20,6 +20,8 @@ pub struct InstallProgress {
     pub stage: &'static str,
     pub downloaded_bytes: Option<u64>,
     pub total_bytes: Option<u64>,
+    pub completed_items: Option<u64>,
+    pub total_items: Option<u64>,
     pub activity: bool,
 }
 
@@ -31,6 +33,8 @@ impl ProgressReporter {
             stage,
             downloaded_bytes: None,
             total_bytes: None,
+            completed_items: None,
+            total_items: None,
             activity: true,
         });
     }
@@ -70,6 +74,8 @@ fn progress_snapshot(stage_dir: Option<&std::path::Path>, activity: bool) -> Ins
         stage: "executing",
         downloaded_bytes: None,
         total_bytes: None,
+        completed_items: None,
+        total_items: None,
         activity,
     };
     if let Some(dir) = stage_dir {
@@ -87,6 +93,20 @@ fn progress_snapshot(stage_dir: Option<&std::path::Path>, activity: bool) -> Ins
                 .find_map(|name| std::fs::metadata(dir.join(name)).ok().map(|m| m.len()));
             result.total_bytes = download_total(&read_small(&dir.join("download.headers"), 8192))
                 .filter(|total| result.downloaded_bytes.unwrap_or(0) <= *total);
+        } else if result.stage == "package" {
+            if let Ok(value) = serde_json::from_str::<serde_json::Value>(&read_small(
+                &dir.join("package-progress.json"),
+                256,
+            )) {
+                if let (Some(completed), Some(total)) =
+                    (value["completed"].as_u64(), value["total"].as_u64())
+                {
+                    if total > 0 && total <= 100_000 && completed <= total {
+                        result.completed_items = Some(completed);
+                        result.total_items = Some(total);
+                    }
+                }
+            }
         }
     }
     result
@@ -494,6 +514,122 @@ mod tests {
         assert!(messages
             .iter()
             .any(|m| m["stage"] == "extract" && m["totalBytes"].is_null()));
+    }
+
+    #[test]
+    fn component_progress_is_bounded_and_never_reuses_download_bytes() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("phase"), "package").unwrap();
+        std::fs::write(dir.path().join("runtime.zip"), [0; 25]).unwrap();
+        let file = dir.path().join("package-progress.json");
+        std::fs::write(&file, r#"{"completed":70,"total":200,"path":"secret"}"#).unwrap();
+        let progress = progress_snapshot(Some(dir.path()), false);
+        assert_eq!(progress.completed_items, Some(70));
+        assert_eq!(progress.total_items, Some(200));
+        assert_eq!(progress.downloaded_bytes, None);
+        assert!(!serde_json::to_string(&progress).unwrap().contains("secret"));
+        for invalid in [
+            r#"{"completed":3,"total":2}"#,
+            r#"{"completed":-1,"total":2}"#,
+            r#"{"completed":0,"total":0}"#,
+            r#"{"completed":1,"total":100001}"#,
+            r#"{"completed":1.5,"total":2}"#,
+            "{",
+            "{}",
+        ] {
+            std::fs::write(&file, invalid).unwrap();
+            assert_eq!(progress_snapshot(Some(dir.path()), false).total_items, None);
+        }
+        std::fs::write(&file, r#"{"completed":2,"total":2}"#).unwrap();
+        std::fs::write(dir.path().join("phase"), "verify").unwrap();
+        assert_eq!(progress_snapshot(Some(dir.path()), false).total_items, None);
+    }
+
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn windows_download_reports_size_while_body_is_still_streaming() {
+        use std::io::{Read, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let server = std::thread::spawn(move || {
+            let deadline = std::time::Instant::now() + Duration::from_secs(10);
+            let mut stream = loop {
+                match listener.accept() {
+                    Ok((stream, _)) => break stream,
+                    Err(_) if std::time::Instant::now() < deadline => {
+                        std::thread::sleep(Duration::from_millis(20))
+                    }
+                    Err(error) => panic!("download fixture connection: {error}"),
+                }
+            };
+            stream
+                .set_read_timeout(Some(Duration::from_secs(5)))
+                .unwrap();
+            let mut request = [0; 4096];
+            assert!(stream.read(&mut request).unwrap() > 0);
+            stream
+                .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 65536\r\nConnection: close\r\n\r\n")
+                .unwrap();
+            stream.write_all(&[1; 32768]).unwrap();
+            std::thread::sleep(Duration::from_millis(1500));
+            stream.write_all(&[2; 32768]).unwrap();
+        });
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("phase"), "download").unwrap();
+        let script = format!(
+            "$ErrorActionPreference = 'Stop'\nif ([Console]::ReadLine() -ne 'YUANHENG_GO') {{ exit 1 }}\n{}\nSave-DshRuntime 'http://{address}/runtime.zip'",
+            include_str!("../../scripts/dsh-download.ps1")
+        );
+        let mut command = tokio::process::Command::new("powershell.exe");
+        command
+            .args([
+                "-NoProfile",
+                "-NonInteractive",
+                "-EncodedCommand",
+                &super::super::misc::powershell_encoded_command(&script),
+            ])
+            .current_dir(dir.path());
+        let messages = Arc::new(Mutex::new(Vec::new()));
+        let recorded = messages.clone();
+        let channel = tauri::ipc::Channel::new(move |body| {
+            if let tauri::ipc::InvokeResponseBody::Json(json) = body {
+                recorded
+                    .lock()
+                    .unwrap()
+                    .push(serde_json::from_str::<serde_json::Value>(&json).unwrap());
+            }
+            Ok(())
+        });
+        let result = run_with_progress(
+            command,
+            Arc::new(AtomicBool::new(false)),
+            Duration::from_secs(10),
+            ProgressReporter(Some(channel)),
+            Some(dir.path()),
+        )
+        .await
+        .unwrap();
+        assert!(
+            result.status.success(),
+            "{}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+        server.join().unwrap();
+        assert_eq!(
+            std::fs::metadata(dir.path().join("runtime.zip"))
+                .unwrap()
+                .len(),
+            65536
+        );
+        assert!(messages
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|m| m["totalBytes"] == 65536
+                && m["downloadedBytes"]
+                    .as_u64()
+                    .is_some_and(|n| n > 0 && n < 65536)));
     }
 
     #[tokio::test]

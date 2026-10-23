@@ -34,7 +34,7 @@ export NPM_CONFIG_GLOBALCONFIG="$PWD/empty-global.npmrc"
 : > "$NPM_CONFIG_USERCONFIG"
 : > "$NPM_CONFIG_GLOBALCONFIG"
 echo package > phase
-node runtime/lib/node_modules/npm/bin/npm-cli.js install --prefix "$PWD/package" \
+node --require "$PWD/dsh-npm-progress.cjs" runtime/lib/node_modules/npm/bin/npm-cli.js install --prefix "$PWD/package" \
   --cache "$PWD/npm-cache" --registry=https://registry.npmjs.org \
   --ignore-scripts --engine-strict --no-audit --no-fund --fetch-retries=1 "@deepseek-ai/dsh@$version"
 echo verify > phase

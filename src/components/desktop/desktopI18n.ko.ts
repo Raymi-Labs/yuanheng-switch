@@ -1,5 +1,13 @@
 // ko translations for the desktop Simplified Chinese source strings.
 export const DESKTOP_KO: Record<string, string> = {
+  下载进度: "다운로드 진행률",
+  组件进度: "구성 요소 진행률",
+  "已处理 {{completed}} / {{total}} 个组件":
+    "구성 요소 {{completed}} / {{total}}개 처리됨",
+  "正在下载，文件总大小暂不可用。":
+    "다운로드 중입니다. 전체 파일 크기는 아직 알 수 없습니다.",
+  "正在解析组件清单，确认总数后显示进度。":
+    "구성 요소를 확인 중입니다. 총개수가 확인되면 진행률이 표시됩니다.",
   "2 · 分组与模型": "2 · 그룹 및 모델",
   "{{tool}} 分组与模型": "{{tool}} 그룹 및 모델",
   未选择分组: "선택한 그룹 없음",

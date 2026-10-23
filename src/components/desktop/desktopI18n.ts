@@ -6,6 +6,14 @@ import { DESKTOP_ZH_TW } from "./desktopI18n.zhTW";
 type Values = Record<string, string | number | null | undefined>;
 
 export const DESKTOP_EN: Record<string, string> = {
+  下载进度: "Download",
+  组件进度: "Components",
+  "已处理 {{completed}} / {{total}} 个组件":
+    "Processed {{completed}} / {{total}} components",
+  "正在下载，文件总大小暂不可用。":
+    "Downloading; total file size is not available yet.",
+  "正在解析组件清单，确认总数后显示进度。":
+    "Resolving components; progress will appear once the total is known.",
   "2 · 分组与模型": "2 · Group and model",
   "{{tool}} 分组与模型": "{{tool}} Group and Model",
   未选择分组: "No group selected",

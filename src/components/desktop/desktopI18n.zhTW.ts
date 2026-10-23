@@ -1,5 +1,12 @@
 // Generated from the desktop Simplified Chinese source strings, then normalized for Taiwan terminology.
 export const DESKTOP_ZH_TW: Record<string, string> = {
+  下载进度: "下載進度",
+  组件进度: "元件進度",
+  "已处理 {{completed}} / {{total}} 个组件":
+    "已處理 {{completed}} / {{total}} 個元件",
+  "正在下载，文件总大小暂不可用。": "正在下載，暫時無法取得檔案總大小。",
+  "正在解析组件清单，确认总数后显示进度。":
+    "正在解析元件清單，確認總數後顯示進度。",
   "2 · 分组与模型": "2 · 分組與模型",
   "{{tool}} 分组与模型": "{{tool}} 分組與模型",
   未选择分组: "未選擇分組",

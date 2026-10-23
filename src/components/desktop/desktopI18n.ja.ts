@@ -1,5 +1,13 @@
 // Japanese translations for the desktop Simplified Chinese source strings.
 export const DESKTOP_JA: Record<string, string> = {
+  下载进度: "ダウンロード",
+  组件进度: "コンポーネント",
+  "已处理 {{completed}} / {{total}} 个组件":
+    "{{completed}} / {{total}} 個のコンポーネントを処理済み",
+  "正在下载，文件总大小暂不可用。":
+    "ダウンロード中です。ファイルの総サイズはまだ不明です。",
+  "正在解析组件清单，确认总数后显示进度。":
+    "コンポーネントを確認中です。総数が確定すると進捗を表示します。",
   "2 · 分组与模型": "2 · グループとモデル",
   "{{tool}} 分组与模型": "{{tool}} グループとモデル",
   未选择分组: "グループ未選択",

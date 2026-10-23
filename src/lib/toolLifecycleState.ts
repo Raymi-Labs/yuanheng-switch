@@ -19,6 +19,8 @@ export interface ToolInstallProgress {
     | "executing";
   downloadedBytes?: number | null;
   totalBytes?: number | null;
+  completedItems?: number | null;
+  totalItems?: number | null;
   activity?: boolean;
 }
 export interface ToolInstallDetails extends ToolInstallProgress {
@@ -104,7 +106,8 @@ export async function runToolLifecycleJob(
       if (!previous) continue;
       const changed =
         previous.stage !== progress.stage ||
-        previous.downloadedBytes !== progress.downloadedBytes;
+        previous.downloadedBytes !== progress.downloadedBytes ||
+        previous.completedItems !== progress.completedItems;
       next.set(tool, {
         ...progress,
         startedAt: previous.startedAt,

@@ -221,6 +221,17 @@ pub(super) async fn install(
         .prefix(".staging-")
         .tempdir_in(&base)
         .map_err(|_| "无法创建 DSH 临时安装目录")?;
+    fs::write(
+        stage.path().join("dsh-npm-progress.cjs"),
+        include_str!("../../scripts/dsh-npm-progress.cjs"),
+    )
+    .map_err(|_| "无法准备 DSH 安装进度")?;
+    #[cfg(windows)]
+    fs::write(
+        stage.path().join("dsh-download.ps1"),
+        include_str!("../../scripts/dsh-download.ps1"),
+    )
+    .map_err(|_| "无法准备 DSH 下载器")?;
     #[cfg(not(windows))]
     let mut command = {
         let mut command = tokio::process::Command::new("bash");
@@ -295,7 +306,15 @@ pub(super) async fn install(
             fs::remove_dir_all(path).map_err(|_| "DSH 安装临时文件清理失败")?;
         }
     }
-    for name in ["runtime.tar.gz", "runtime.zip", "download.headers"] {
+    for name in [
+        "runtime.tar.gz",
+        "runtime.zip",
+        "download.headers",
+        "dsh-npm-progress.cjs",
+        "dsh-download.ps1",
+        "package-progress.json",
+        "package-progress.json.tmp",
+    ] {
         let path = stage.path().join(name);
         if path.is_file() {
             fs::remove_file(path).map_err(|_| "DSH 安装临时文件清理失败")?;

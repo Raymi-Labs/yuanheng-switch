@@ -13,8 +13,8 @@ try {
     }
     [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
     Set-Content -LiteralPath phase -Value download -Encoding ASCII
-    Invoke-WebRequest -UseBasicParsing -MaximumRedirection 0 -TimeoutSec 240 `
-        -Uri "https://nodejs.org/dist/v24.14.0/$archive.zip" -OutFile runtime.zip
+    . (Join-Path $PWD 'dsh-download.ps1')
+    Save-DshRuntime "https://nodejs.org/dist/v24.14.0/$archive.zip"
     Set-Content -LiteralPath phase -Value checksum -Encoding ASCII
     if ((Get-FileHash -LiteralPath runtime.zip -Algorithm SHA256).Hash.ToLowerInvariant() -ne $checksum) {
         throw 'Runtime hash mismatch'
@@ -31,7 +31,7 @@ try {
     Set-Content -LiteralPath $env:NPM_CONFIG_USERCONFIG -Value '' -Encoding ASCII
     Set-Content -LiteralPath $env:NPM_CONFIG_GLOBALCONFIG -Value '' -Encoding ASCII
     Set-Content -LiteralPath phase -Value package -Encoding ASCII
-    & $node runtime/node_modules/npm/bin/npm-cli.js install --prefix (Join-Path $PWD 'package') `
+    & $node --require (Join-Path $PWD 'dsh-npm-progress.cjs') runtime/node_modules/npm/bin/npm-cli.js install --prefix (Join-Path $PWD 'package') `
         --cache (Join-Path $PWD 'npm-cache') --registry=https://registry.npmjs.org `
         --ignore-scripts --engine-strict --no-audit --no-fund --fetch-retries=1 "@deepseek-ai/dsh@$targetVersion"
     if ($LASTEXITCODE -ne 0) { throw 'Package install failed' }
