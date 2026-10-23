@@ -60,7 +60,11 @@ def main():
         app = apps[0]
         info = plistlib.loads((app / "Info.plist").read_bytes())
         if info.get("UIDeviceFamily") != [1] or int(info.get("DTXcode", "0")) < 2600:
-            raise ValueError("Expected iPhone-only app built with Xcode 26 or later")
+            raise ValueError(
+                "Expected iPhone-only app built with Xcode 26 or later; "
+                f"device_families={info.get('UIDeviceFamily')}, "
+                f"xcode={info.get('DTXcode')}, sdk={info.get('DTSDKName')}"
+            )
         privacy = plistlib.loads((app / "PrivacyInfo.xcprivacy").read_bytes())
         if privacy.get("NSPrivacyTracking") is not False:
             raise ValueError("Unexpected tracking declaration")

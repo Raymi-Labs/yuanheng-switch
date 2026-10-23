@@ -47,6 +47,10 @@ jobs:
       - name: Validate release inputs
         run: |
           [[ "$IOS_BUILD_NUMBER" =~ ^[1-9][0-9]{0,8}$ ]] || exit 1
+          # cargo-mobile resolves Xcode through xcode-select; DEVELOPER_DIR alone
+          # is not forwarded to every native build/export subprocess.
+          sudo xcode-select --switch "$DEVELOPER_DIR"
+          test "$(xcode-select --print-path)" = "$DEVELOPER_DIR"
           xcodebuild -version
           xcrun --sdk iphoneos --show-sdk-version
       - run: pnpm install --frozen-lockfile
