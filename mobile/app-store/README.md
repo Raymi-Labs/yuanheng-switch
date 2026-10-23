@@ -24,8 +24,8 @@ App Store Connect 应用 ID：`6826138396`；Bundle ID：`com.nanashiwang.yuanhe
 | Apple Distribution + App Store profile | 已创建并核对，profile UUID a39ed151-0af7-4314-8d08-78eb72471e44 |
 | App Store Connect 应用记录和 1.0.0 草稿 | 已创建 |
 | 本地流程、类型、Rust 与签名边界检查 | 已通过 |
-| iOS 正式签名 IPA / 模拟器启动 | 待本次 CI 核验 |
-| Apple 上传处理 | 未执行 |
+| iOS 正式签名 IPA / 模拟器启动 | 证书、描述文件和 SDK 校验通过；模拟器签名方式与图标修正后重新核验 |
+| Apple 上传处理 | 首次因图标 alpha 被 Apple 拒收；修正后重新上传，不能以 CI 绿色状态代替 Apple 成功回执 |
 | 专用普通审核账号、额度和联系人 | 待维护者提供，不在仓库记录密码 |
 | 实际功能截图、真机登录/相册/模型请求 | 待验收；不以模拟数据截图冒充 |
 | 名称、简介、关键词、分类、版权、审核备注 | 已保存；简体中文，Productivity / Graphics & Design |

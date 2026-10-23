@@ -73,6 +73,7 @@ jobs:
           python3 -m unittest discover -s scripts -p 'test_ios_*.py'
       - run: pnpm tauri ios init --ci --skip-targets-install
       - run: pnpm tauri icon src-tauri/icons/icon.png
+      - run: swift scripts/prepare_ios_icons.swift src-tauri/gen/apple/Assets.xcassets/AppIcon.appiconset
       - name: Build App Store IPA
         env:
           IOS_CERTIFICATE: ${{ secrets.YUANHENG_IOS_CERTIFICATE_BASE64 }}
@@ -86,14 +87,13 @@ jobs:
           python3 scripts/verify_ios_store.py
       - name: Build and launch simulator
         run: |
-          pnpm tauri ios build --ci --target aarch64-sim --no-sign --archive-only
+          # Recreate build settings after manual distribution signing. Simulator
+          # Keychain requires Xcode's ad hoc app signature, not --no-sign.
+          pnpm tauri ios init --ci --skip-targets-install
+          pnpm tauri icon src-tauri/icons/icon.png
+          swift scripts/prepare_ios_icons.swift src-tauri/gen/apple/Assets.xcassets/AppIcon.appiconset
+          pnpm tauri ios build --ci --target aarch64-sim --archive-only
           python3 scripts/smoke_ios.py
-      - uses: actions/upload-artifact@v7
-        if: always()
-        with:
-          name: yuanheng-ios-app-store-${{ inputs.build_number }}
-          path: mobile/artifacts/*
-          if-no-files-found: error
       - name: Upload to App Store Connect
         if: inputs.upload
         env:
@@ -103,6 +103,11 @@ jobs:
           test -n "$APPLE_ID" && test -n "$APPLE_PASSWORD"
           ipa=(artifacts/*-appstore.ipa)
           test "${#ipa[@]}" -eq 1 && test -f "${ipa[0]}"
-          xcrun altool --validate-app -f "${ipa[0]}" -t ios -u "$APPLE_ID" -p @env:APPLE_PASSWORD
-          xcrun altool --upload-app -f "${ipa[0]}" -t ios -u "$APPLE_ID" -p @env:APPLE_PASSWORD
+          python3 scripts/upload_ios_store.py "${ipa[0]}"
           echo 'IPA uploaded. Processing and App Review are separate steps.' >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: yuanheng-ios-app-store-${{ inputs.build_number }}
+          path: mobile/artifacts/*
+          if-no-files-found: error

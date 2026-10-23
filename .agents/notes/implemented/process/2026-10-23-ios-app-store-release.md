@@ -34,7 +34,9 @@ Status: implemented
 
 Tauri 的 --build-number 会追加到 bundleVersion（1 + 1 变成 1.1），不是替换；流程在初始化前直接将完整构建号写入 runner 的 iOS 配置，不再传追加参数。校验拒绝意外后缀，并保留不含凭据的包元数据，方便失败时定位。
 
-codesign 提取证书的可选前缀必须使用 --extract-certificates=prefix，不能作为独立位置参数。已通过本机现有签名应用验证命令形式。模拟器显式不签名，避免沿用同一生成项目中写入的 App Store 签名配置；真机 IPA 的证书核验不变。
+codesign 提取证书的可选前缀必须使用 --extract-certificates=prefix，不能作为独立位置参数。已通过本机现有签名应用验证命令形式。模拟器构建前重新初始化 Xcode 项目，清除 App Store 手动签名设置，再由 Xcode 进行 ad hoc 签名。未签名模拟器虽然能启动进程，却在安全存储读取时显示错误；同提交的正常签名模拟器显示干净登录页。smoke 先验证应用签名与资源封印，保留截图供检查；真机 IPA 的证书核验不变。
+
+Tauri 2.12.3 即便使用不透明 iOS 背景，PNG 编码仍保留 alpha 通道，Apple 409 拒绝大图标。仅对生成的 iOS 图标执行 RGB 正规化并重新解码确认无 alpha，不改变 Android/桌面源图。首次 altool 校验/上传在返回 0 时仍输出失败，GitHub 绿色结论不能证明上传成功。上传封装要求 JSON success-message 明确成功且无 product-errors；7 项 Python 测试覆盖返回码为 0 的拒收及冲突结果。
 
 本地前端流程与流解析、TypeScript/Vite 构建、Rust 状态/请求边界测试与 clippy、签名元数据拒绝错误平台/团队/证书/过期和调试权限的测试通过。iOS 原生签名构建及模拟器启动在 GitHub macOS runner 上独立核验；结果记录到 mobile/app-store/README.md，未完成时不能宣称成功。本机 Node 25 的实验 Web Storage 与 jsdom 冲突，本地测试通过 NODE_OPTIONS=--no-experimental-webstorage 运行，CI 继续固定 Node 22。
 

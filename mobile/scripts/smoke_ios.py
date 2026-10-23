@@ -17,6 +17,11 @@ for archive in (root / 'src-tauri/gen/apple').rglob('*.xcarchive'):
 if not apps:
     raise SystemExit('Missing simulator application')
 _, app, identifier, executable = max(apps)
+# An unsigned simulator binary may launch but cannot use Keychain. Require the
+# complete app signature, including sealed bundle resources, before smoke tests.
+subprocess.run(['codesign', '--verify', '--deep', '--strict', str(app)], check=True)
+if not (app / '_CodeSignature/CodeResources').is_file():
+    raise SystemExit('Simulator app lacks an Xcode app signature; Keychain cannot be tested')
 state = json.loads(subprocess.check_output(['xcrun', 'simctl', 'list', 'devices', 'available', '-j']))
 devices = [d for group in state['devices'].values() for d in group if d.get('isAvailable') and d['name'].startswith('iPhone')]
 if not devices:
