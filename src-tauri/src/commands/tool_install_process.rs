@@ -547,38 +547,46 @@ mod tests {
 
     #[cfg(windows)]
     #[tokio::test]
+    #[serial_test::serial]
     async fn windows_download_reports_size_while_body_is_still_streaming() {
-        use std::io::{Read, Write};
-        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        // Other serial tests replace USERPROFILE/HOME. Do not inherit their
+        // temporary values when Windows PowerShell starts its runtime.
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = listener.local_addr().unwrap();
-        listener.set_nonblocking(true).unwrap();
-        let server = std::thread::spawn(move || {
-            let deadline = std::time::Instant::now() + Duration::from_secs(10);
-            let mut stream = loop {
-                match listener.accept() {
-                    Ok((stream, _)) => break stream,
-                    Err(_) if std::time::Instant::now() < deadline => {
-                        std::thread::sleep(Duration::from_millis(20))
-                    }
-                    Err(error) => panic!("download fixture connection: {error}"),
-                }
-            };
-            stream
-                .set_read_timeout(Some(Duration::from_secs(5)))
+        let partial_reported = Arc::new(tokio::sync::Notify::new());
+        let release_body = partial_reported.clone();
+        let server = tokio::spawn(async move {
+            let (mut stream, _) = tokio::time::timeout(Duration::from_secs(45), listener.accept())
+                .await
+                .expect("PowerShell did not connect to the download fixture")
                 .unwrap();
-            let mut request = [0; 4096];
-            assert!(stream.read(&mut request).unwrap() > 0);
+            let mut request = Vec::new();
+            tokio::time::timeout(Duration::from_secs(5), async {
+                while !request.ends_with(b"\r\n\r\n") {
+                    request.push(stream.read_u8().await.unwrap());
+                    assert!(request.len() <= 4096, "fixture request headers too large");
+                }
+            })
+            .await
+            .expect("download fixture did not receive complete request headers");
             stream
                 .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 65536\r\nConnection: close\r\n\r\n")
+                .await
                 .unwrap();
-            stream.write_all(&[1; 32768]).unwrap();
-            std::thread::sleep(Duration::from_millis(1500));
-            stream.write_all(&[2; 32768]).unwrap();
+            stream.write_all(&[1; 32768]).await.unwrap();
+            // Completion must depend on an actual IPC report, not a sleep that
+            // races the supervisor's 500 ms polling interval on a busy runner.
+            tokio::time::timeout(Duration::from_secs(10), release_body.notified())
+                .await
+                .expect("no partial download progress reached the channel");
+            stream.write_all(&[2; 32768]).await.unwrap();
         });
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(dir.path().join("phase"), "download").unwrap();
         let script = format!(
-            "$ErrorActionPreference = 'Stop'\nif ([Console]::ReadLine() -ne 'YUANHENG_GO') {{ exit 1 }}\n{}\nSave-DshRuntime 'http://{address}/runtime.zip'",
+            "$ErrorActionPreference = 'Stop'\nSet-Content fixture-stage started\nif ([Console]::ReadLine() -ne 'YUANHENG_GO') {{ exit 1 }}\nSet-Content fixture-stage gated\n[Net.WebRequest]::DefaultWebProxy = $null\n{}\nSet-Content fixture-stage downloading\nSave-DshRuntime 'http://{address}/runtime.zip'\nSet-Content fixture-stage completed",
             include_str!("../../scripts/dsh-download.ps1")
         );
         let mut command = tokio::process::Command::new("powershell.exe");
@@ -590,32 +598,54 @@ mod tests {
                 &super::super::misc::powershell_encoded_command(&script),
             ])
             .current_dir(dir.path());
+        // The fixture is local. Ambient proxy settings and WPAD are unrelated
+        // to streaming progress and must not turn this into an external request.
+        for name in ["HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY"] {
+            command.env_remove(name);
+        }
         let messages = Arc::new(Mutex::new(Vec::new()));
         let recorded = messages.clone();
         let channel = tauri::ipc::Channel::new(move |body| {
             if let tauri::ipc::InvokeResponseBody::Json(json) = body {
-                recorded
-                    .lock()
-                    .unwrap()
-                    .push(serde_json::from_str::<serde_json::Value>(&json).unwrap());
+                let message = serde_json::from_str::<serde_json::Value>(&json).unwrap();
+                if message["totalBytes"] == 65536
+                    && message["downloadedBytes"]
+                        .as_u64()
+                        .is_some_and(|n| n > 0 && n < 65536)
+                {
+                    partial_reported.notify_one();
+                }
+                recorded.lock().unwrap().push(message);
             }
             Ok(())
         });
+        // This is a startup allowance for a real PowerShell process, not the
+        // production install timeout or an assertion about download speed.
         let result = run_with_progress(
             command,
             Arc::new(AtomicBool::new(false)),
-            Duration::from_secs(10),
+            Duration::from_secs(60),
             ProgressReporter(Some(channel)),
             Some(dir.path()),
         )
-        .await
-        .unwrap();
+        .await;
+        if !matches!(&result, Ok(output) if output.status.success()) {
+            server.abort();
+        }
+        let server_result = server.await;
+        let result = result.unwrap_or_else(|error| {
+            panic!(
+                "{error}; fixture stage={:?}; server={server_result:?}; progress={:?}",
+                read_small(&dir.path().join("fixture-stage"), 64),
+                messages.lock().unwrap(),
+            )
+        });
         assert!(
             result.status.success(),
-            "{}",
+            "{}; server={server_result:?}",
             String::from_utf8_lossy(&result.stderr)
         );
-        server.join().unwrap();
+        server_result.unwrap();
         assert_eq!(
             std::fs::metadata(dir.path().join("runtime.zip"))
                 .unwrap()

@@ -2,9 +2,9 @@
   "schemaVersion": 1,
   "releases": [
     {
-      "version": "0.1.103",
-      "publishedAt": "2026-10-23T04:56:00Z",
-      "content": "【元衡客户端更新公告｜v0.1.103】\n\n• 图像生成能力扩展到 DSH、Claude Code、Gemini CLI、Grok Build、OpenCode、Hermes 和 WorkBuddy，成功配置元衡连接后自动安装，聊天中可按需生图并继续任务。\n• 每个应用使用自己的元衡连接和可用模型目录，沿用最新版本、同版本质量优先；关闭某个应用的图像能力不会影响其他应用。\n• WorkBuddy 代码开发模式读取本地技能；办公模式可在能力中心导出本机 ZIP 包，再通过 WorkBuddy 技能导入使用，图片按宿主支持的结果预览展示。\n• 保留自定义技能和主动关闭、卸载的选择；导入包不含密钥，同一电脑上的 Core 端口变化会同步更新。\n\n提供 Windows x64、Apple 芯片 Mac 和 Intel Mac 安装包；macOS 继续使用 Apple Developer ID 签名和 Apple 公证。"
+      "version": "0.1.104",
+      "publishedAt": "2026-10-23T05:47:06.089Z",
+      "content": "【元衡客户端更新公告｜v0.1.104】\n\n• 图像生成能力扩展到 DSH、Claude Code、Gemini CLI、Grok Build、OpenCode、Hermes 和 WorkBuddy，成功配置元衡连接后自动安装，聊天中可按需生图并继续任务。\n• 每个应用使用自己的元衡连接和可用模型目录，沿用最新版本、同版本质量优先；关闭某个应用的图像能力不会影响其他应用。\n• WorkBuddy 代码开发模式读取本地技能；办公模式可在能力中心导出本机 ZIP 包，再通过 WorkBuddy 技能导入使用，图片按宿主支持的结果预览展示。\n• 保留自定义技能和主动关闭、卸载的选择；导入包不含密钥，同一电脑上的 Core 端口变化会同步更新。\n\n提供 Windows x64、Apple 芯片 Mac 和 Intel Mac 安装包；macOS 继续使用 Apple Developer ID 签名和 Apple 公证。"
     },
     {
       "version": "0.1.102",
