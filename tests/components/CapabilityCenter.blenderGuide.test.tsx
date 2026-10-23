@@ -59,6 +59,10 @@ vi.mock("@/lib/api", () => ({
   settingsApi: { openExternal: vi.fn() },
 }));
 
+vi.mock("@/components/desktop/ImagegenCapabilityCard", () => ({
+  ImagegenCapabilityCard: () => null,
+}));
+
 import { CapabilityCenter } from "@/components/desktop/CapabilityCenter";
 
 describe("CapabilityCenter Blender MCP beginner guide", () => {
@@ -68,7 +72,13 @@ describe("CapabilityCenter Blender MCP beginner guide", () => {
   });
 
   it("opens the six-step guide by default and lets the user collapse it", () => {
-    render(<CapabilityCenter activeApp="codex" onOpen={vi.fn()} />);
+    render(
+      <CapabilityCenter
+        activeApp="codex"
+        activeTool="codex"
+        onOpen={vi.fn()}
+      />,
+    );
 
     const toggle = screen.getByRole("button", {
       name: /第一次使用？照着这 6 步做/,
@@ -84,7 +94,13 @@ describe("CapabilityCenter Blender MCP beginner guide", () => {
   });
 
   it("copies the operating-system-specific uv command", async () => {
-    render(<CapabilityCenter activeApp="codex" onOpen={vi.fn()} />);
+    render(
+      <CapabilityCenter
+        activeApp="codex"
+        activeTool="codex"
+        onOpen={vi.fn()}
+      />,
+    );
 
     fireEvent.click(screen.getAllByRole("button", { name: "复制命令" })[0]);
 

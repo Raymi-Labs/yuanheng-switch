@@ -97,6 +97,8 @@ impl Database {
             enabled_grokbuild BOOLEAN NOT NULL DEFAULT 0,
             enabled_opencode BOOLEAN NOT NULL DEFAULT 0,
             enabled_hermes BOOLEAN NOT NULL DEFAULT 0,
+            enabled_dsh BOOLEAN NOT NULL DEFAULT 0,
+            enabled_workbuddy BOOLEAN NOT NULL DEFAULT 0,
             installed_at INTEGER NOT NULL DEFAULT 0,
             content_hash TEXT,
             updated_at INTEGER NOT NULL DEFAULT 0
@@ -538,6 +540,10 @@ impl Database {
                     19 => {
                         Self::migrate_v19_to_v20(conn)?;
                         Self::set_user_version(conn, 20)?;
+                    }
+                    20 => {
+                        Self::migrate_v20_to_v21(conn)?;
+                        Self::set_user_version(conn, 21)?;
                     }
                     _ => {
                         return Err(AppError::Database(format!(
@@ -1569,6 +1575,20 @@ impl Database {
             [],
         )
         .map_err(|e| AppError::Database(e.to_string()))?;
+        Ok(())
+    }
+
+    /// v20 -> v21: image skill targets for DSH and WorkBuddy.
+    fn migrate_v20_to_v21(conn: &Connection) -> Result<(), AppError> {
+        // Like earlier skill-column migrations, allow partial legacy schemas.
+        // Normal initialization calls create_tables first; its current schema
+        // also supplies both columns when a missing skills table is recreated.
+        if !Self::table_exists(conn, "skills")? {
+            return Ok(());
+        }
+        for column in ["enabled_dsh", "enabled_workbuddy"] {
+            Self::add_column_if_missing(conn, "skills", column, "BOOLEAN NOT NULL DEFAULT 0")?;
+        }
         Ok(())
     }
 
@@ -3060,6 +3080,54 @@ impl Database {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn migrate_v20_to_v21_allows_missing_skills_and_create_tables_supplies_current_columns(
+    ) -> Result<(), AppError> {
+        let conn = Connection::open_in_memory()?;
+        Database::set_user_version(&conn, 20)?;
+        Database::apply_schema_migrations_on_conn(&conn)?;
+        assert_eq!(Database::get_user_version(&conn)?, SCHEMA_VERSION);
+        assert!(!Database::table_exists(&conn, "skills")?);
+
+        let db = Database {
+            conn: std::sync::Mutex::new(conn),
+        };
+        db.create_tables()?;
+        let conn = db.conn.lock().unwrap();
+        conn.execute(
+            "INSERT INTO skills (id,name,directory) VALUES ('test','Test','test')",
+            [],
+        )?;
+        let flags: (bool, bool) = conn.query_row(
+            "SELECT enabled_dsh,enabled_workbuddy FROM skills WHERE id='test'",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )?;
+        assert_eq!(flags, (false, false));
+        Ok(())
+    }
+
+    #[test]
+    fn migrate_v20_to_v21_preserves_enabled_clients_and_defaults_new_clients_off(
+    ) -> Result<(), AppError> {
+        let conn = Connection::open_in_memory()?;
+        conn.execute_batch(
+            "CREATE TABLE skills(id TEXT PRIMARY KEY, enabled_codex BOOLEAN NOT NULL DEFAULT 0);
+            INSERT INTO skills VALUES ('builtin:meta-api-imagegen',1);",
+        )?;
+        Database::set_user_version(&conn, 20)?;
+        Database::apply_schema_migrations_on_conn(&conn)?;
+        Database::migrate_v20_to_v21(&conn)?;
+        let flags: (bool, bool, bool) = conn.query_row(
+            "SELECT enabled_codex,enabled_dsh,enabled_workbuddy FROM skills",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )?;
+        assert_eq!(flags, (true, false, false));
+        assert_eq!(Database::get_user_version(&conn)?, SCHEMA_VERSION);
+        Ok(())
+    }
 
     #[test]
     fn migrate_v19_to_v20_repairs_only_desktop_proxy_semantics_without_inventing_groups(

@@ -1,10 +1,18 @@
-//! Lifecycle for the bundled image skill. All callers serialize with user toggles
-//! and uninstalls; automatic maintenance never adopts an unknown directory.
-
+//! One managed source, with isolated, target-bound copies in each client.
+//! All mutations share the same lifecycle lock; unknown or edited files survive.
 use super::*;
 use std::sync::{Mutex, MutexGuard};
 
-const INITIALIZED_KEY: &str = "builtin_imagegen_auto_initialized";
+const LEGACY_INITIALIZED_KEY: &str = "builtin_imagegen_auto_initialized";
+const UNINSTALLED_KEY: &str = "builtin_imagegen_uninstalled";
+const BINDING_FILE: &str = "yuanheng-binding.json";
+const EXPORT_FILES: [&str; 5] = [
+    "SKILL.md",
+    "agents/openai.yaml",
+    "scripts/meta_api_imagegen.mjs",
+    "scripts/run_imagegen.mjs",
+    BINDING_FILE,
+];
 static LIFECYCLE_LOCK: Mutex<()> = Mutex::new(());
 
 pub(super) fn lock() -> Result<MutexGuard<'static, ()>> {
@@ -13,9 +21,27 @@ pub(super) fn lock() -> Result<MutexGuard<'static, ()>> {
         .map_err(|_| anyhow!("图像生成技能正在恢复，请重启元衡后重试"))
 }
 
-pub(super) fn remember_initialized(db: &Arc<Database>) -> Result<()> {
-    if db.get_setting(INITIALIZED_KEY)?.as_deref() != Some("true") {
-        db.set_setting(INITIALIZED_KEY, "true")?;
+fn initialized_key(target: ImagegenTarget) -> String {
+    format!("builtin_imagegen_initialized_{}", target.as_str())
+}
+
+fn remember_initialized(db: &Arc<Database>, target: ImagegenTarget) -> Result<()> {
+    db.set_setting(&initialized_key(target), "true")?;
+    Ok(())
+}
+
+fn migrate_legacy_marker(db: &Arc<Database>, existing: Option<&InstalledSkill>) -> Result<()> {
+    if db.get_setting(LEGACY_INITIALIZED_KEY)?.as_deref() == Some("true")
+        && db
+            .get_setting(&initialized_key(ImagegenTarget::Codex))?
+            .is_none()
+    {
+        remember_initialized(db, ImagegenTarget::Codex)?;
+        // The old global uninstall removed the record. New clients must not
+        // resurrect that explicit choice during their first automatic ensure.
+        if existing.is_none() {
+            db.set_setting(UNINSTALLED_KEY, "true")?;
+        }
     }
     Ok(())
 }
@@ -49,8 +75,8 @@ fn owned_record(db: &Arc<Database>) -> Result<Option<InstalledSkill>> {
     Ok(existing)
 }
 
-// The shared legacy hash excludes dot files and follows symlinks. Reject those
-// additions before using that hash as proof that this bundled tree is unchanged.
+// The legacy source hash ignores dot files and follows symlinks. Check their
+// absence before accepting a hash; only the exact validated root binding differs.
 fn validate_tree(path: &Path) -> Result<()> {
     let metadata = fs::symlink_metadata(path)?;
     if !metadata.is_dir() || metadata.file_type().is_symlink() {
@@ -82,16 +108,108 @@ fn validate_hash(path: &Path, expected: Option<&str>) -> Result<()> {
     Ok(())
 }
 
-fn validate_projection(path: &Path, source: &Path, expected: Option<&str>) -> Result<()> {
-    if !exists(path) {
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct Binding {
+    owner: String,
+    version: u32,
+    target: String,
+    runtime_path: PathBuf,
+}
+
+#[derive(Debug, Clone)]
+struct Projection {
+    target: ImagegenTarget,
+    path: PathBuf,
+    runtime_path: PathBuf,
+}
+
+impl Projection {
+    fn new(target: ImagegenTarget) -> Result<Self> {
+        Ok(Self {
+            target,
+            path: target.projection_path()?,
+            runtime_path: target.runtime_path()?,
+        })
+    }
+    fn binding(&self) -> Binding {
+        Binding {
+            owner: "yuanheng-imagegen".into(),
+            version: 1,
+            target: self.target.as_str().into(),
+            runtime_path: self.runtime_path.clone(),
+        }
+    }
+    fn validate_binding(&self) -> Result<bool> {
+        let path = self.path.join(BINDING_FILE);
+        if !exists(&path) {
+            return Ok(false);
+        }
+        if !fs::symlink_metadata(&path)?.is_file() || SkillService::is_symlink(&path) {
+            return Err(anyhow!("图像技能绑定文件已被修改，已保留"));
+        }
+        let binding: Binding =
+            serde_json::from_slice(&fs::read(&path)?).context("图像技能绑定文件无效，已保留")?;
+        if binding != self.binding() {
+            return Err(anyhow!("图像技能绑定与目标客户端不匹配，已保留"));
+        }
+        Ok(true)
+    }
+    fn write_binding(&self) -> Result<()> {
+        fs::write(
+            self.path.join(BINDING_FILE),
+            serde_json::to_vec_pretty(&self.binding())?,
+        )?;
+        Ok(())
+    }
+}
+
+fn projection_hash(projection: &Projection) -> Result<String> {
+    use sha2::{Digest, Sha256};
+    validate_tree(&projection.path)?;
+    let bound = projection.validate_binding()?;
+    let mut files = Vec::new();
+    SkillService::collect_files_for_hash(&projection.path, &projection.path, &mut files)?;
+    files.sort();
+    let mut hasher = Sha256::new();
+    for file in files {
+        let relative = file.strip_prefix(&projection.path)?;
+        if bound && relative == Path::new(BINDING_FILE) {
+            continue;
+        }
+        hasher.update(relative.to_string_lossy().replace('\\', "/").as_bytes());
+        hasher.update(b"\0");
+        hasher.update(fs::read(file)?);
+        hasher.update(b"\0");
+    }
+    Ok(format!("{:x}", hasher.finalize()))
+}
+
+fn validate_projection(
+    projection: &Projection,
+    source: &Path,
+    expected: Option<&str>,
+    owned: bool,
+) -> Result<()> {
+    if !exists(&projection.path) {
         return Ok(());
     }
-    if SkillService::is_symlink(path) {
-        let target = fs::read_link(path)?;
+    if !owned {
+        return Err(anyhow!(
+            "{} 中存在未托管的同名图像生成技能，已保留",
+            projection.target.as_str()
+        ));
+    }
+    if SkillService::is_symlink(&projection.path) {
+        let target = fs::read_link(&projection.path)?;
         let target = if target.is_absolute() {
             target
         } else {
-            path.parent().unwrap_or(Path::new(".")).join(target)
+            projection
+                .path
+                .parent()
+                .unwrap_or(Path::new("."))
+                .join(target)
         };
         if target == source
             || (target.canonicalize().ok().is_some()
@@ -99,44 +217,64 @@ fn validate_projection(path: &Path, source: &Path, expected: Option<&str>) -> Re
         {
             return Ok(());
         }
-        return Err(anyhow!("Codex 中存在外部图像生成技能链接，已保留"));
+        return Err(anyhow!("客户端中存在外部图像生成技能链接，已保留"));
     }
-    validate_hash(path, expected)
-}
-
-pub(super) fn validate_current_projection(skill: &InstalledSkill, app: &AppType) -> Result<()> {
-    let source = SkillService::get_ssot_dir()?.join(BUILTIN_IMAGEGEN_DIRECTORY);
-    validate_hash(&source, skill.content_hash.as_deref())?;
-    let path = SkillService::get_app_skills_dir(app)?.join(BUILTIN_IMAGEGEN_DIRECTORY);
-    validate_projection(&path, &source, skill.content_hash.as_deref())
+    if expected != Some(projection_hash(projection)?.as_str()) {
+        return Err(anyhow!("客户端中的图像生成技能已被本地修改，已保留"));
+    }
+    Ok(())
 }
 
 fn write_bundle(path: &Path) -> Result<()> {
     fs::create_dir_all(path.join("agents"))?;
     fs::create_dir_all(path.join("scripts"))?;
-    fs::write(path.join("SKILL.md"), BUILTIN_IMAGEGEN_SKILL_MD)?;
-    fs::write(
-        path.join("agents/openai.yaml"),
-        BUILTIN_IMAGEGEN_OPENAI_YAML,
-    )?;
-    fs::write(
-        path.join("scripts/meta_api_imagegen.mjs"),
-        BUILTIN_IMAGEGEN_SCRIPT,
-    )?;
+    for (name, content) in [
+        ("SKILL.md", BUILTIN_IMAGEGEN_SKILL_MD),
+        ("agents/openai.yaml", BUILTIN_IMAGEGEN_OPENAI_YAML),
+        ("scripts/meta_api_imagegen.mjs", BUILTIN_IMAGEGEN_SCRIPT),
+        ("scripts/run_imagegen.mjs", BUILTIN_IMAGEGEN_LAUNCHER),
+    ] {
+        fs::write(path.join(name), content)?;
+    }
     Ok(())
 }
 
-struct Projection {
-    app: AppType,
-    path: PathBuf,
+fn copy_projection(source: &Path, projection: &Projection) -> Result<()> {
+    SkillService::replace_dest_with_copy(source, &projection.path, BUILTIN_IMAGEGEN_DIRECTORY)?;
+    projection.write_binding()
 }
 
-/// A rename snapshot preserves directory contents and the original symlink form.
+// Compare physical parents, without resolving the last component (legacy
+// projections may still be symlinks to the source).
+fn location(path: &Path) -> PathBuf {
+    let parent = path.parent().unwrap_or(Path::new("."));
+    parent
+        .canonicalize()
+        .unwrap_or_else(|_| parent.to_path_buf())
+        .join(path.file_name().unwrap_or_default())
+}
+
+fn validate_locations(source: &Path, projections: &[Projection]) -> Result<()> {
+    let mut paths = vec![location(source)];
+    for projection in projections {
+        let path = location(&projection.path);
+        if paths
+            .iter()
+            .any(|prior| path.starts_with(prior) || prior.starts_with(&path))
+        {
+            return Err(anyhow!(
+                "图像技能的客户端目录重叠，请为每个客户端设置独立技能目录"
+            ));
+        }
+        paths.push(path);
+    }
+    Ok(())
+}
+
 struct Snapshot {
     path: PathBuf,
     previous: Option<PathBuf>,
 }
-
 impl Snapshot {
     fn take(path: &Path) -> Result<Self> {
         let previous = if exists(path) {
@@ -154,7 +292,6 @@ impl Snapshot {
             previous,
         })
     }
-
     fn restore(&self) -> Result<()> {
         SkillService::remove_path(&self.path)?;
         if let Some(previous) = &self.previous {
@@ -162,7 +299,6 @@ impl Snapshot {
         }
         Ok(())
     }
-
     fn finish(self) {
         if let Some(previous) = self.previous {
             if let Err(error) = SkillService::remove_path(&previous) {
@@ -172,125 +308,292 @@ impl Snapshot {
     }
 }
 
-impl SkillService {
-    /// Returns the enabled installed skill, including an unchanged installation.
-    /// None means the user disabled/uninstalled it. Errors are non-fatal warnings
-    /// for the configuration/startup caller; never turn them into success.
-    pub fn ensure_builtin_imagegen(db: &Arc<Database>) -> Result<Option<InstalledSkill>> {
-        let _guard = lock()?;
-        Self::maintain_builtin_imagegen(db, &AppType::Codex, false)
-    }
-
-    /// Explicit install/update can re-enable a disabled or uninstalled bundle;
-    /// existing local edits and externally owned names still require resolution.
-    pub fn install_builtin_imagegen(
-        db: &Arc<Database>,
-        current_app: &AppType,
-    ) -> Result<InstalledSkill> {
-        let _guard = lock()?;
-        Self::maintain_builtin_imagegen(db, current_app, true)?
-            .ok_or_else(|| anyhow!("图像生成技能未安装"))
-    }
-
-    fn maintain_builtin_imagegen(
-        db: &Arc<Database>,
-        current_app: &AppType,
-        explicit: bool,
-    ) -> Result<Option<InstalledSkill>> {
-        if matches!(current_app, AppType::ClaudeDesktop | AppType::OpenClaw) {
-            return Err(anyhow!("This application does not support Skills"));
-        }
-        let existing = owned_record(db)?;
-        if should_skip(db, existing.as_ref(), explicit)? {
-            return Ok(None);
-        }
-        let mut apps = existing
-            .as_ref()
-            .map(|s| s.apps.clone())
-            .unwrap_or_default();
-        apps.set_enabled_for(current_app, true);
-        let projections = apps
-            .enabled_apps()
+struct StateSnapshot {
+    skill: Option<InstalledSkill>,
+    settings: Vec<(String, Option<String>)>,
+}
+impl StateSnapshot {
+    fn take(db: &Arc<Database>, skill: Option<&InstalledSkill>) -> Result<Self> {
+        let mut keys: Vec<_> = ImagegenTarget::all()
             .into_iter()
-            .map(|app| {
-                Ok(Projection {
-                    path: Self::get_app_skills_dir(&app)?.join(BUILTIN_IMAGEGEN_DIRECTORY),
-                    app,
-                })
-            })
-            .collect::<Result<Vec<_>>>()?;
-        install_at(
-            db,
-            existing.as_ref(),
-            apps,
-            &Self::get_ssot_dir()?,
-            &projections,
-            |projection, was_copy| {
-                if was_copy && Self::get_sync_method() == SyncMethod::Auto {
-                    Self::replace_dest_with_copy(
-                        &Self::get_ssot_dir()?.join(BUILTIN_IMAGEGEN_DIRECTORY),
-                        &projection.path,
-                        BUILTIN_IMAGEGEN_DIRECTORY,
-                    )
-                } else {
-                    Self::sync_to_app_dir(BUILTIN_IMAGEGEN_DIRECTORY, &projection.app)
-                }
-            },
-        )
-        .map(Some)
+            .map(initialized_key)
+            .collect();
+        keys.push(UNINSTALLED_KEY.into());
+        keys.push(LEGACY_INITIALIZED_KEY.into());
+        let settings = keys
+            .into_iter()
+            .map(|key| Ok((key.clone(), db.get_setting(&key)?)))
+            .collect::<Result<_>>()?;
+        Ok(Self {
+            skill: skill.cloned(),
+            settings,
+        })
     }
+    fn restore(&self, db: &Arc<Database>) -> Result<()> {
+        let mut errors = Vec::new();
+        let record_result = if let Some(skill) = &self.skill {
+            db.save_skill(skill)
+        } else {
+            db.delete_skill(BUILTIN_IMAGEGEN_ID).map(|_| ())
+        };
+        if let Err(error) = record_result {
+            errors.push(error.to_string());
+        }
+        for (key, value) in &self.settings {
+            let result = if let Some(value) = value {
+                db.set_setting(key, value)
+            } else {
+                db.delete_setting(key)
+            };
+            if let Err(error) = result {
+                errors.push(error.to_string());
+            }
+        }
+        if errors.is_empty() {
+            Ok(())
+        } else {
+            Err(anyhow!(errors.join("; ")))
+        }
+    }
+}
+
+fn finish_transaction(
+    db: &Arc<Database>,
+    state: StateSnapshot,
+    snapshots: Vec<Snapshot>,
+    result: Result<()>,
+) -> Result<()> {
+    if let Err(error) = result {
+        let mut errors = Vec::new();
+        for snapshot in snapshots.iter().rev() {
+            if let Err(error) = snapshot.restore() {
+                errors.push(error.to_string());
+            }
+        }
+        if let Err(error) = state.restore(db) {
+            errors.push(error.to_string());
+        }
+        return if errors.is_empty() {
+            Err(error)
+        } else {
+            Err(anyhow!("{error}; 恢复失败: {}", errors.join("; ")))
+        };
+    }
+    for snapshot in snapshots {
+        snapshot.finish();
+    }
+    Ok(())
 }
 
 fn should_skip(
     db: &Arc<Database>,
     existing: Option<&InstalledSkill>,
+    target: ImagegenTarget,
     explicit: bool,
 ) -> Result<bool> {
+    migrate_legacy_marker(db, existing)?;
     if explicit {
         return Ok(false);
     }
-    if let Some(skill) = existing {
-        if !skill.apps.codex {
-            remember_initialized(db)?;
-            return Ok(true);
-        }
-    } else if db.get_setting(INITIALIZED_KEY)?.as_deref() == Some("true") {
+    if db.get_setting(UNINSTALLED_KEY)?.as_deref() == Some("true") {
         return Ok(true);
     }
-    Ok(false)
+    Ok(
+        !existing.is_some_and(|skill| target.is_enabled(&skill.apps))
+            && db.get_setting(&initialized_key(target))?.as_deref() == Some("true"),
+    )
+}
+
+impl SkillService {
+    pub fn ensure_builtin_imagegen(db: &Arc<Database>) -> Result<Option<InstalledSkill>> {
+        Self::ensure_builtin_imagegen_for(db, ImagegenTarget::Codex)
+    }
+    pub fn ensure_builtin_imagegen_for(
+        db: &Arc<Database>,
+        target: ImagegenTarget,
+    ) -> Result<Option<InstalledSkill>> {
+        let _guard = lock()?;
+        maintain_locked(db, target, false)
+    }
+    pub fn install_builtin_imagegen(db: &Arc<Database>, app: &AppType) -> Result<InstalledSkill> {
+        Self::install_builtin_imagegen_for(db, ImagegenTarget::parse(app.as_str())?)
+    }
+    pub fn install_builtin_imagegen_for(
+        db: &Arc<Database>,
+        target: ImagegenTarget,
+    ) -> Result<InstalledSkill> {
+        let _guard = lock()?;
+        maintain_locked(db, target, true)?.ok_or_else(|| anyhow!("图像生成技能未安装"))
+    }
+    pub fn toggle_builtin_imagegen_for(
+        db: &Arc<Database>,
+        target: ImagegenTarget,
+        enabled: bool,
+    ) -> Result<()> {
+        let _guard = lock()?;
+        if enabled {
+            maintain_locked(db, target, true)?;
+            return Ok(());
+        }
+        let skill = owned_record(db)?.ok_or_else(|| anyhow!("图像生成技能未安装"))?;
+        let projection = Projection::new(target)?;
+        if !target.is_enabled(&skill.apps) {
+            remember_initialized(db, target)?;
+            return Ok(());
+        }
+        let source = Self::get_ssot_dir()?.join(BUILTIN_IMAGEGEN_DIRECTORY);
+        validate_projection(&projection, &source, skill.content_hash.as_deref(), true)?;
+        disable_at(db, &skill, &projection)
+    }
+    pub fn validate_builtin_imagegen_projection(
+        db: &Arc<Database>,
+        target: ImagegenTarget,
+    ) -> Result<()> {
+        let _guard = lock()?;
+        validated_projection(db, target).map(|_| ())
+    }
+
+    /// A read-only, coherent bundle snapshot. The ZIP writer need not hold the
+    /// lifecycle lock while compressing or writing the user's chosen file.
+    pub fn builtin_imagegen_export_snapshot(
+        db: &Arc<Database>,
+        target: ImagegenTarget,
+    ) -> Result<Vec<(String, Vec<u8>)>> {
+        let _guard = lock()?;
+        let (skill, projection) = validated_projection(db, target)?;
+        export_snapshot_at(&skill, &projection)
+    }
+}
+
+fn validated_projection(
+    db: &Arc<Database>,
+    target: ImagegenTarget,
+) -> Result<(InstalledSkill, Projection)> {
+    let skill = owned_record(db)?.ok_or_else(|| anyhow!("图像生成技能未安装"))?;
+    if !target.is_enabled(&skill.apps) {
+        return Err(anyhow!("此客户端尚未启用图像生成技能"));
+    }
+    validate_current_projection_for(&skill, target)?;
+    let projection = Projection::new(target)?;
+    if !exists(&projection.path)
+        || SkillService::is_symlink(&projection.path)
+        || !projection.validate_binding()?
+    {
+        return Err(anyhow!("图像技能绑定尚未就绪，请先重新安装或同步"));
+    }
+    Ok((skill, projection))
+}
+
+fn export_snapshot_at(
+    skill: &InstalledSkill,
+    projection: &Projection,
+) -> Result<Vec<(String, Vec<u8>)>> {
+    use sha2::{Digest, Sha256};
+    use std::io::Read;
+    const MAX_FILE_BYTES: u64 = 1024 * 1024;
+    let mut files = Vec::new();
+    for name in EXPORT_FILES {
+        let path = projection.path.join(name);
+        let metadata = fs::symlink_metadata(&path)?;
+        if !metadata.file_type().is_file() || metadata.len() > MAX_FILE_BYTES {
+            return Err(anyhow!("图像技能文件异常，请重新安装后导出"));
+        }
+        let mut bytes = Vec::new();
+        fs::File::open(path)?
+            .take(MAX_FILE_BYTES + 1)
+            .read_to_end(&mut bytes)?;
+        if bytes.len() as u64 > MAX_FILE_BYTES {
+            return Err(anyhow!("图像技能文件过大，无法导出"));
+        }
+        files.push((name.to_string(), bytes));
+    }
+    // The lifecycle lock prevents our own refresh/uninstall racing the reads.
+    // Recheck the returned bytes as well, so external writes cannot produce a
+    // mixed-version or redirected snapshot between validation and reading.
+    files.sort_by(|left, right| left.0.cmp(&right.0));
+    let mut hasher = Sha256::new();
+    for (name, bytes) in &files {
+        if name == BINDING_FILE {
+            let binding: Binding = serde_json::from_slice(bytes)?;
+            if binding != projection.binding() {
+                return Err(anyhow!("导出期间图像技能绑定已改变，请重试"));
+            }
+        } else {
+            hasher.update(name.as_bytes());
+            hasher.update(b"\0");
+            hasher.update(bytes);
+            hasher.update(b"\0");
+        }
+    }
+    if skill.content_hash.as_deref() != Some(format!("{:x}", hasher.finalize()).as_str()) {
+        return Err(anyhow!("导出期间图像技能内容已改变，请重试"));
+    }
+    Ok(files)
+}
+
+fn maintain_locked(
+    db: &Arc<Database>,
+    target: ImagegenTarget,
+    explicit: bool,
+) -> Result<Option<InstalledSkill>> {
+    let existing = owned_record(db)?;
+    if should_skip(db, existing.as_ref(), target, explicit)? {
+        return Ok(None);
+    }
+    let mut apps = existing
+        .as_ref()
+        .map(|skill| skill.apps.clone())
+        .unwrap_or_default();
+    target.set_enabled(&mut apps, true);
+    let projections = ImagegenTarget::enabled_targets(&apps)
+        .into_iter()
+        .map(Projection::new)
+        .collect::<Result<Vec<_>>>()?;
+    let ssot = SkillService::get_ssot_dir()?;
+    install_at(
+        db,
+        existing.as_ref(),
+        apps,
+        &ssot,
+        &projections,
+        target,
+        |projection| copy_projection(&ssot.join(BUILTIN_IMAGEGEN_DIRECTORY), projection),
+    )
+    .map(Some)
+}
+
+pub(super) fn refresh_locked(db: &Arc<Database>) -> Result<InstalledSkill> {
+    let existing = owned_record(db)?.ok_or_else(|| anyhow!("图像生成技能未安装"))?;
+    let targets = ImagegenTarget::enabled_targets(&existing.apps);
+    let target = targets.first().copied().unwrap_or(ImagegenTarget::Codex);
+    let projections = targets
+        .into_iter()
+        .map(Projection::new)
+        .collect::<Result<Vec<_>>>()?;
+    let ssot = SkillService::get_ssot_dir()?;
+    install_at(
+        db,
+        Some(&existing),
+        existing.apps.clone(),
+        &ssot,
+        &projections,
+        target,
+        |projection| copy_projection(&ssot.join(BUILTIN_IMAGEGEN_DIRECTORY), projection),
+    )
 }
 
 fn install_at(
     db: &Arc<Database>,
     existing: Option<&InstalledSkill>,
     apps: SkillApps,
-    ssot_dir: &Path,
+    ssot: &Path,
     projections: &[Projection],
-    sync: impl Fn(&Projection, bool) -> Result<()>,
+    target: ImagegenTarget,
+    sync: impl Fn(&Projection) -> Result<()>,
 ) -> Result<InstalledSkill> {
-    let source = ssot_dir.join(BUILTIN_IMAGEGEN_DIRECTORY);
-    // Override directories may alias each other. Moving the same path twice
-    // would invalidate the transaction's snapshots, so reject that layout.
-    let mut destinations = HashSet::new();
-    destinations.insert(source.canonicalize().unwrap_or_else(|_| source.clone()));
-    for projection in projections {
-        let path = projection
-            .path
-            .canonicalize()
-            .unwrap_or_else(|_| projection.path.clone());
-        // A managed symlink deliberately resolves to SSOT; its link location is
-        // distinct and is the path that the snapshot renames.
-        let path = if SkillService::is_symlink(&projection.path) {
-            projection.path.clone()
-        } else {
-            path
-        };
-        if !destinations.insert(path) {
-            return Err(anyhow!(
-                "图像技能的源目录与工具目录重叠，已保留，请检查自定义目录设置"
-            ));
-        }
-    }
+    fs::create_dir_all(ssot)?;
+    let source = ssot.join(BUILTIN_IMAGEGEN_DIRECTORY);
+    validate_locations(&source, projections)?;
     let old_hash = existing.and_then(|skill| skill.content_hash.as_deref());
     if exists(&source) {
         if existing.is_none() {
@@ -299,23 +602,22 @@ fn install_at(
         validate_hash(&source, old_hash)?;
     }
     for projection in projections {
-        // No record means there is no proof of ownership, even if bytes match.
-        if existing.is_none() && exists(&projection.path) {
-            return Err(anyhow!("Codex 中存在未托管的同名图像生成技能，已保留"));
-        }
-        validate_projection(&projection.path, &source, old_hash)?;
+        validate_projection(
+            projection,
+            &source,
+            old_hash,
+            existing.is_some_and(|skill| projection.target.is_enabled(&skill.apps)),
+        )?;
     }
-
-    let previous_marker = db.get_setting(INITIALIZED_KEY)?;
-    let staging = ssot_dir.join(format!(
+    let staging = ssot.join(format!(
         ".{BUILTIN_IMAGEGEN_DIRECTORY}.staging-{}",
         uuid::Uuid::new_v4()
     ));
-    if let Err(error) = write_bundle(&staging) {
-        let _ = SkillService::remove_path(&staging);
-        return Err(error);
-    }
-    let hash = match SkillService::compute_dir_hash(&staging) {
+    let staged = (|| {
+        write_bundle(&staging)?;
+        SkillService::compute_dir_hash(&staging)
+    })();
+    let hash = match staged {
         Ok(hash) => hash,
         Err(error) => {
             let _ = SkillService::remove_path(&staging);
@@ -324,85 +626,191 @@ fn install_at(
     };
     let now = Utc::now().timestamp();
     let skill = InstalledSkill {
-        id: BUILTIN_IMAGEGEN_ID.to_string(),
-        name: "YuanHeng ImageGen".to_string(),
+        id: BUILTIN_IMAGEGEN_ID.into(),
+        name: "YuanHeng ImageGen".into(),
         description: Some(
-            "Generate and edit images using the latest available YuanHeng image model.".to_string(),
+            "Generate and edit images using the latest available YuanHeng image model.".into(),
         ),
-        directory: BUILTIN_IMAGEGEN_DIRECTORY.to_string(),
+        directory: BUILTIN_IMAGEGEN_DIRECTORY.into(),
         repo_owner: None,
         repo_name: None,
         repo_branch: None,
         readme_url: None,
         apps,
-        installed_at: existing.map(|s| s.installed_at).unwrap_or(now),
+        installed_at: existing.map(|skill| skill.installed_at).unwrap_or(now),
         content_hash: Some(hash.clone()),
         updated_at: now,
     };
-    if let Some(existing) = existing {
-        if exists(&source)
-            && old_hash == Some(hash.as_str())
-            && existing.apps == skill.apps
-            && existing.description == skill.description
-            && projections.iter().all(|p| exists(&p.path))
-        {
-            SkillService::remove_path(&staging)?;
-            remember_initialized(db)?;
-            return Ok(existing.clone());
+    let state = match StateSnapshot::take(db, existing) {
+        Ok(state) => state,
+        Err(error) => {
+            let _ = SkillService::remove_path(&staging);
+            return Err(error);
         }
-    }
-
+    };
     let mut snapshots = Vec::new();
-    let result = (|| -> Result<()> {
-        snapshots.push(Snapshot::take(&source)?);
-        fs::rename(&staging, &source)?;
-        for projection in projections {
-            let was_copy = projection.path.is_dir() && !SkillService::is_symlink(&projection.path);
-            snapshots.push(Snapshot::take(&projection.path)?);
-            sync(projection, was_copy)?;
+    let result = (|| {
+        let unchanged = existing.is_some_and(|old| {
+            exists(&source)
+                && old_hash == Some(hash.as_str())
+                && old.apps == skill.apps
+                && old.description == skill.description
+        }) && projections.iter().all(|projection| {
+            exists(&projection.path)
+                && !SkillService::is_symlink(&projection.path)
+                && projection.validate_binding().unwrap_or(false)
+        });
+        if unchanged {
+            SkillService::remove_path(&staging)?;
+        } else {
+            snapshots.push(Snapshot::take(&source)?);
+            fs::rename(&staging, &source)?;
+            for projection in projections {
+                snapshots.push(Snapshot::take(&projection.path)?);
+                sync(projection)?;
+            }
+            db.save_skill(&skill)?;
         }
-        db.save_skill(&skill)?;
-        remember_initialized(db)?;
+        remember_initialized(db, target)?;
+        db.delete_setting(UNINSTALLED_KEY)?;
         Ok(())
     })();
-    if let Err(error) = result {
-        let mut rollback_errors = Vec::new();
-        for snapshot in snapshots.iter().rev() {
-            if let Err(error) = snapshot.restore() {
-                rollback_errors.push(error.to_string());
-            }
-        }
-        let restore_record = if let Some(existing) = existing {
-            db.save_skill(existing)
-        } else {
-            db.delete_skill(BUILTIN_IMAGEGEN_ID).map(|_| ())
-        };
-        if let Err(error) = restore_record {
-            rollback_errors.push(error.to_string());
-        }
-        let restore_marker = if let Some(value) = previous_marker {
-            db.set_setting(INITIALIZED_KEY, &value)
-        } else {
-            db.delete_setting(INITIALIZED_KEY)
-        };
-        if let Err(error) = restore_marker {
-            rollback_errors.push(error.to_string());
-        }
-        if let Err(error) = SkillService::remove_path(&staging) {
-            rollback_errors.push(error.to_string());
-        }
-        return if rollback_errors.is_empty() {
-            Err(error)
-        } else {
-            Err(anyhow!(
-                "{error}; 图像技能恢复不完整，旧备份已保留: {}",
-                rollback_errors.join("; ")
-            ))
-        };
+    let unchanged = snapshots.is_empty() && result.is_ok();
+    let finished = finish_transaction(db, state, snapshots, result);
+    let _ = SkillService::remove_path(&staging);
+    finished?;
+    Ok(if unchanged {
+        existing.cloned().unwrap_or(skill)
+    } else {
+        skill
+    })
+}
+
+pub(super) fn validate_current_projection(skill: &InstalledSkill, app: &AppType) -> Result<()> {
+    validate_current_projection_for(skill, ImagegenTarget::parse(app.as_str())?)
+}
+
+pub(super) fn validate_current_projection_for(
+    skill: &InstalledSkill,
+    target: ImagegenTarget,
+) -> Result<()> {
+    let source = SkillService::get_ssot_dir()?.join(BUILTIN_IMAGEGEN_DIRECTORY);
+    validate_hash(&source, skill.content_hash.as_deref())?;
+    validate_projection(
+        &Projection::new(target)?,
+        &source,
+        skill.content_hash.as_deref(),
+        target.is_enabled(&skill.apps),
+    )
+}
+
+// Called only from the common sync path after its caller validates ownership.
+// Always copy: one target's binding must never modify the shared source.
+pub(super) fn sync_projection(target: ImagegenTarget) -> Result<()> {
+    let source = SkillService::get_ssot_dir()?.join(BUILTIN_IMAGEGEN_DIRECTORY);
+    let projection = Projection::new(target)?;
+    validate_locations(&source, std::slice::from_ref(&projection))?;
+    let snapshot = Snapshot::take(&projection.path)?;
+    if let Err(error) = copy_projection(&source, &projection) {
+        snapshot.restore().context("恢复图像技能投影失败")?;
+        return Err(error);
     }
-    for snapshot in snapshots {
-        snapshot.finish();
+    snapshot.finish();
+    Ok(())
+}
+
+pub(super) fn uninstall_locked(db: &Arc<Database>, skill: &InstalledSkill) -> Result<()> {
+    let source = SkillService::get_ssot_dir()?.join(BUILTIN_IMAGEGEN_DIRECTORY);
+    let projections = ImagegenTarget::enabled_targets(&skill.apps)
+        .into_iter()
+        .map(Projection::new)
+        .collect::<Result<Vec<_>>>()?;
+    uninstall_at(db, skill, &source, &projections)
+}
+
+fn disable_at(db: &Arc<Database>, skill: &InstalledSkill, projection: &Projection) -> Result<()> {
+    let state = StateSnapshot::take(db, Some(skill))?;
+    let snapshots = vec![Snapshot::take(&projection.path)?];
+    let result = (|| {
+        let mut apps = skill.apps.clone();
+        projection.target.set_enabled(&mut apps, false);
+        db.update_skill_apps(&skill.id, &apps)?;
+        remember_initialized(db, projection.target)
+    })();
+    finish_transaction(db, state, snapshots, result)
+}
+
+fn uninstall_at(
+    db: &Arc<Database>,
+    skill: &InstalledSkill,
+    source: &Path,
+    projections: &[Projection],
+) -> Result<()> {
+    validate_locations(source, projections)?;
+    for projection in projections {
+        validate_projection(projection, source, skill.content_hash.as_deref(), true)?;
     }
+    let state = StateSnapshot::take(db, Some(skill))?;
+    let mut snapshots = Vec::new();
+    let result = (|| {
+        for projection in projections {
+            snapshots.push(Snapshot::take(&projection.path)?);
+        }
+        snapshots.push(Snapshot::take(source)?);
+        db.delete_skill(&skill.id)?;
+        db.set_setting(UNINSTALLED_KEY, "true")?;
+        for target in ImagegenTarget::all() {
+            remember_initialized(db, target)?;
+        }
+        Ok(())
+    })();
+    finish_transaction(db, state, snapshots, result)
+}
+
+pub(super) fn restore_locked(
+    db: &Arc<Database>,
+    skill: InstalledSkill,
+    backup_source: &Path,
+    target: ImagegenTarget,
+) -> Result<InstalledSkill> {
+    let source = SkillService::get_ssot_dir()?.join(BUILTIN_IMAGEGEN_DIRECTORY);
+    let projection = Projection::new(target)?;
+    restore_at(db, skill, backup_source, &source, &projection)
+}
+
+fn restore_at(
+    db: &Arc<Database>,
+    mut skill: InstalledSkill,
+    backup_source: &Path,
+    source: &Path,
+    projection: &Projection,
+) -> Result<InstalledSkill> {
+    validate_locations(source, std::slice::from_ref(projection))?;
+    if exists(source) || exists(&projection.path) {
+        return Err(anyhow!("图像技能恢复目录已存在，已保留"));
+    }
+    validate_tree(backup_source)?;
+    if exists(&backup_source.join(BINDING_FILE)) {
+        return Err(anyhow!("图像技能备份含有非源文件绑定，无法恢复"));
+    }
+    skill.apps = SkillApps::default();
+    projection.target.set_enabled(&mut skill.apps, true);
+    skill.installed_at = Utc::now().timestamp();
+    skill.updated_at = 0;
+    skill.content_hash = Some(SkillService::compute_dir_hash(backup_source)?);
+    let state = StateSnapshot::take(db, None)?;
+    let mut snapshots = Vec::new();
+    let result = (|| {
+        snapshots.push(Snapshot::take(source)?);
+        SkillService::copy_dir_recursive(backup_source, source)?;
+        snapshots.push(Snapshot::take(&projection.path)?);
+        copy_projection(source, projection)?;
+        db.save_skill(&skill)?;
+        remember_initialized(db, projection.target)?;
+        db.delete_setting(UNINSTALLED_KEY)?;
+        Ok(())
+    })();
+    finish_transaction(db, state, snapshots, result)?;
     Ok(skill)
 }
 
@@ -412,51 +820,75 @@ mod tests {
     use tempfile::{tempdir, TempDir};
 
     struct Fixture {
-        _temp: TempDir,
+        temp: TempDir,
         db: Arc<Database>,
         ssot: PathBuf,
         projections: Vec<Projection>,
     }
-
     impl Fixture {
         fn new() -> Self {
             let temp = tempdir().unwrap();
             let ssot = temp.path().join("ssot");
-            let projections = vec![Projection {
-                app: AppType::Codex,
-                path: temp.path().join("codex/meta-api-imagegen"),
-            }];
+            let projections = [
+                ImagegenTarget::Codex,
+                ImagegenTarget::Dsh,
+                ImagegenTarget::WorkBuddy,
+            ]
+            .into_iter()
+            .map(|target| Projection {
+                target,
+                path: temp
+                    .path()
+                    .join(target.as_str())
+                    .join(BUILTIN_IMAGEGEN_DIRECTORY),
+                runtime_path: temp
+                    .path()
+                    .join("imagegen")
+                    .join(format!("{}.json", target.as_str())),
+            })
+            .collect();
             Self {
-                _temp: temp,
+                temp,
                 db: Arc::new(Database::memory().unwrap()),
                 ssot,
                 projections,
             }
         }
-
         fn source(&self) -> PathBuf {
             self.ssot.join(BUILTIN_IMAGEGEN_DIRECTORY)
         }
-
-        fn install(&self, existing: Option<&InstalledSkill>) -> Result<InstalledSkill> {
+        fn projection(&self, target: ImagegenTarget) -> &Projection {
+            self.projections
+                .iter()
+                .find(|p| p.target == target)
+                .unwrap()
+        }
+        fn active(&self, apps: &SkillApps) -> Vec<Projection> {
+            self.projections
+                .iter()
+                .filter(|p| p.target.is_enabled(apps))
+                .cloned()
+                .collect()
+        }
+        fn install(
+            &self,
+            existing: Option<&InstalledSkill>,
+            target: ImagegenTarget,
+        ) -> Result<InstalledSkill> {
+            let mut apps = existing.map(|skill| skill.apps.clone()).unwrap_or_default();
+            target.set_enabled(&mut apps, true);
             install_at(
                 &self.db,
                 existing,
-                SkillApps::only(&AppType::Codex),
+                apps.clone(),
                 &self.ssot,
-                &self.projections,
-                |p, _| {
-                    SkillService::replace_dest_with_copy(
-                        &self.source(),
-                        &p.path,
-                        BUILTIN_IMAGEGEN_DIRECTORY,
-                    )
-                },
+                &self.active(&apps),
+                target,
+                |p| copy_projection(&self.source(), p),
             )
         }
-
-        fn seed_old_bundle(&self) -> InstalledSkill {
-            let mut skill = self.install(None).unwrap();
+        fn seed_old(&self) -> InstalledSkill {
+            let mut skill = self.install(None, ImagegenTarget::Codex).unwrap();
             fs::write(self.source().join("SKILL.md"), "old bundled instructions").unwrap();
             fs::write(
                 self.projections[0].path.join("SKILL.md"),
@@ -471,137 +903,188 @@ mod tests {
     }
 
     #[test]
-    fn fresh_install_refresh_and_repeated_ensure_preserve_enabled_state() {
+    fn fresh_install_refresh_and_binding_isolation() {
         let f = Fixture::new();
-        assert!(!should_skip(&f.db, None, false).unwrap());
-        let old = f.seed_old_bundle();
-        let updated = f.install(Some(&old)).unwrap();
+        let old = f.seed_old();
+        let updated = f.install(Some(&old), ImagegenTarget::Dsh).unwrap();
         assert_eq!(updated.installed_at, old.installed_at);
         assert_ne!(updated.content_hash, old.content_hash);
-        assert!(updated.apps.codex);
-        assert_eq!(
-            fs::read_to_string(f.projections[0].path.join("SKILL.md")).unwrap(),
-            BUILTIN_IMAGEGEN_SKILL_MD
-        );
-        let unchanged = f.install(Some(&updated)).unwrap();
+        assert!(updated.apps.codex && updated.apps.dsh);
+        assert!(!exists(&f.source().join(BINDING_FILE)));
+        assert!(f.source().join("scripts/run_imagegen.mjs").exists());
+        for p in f.active(&updated.apps) {
+            assert!(!SkillService::is_symlink(&p.path));
+            assert!(p.validate_binding().unwrap());
+            assert_eq!(
+                projection_hash(&p).unwrap(),
+                updated.content_hash.clone().unwrap()
+            );
+        }
+        assert_ne!(f.projections[0].binding(), f.projections[1].binding());
+        let unchanged = f.install(Some(&updated), ImagegenTarget::Dsh).unwrap();
         assert_eq!(unchanged.updated_at, updated.updated_at);
-        assert_eq!(
-            f.db.get_setting(INITIALIZED_KEY).unwrap().as_deref(),
-            Some("true")
-        );
+        let saved =
+            f.db.get_installed_skill(BUILTIN_IMAGEGEN_ID)
+                .unwrap()
+                .unwrap();
+        assert!(saved.apps.codex && saved.apps.dsh && !saved.apps.workbuddy);
     }
 
     #[test]
-    fn user_disabled_and_uninstalled_bundles_are_not_reenabled() {
+    fn per_target_disable_does_not_disable_other_or_new_clients() {
         let f = Fixture::new();
-        let mut skill = f.install(None).unwrap();
+        let codex = f.install(None, ImagegenTarget::Codex).unwrap();
+        let both = f.install(Some(&codex), ImagegenTarget::Dsh).unwrap();
+        disable_at(&f.db, &both, f.projection(ImagegenTarget::Dsh)).unwrap();
+        let disabled =
+            f.db.get_installed_skill(BUILTIN_IMAGEGEN_ID)
+                .unwrap()
+                .unwrap();
+        assert!(disabled.apps.codex && !disabled.apps.dsh);
+        assert!(!exists(&f.projection(ImagegenTarget::Dsh).path));
+        assert!(exists(&f.projection(ImagegenTarget::Codex).path));
+        assert!(should_skip(&f.db, Some(&disabled), ImagegenTarget::Dsh, false).unwrap());
+        assert!(!should_skip(&f.db, Some(&disabled), ImagegenTarget::WorkBuddy, false).unwrap());
+        assert!(!should_skip(&f.db, Some(&disabled), ImagegenTarget::Codex, false).unwrap());
+    }
+
+    #[test]
+    fn global_uninstall_and_restore_keep_other_targets_opted_out() {
+        let f = Fixture::new();
+        let codex = f.install(None, ImagegenTarget::Codex).unwrap();
+        let skill = f.install(Some(&codex), ImagegenTarget::Dsh).unwrap();
+        let backup = f.temp.path().join("backup");
+        SkillService::copy_dir_recursive(&f.source(), &backup).unwrap();
+        uninstall_at(&f.db, &skill, &f.source(), &f.active(&skill.apps)).unwrap();
+        assert!(f
+            .db
+            .get_installed_skill(BUILTIN_IMAGEGEN_ID)
+            .unwrap()
+            .is_none());
+        assert!(!exists(&f.source()));
+        for target in ImagegenTarget::all() {
+            assert!(should_skip(&f.db, None, target, false).unwrap());
+        }
+        let restored = restore_at(
+            &f.db,
+            skill,
+            &backup,
+            &f.source(),
+            f.projection(ImagegenTarget::WorkBuddy),
+        )
+        .unwrap();
+        assert!(restored.apps.workbuddy && !restored.apps.codex && !restored.apps.dsh);
+        assert!(f
+            .projection(ImagegenTarget::WorkBuddy)
+            .validate_binding()
+            .unwrap());
+        assert!(!should_skip(&f.db, Some(&restored), ImagegenTarget::WorkBuddy, false).unwrap());
+        assert!(should_skip(&f.db, Some(&restored), ImagegenTarget::Codex, false).unwrap());
+    }
+
+    #[test]
+    fn legacy_deleted_record_is_global_optout_but_disabled_codex_is_local() {
+        let f = Fixture::new();
+        f.db.set_setting(LEGACY_INITIALIZED_KEY, "true").unwrap();
+        assert!(should_skip(&f.db, None, ImagegenTarget::Dsh, false).unwrap());
+        assert!(should_skip(&f.db, None, ImagegenTarget::WorkBuddy, false).unwrap());
+        assert!(!should_skip(&f.db, None, ImagegenTarget::Dsh, true).unwrap());
+        let g = Fixture::new();
+        let mut skill = g.install(None, ImagegenTarget::Codex).unwrap();
         skill.apps.codex = false;
-        f.db.save_skill(&skill).unwrap();
-        assert!(should_skip(&f.db, Some(&skill), false).unwrap());
-        f.db.delete_skill(&skill.id).unwrap();
-        assert!(should_skip(&f.db, None, false).unwrap());
-        assert!(!should_skip(&f.db, None, true).unwrap());
+        g.db.save_skill(&skill).unwrap();
+        g.db.delete_setting(&initialized_key(ImagegenTarget::Codex))
+            .unwrap();
+        g.db.set_setting(LEGACY_INITIALIZED_KEY, "true").unwrap();
+        assert!(should_skip(&g.db, Some(&skill), ImagegenTarget::Codex, false).unwrap());
+        assert!(!should_skip(&g.db, Some(&skill), ImagegenTarget::Dsh, false).unwrap());
     }
 
     #[test]
-    fn unknown_same_name_record_or_directory_is_never_adopted() {
+    fn new_target_never_adopts_unknown_same_name_even_matching_bytes() {
         let f = Fixture::new();
-        fs::create_dir_all(f.source()).unwrap();
-        fs::write(f.source().join("SKILL.md"), "external skill").unwrap();
-        assert!(f.install(None).unwrap_err().to_string().contains("未托管"));
+        let skill = f.install(None, ImagegenTarget::Codex).unwrap();
+        let dsh = f.projection(ImagegenTarget::Dsh);
+        copy_projection(&f.source(), dsh).unwrap();
         assert_eq!(
-            fs::read_to_string(f.source().join("SKILL.md")).unwrap(),
-            "external skill"
+            projection_hash(dsh).unwrap(),
+            skill.content_hash.clone().unwrap()
         );
-        fs::remove_dir_all(f.source()).unwrap();
-        let mut skill = f.install(None).unwrap();
-        f.db.delete_skill(&skill.id).unwrap();
-        skill.id = "local:meta-api-imagegen".to_string();
-        f.db.save_skill(&skill).unwrap();
-        assert!(owned_record(&f.db)
-            .unwrap_err()
-            .to_string()
-            .contains("非元衡"));
+        assert!(f.install(Some(&skill), ImagegenTarget::Dsh).is_err());
+        assert!(exists(&dsh.path));
+        assert!(
+            !f.db
+                .get_installed_skill(&skill.id)
+                .unwrap()
+                .unwrap()
+                .apps
+                .dsh
+        );
+        let mut external = skill;
+        external.id = "local:meta-api-imagegen".into();
+        f.db.delete_skill(BUILTIN_IMAGEGEN_ID).unwrap();
+        f.db.save_skill(&external).unwrap();
+        assert!(owned_record(&f.db).is_err());
     }
 
     #[test]
-    fn changed_ssot_and_copied_projection_are_preserved() {
-        for change_source in [true, false] {
+    fn binding_tampering_and_other_extra_files_are_not_ignored_by_hash() {
+        for mutation in ["binding", "unknown-field", "extra", "hidden"] {
             let f = Fixture::new();
-            let skill = f.seed_old_bundle();
-            let changed = if change_source {
-                f.source()
-            } else {
-                f.projections[0].path.clone()
-            };
-            fs::write(changed.join("SKILL.md"), "my customized skill").unwrap();
-            assert!(f
-                .install(Some(&skill))
-                .unwrap_err()
-                .to_string()
-                .contains("本地修改"));
-            assert_eq!(
-                fs::read_to_string(changed.join("SKILL.md")).unwrap(),
-                "my customized skill"
+            let skill = f.install(None, ImagegenTarget::Codex).unwrap();
+            let p = &f.projections[0];
+            match mutation {
+                "binding" => {
+                    let mut binding = p.binding();
+                    binding.target = "dsh".into();
+                    fs::write(
+                        p.path.join(BINDING_FILE),
+                        serde_json::to_vec(&binding).unwrap(),
+                    )
+                    .unwrap();
+                }
+                "unknown-field" => {
+                    let mut binding = serde_json::to_value(p.binding()).unwrap();
+                    binding["extra"] = true.into();
+                    fs::write(
+                        p.path.join(BINDING_FILE),
+                        serde_json::to_vec(&binding).unwrap(),
+                    )
+                    .unwrap();
+                }
+                "extra" => {
+                    fs::write(p.path.join("personal.txt"), "keep").unwrap();
+                }
+                _ => {
+                    fs::write(p.path.join(".personal"), "keep").unwrap();
+                }
+            }
+            assert!(
+                f.install(Some(&skill), ImagegenTarget::Codex).is_err(),
+                "{mutation}"
             );
-            assert_eq!(
-                f.db.get_installed_skill(&skill.id)
-                    .unwrap()
-                    .unwrap()
-                    .content_hash,
-                skill.content_hash
-            );
+            assert!(exists(&p.path));
         }
     }
 
     #[test]
-    fn hidden_additions_are_not_lost_through_legacy_hash() {
+    fn projection_failure_rolls_back_files_record_and_all_markers() {
         let f = Fixture::new();
-        let skill = f.install(None).unwrap();
-        fs::write(f.source().join(".personal-config"), "keep me").unwrap();
-        assert_eq!(
-            SkillService::compute_dir_hash(&f.source()).unwrap(),
-            skill.content_hash.clone().unwrap()
-        );
-        assert!(f.install(Some(&skill)).is_err());
-        assert_eq!(
-            fs::read_to_string(f.source().join(".personal-config")).unwrap(),
-            "keep me"
-        );
-    }
-
-    #[test]
-    fn projection_failure_restores_all_files_record_and_marker() {
-        let mut f = Fixture::new();
-        let mut old = f.seed_old_bundle();
-        old.apps.gemini = true;
-        f.db.save_skill(&old).unwrap();
-        let second = Projection {
-            app: AppType::Gemini,
-            path: f._temp.path().join("gemini/meta-api-imagegen"),
-        };
-        SkillService::replace_dest_with_copy(&f.source(), &second.path, BUILTIN_IMAGEGEN_DIRECTORY)
-            .unwrap();
-        f.projections.push(second);
-        f.db.delete_setting(INITIALIZED_KEY).unwrap();
+        let old = f.seed_old();
+        let old_binding = fs::read(f.projections[0].path.join(BINDING_FILE)).unwrap();
+        let mut apps = old.apps.clone();
+        apps.dsh = true;
         let result = install_at(
             &f.db,
             Some(&old),
-            old.apps.clone(),
+            apps.clone(),
             &f.ssot,
-            &f.projections,
-            |p, was_copy| {
-                assert!(
-                    was_copy,
-                    "existing copied projections retain their sync form"
-                );
-                SkillService::replace_dest_with_copy(
-                    &f.source(),
-                    &p.path,
-                    BUILTIN_IMAGEGEN_DIRECTORY,
-                )?;
-                if matches!(p.app, AppType::Gemini) {
-                    return Err(anyhow!("simulated projection failure"));
+            &f.active(&apps),
+            ImagegenTarget::Dsh,
+            |p| {
+                copy_projection(&f.source(), p)?;
+                if p.target == ImagegenTarget::Dsh {
+                    return Err(anyhow!("simulated failure"));
                 }
                 Ok(())
             },
@@ -609,39 +1092,44 @@ mod tests {
         assert!(result
             .unwrap_err()
             .to_string()
-            .contains("simulated projection failure"));
+            .contains("simulated failure"));
         assert_eq!(
             SkillService::compute_dir_hash(&f.source()).unwrap(),
             old.content_hash.clone().unwrap()
         );
-        for p in &f.projections {
-            assert_eq!(
-                SkillService::compute_dir_hash(&p.path).unwrap(),
-                old.content_hash.clone().unwrap()
-            );
-        }
         assert_eq!(
-            f.db.get_installed_skill(&old.id)
-                .unwrap()
-                .unwrap()
-                .updated_at,
-            1
+            projection_hash(&f.projections[0]).unwrap(),
+            old.content_hash.clone().unwrap()
         );
-        assert!(f.db.get_setting(INITIALIZED_KEY).unwrap().is_none());
+        assert_eq!(
+            fs::read(f.projections[0].path.join(BINDING_FILE)).unwrap(),
+            old_binding
+        );
+        assert!(!exists(&f.projections[1].path));
+        let saved = f.db.get_installed_skill(&old.id).unwrap().unwrap();
+        assert_eq!(saved.updated_at, 1);
+        assert!(!saved.apps.dsh);
+        assert!(f
+            .db
+            .get_setting(&initialized_key(ImagegenTarget::Dsh))
+            .unwrap()
+            .is_none());
     }
 
     #[test]
-    fn first_install_failure_leaves_no_record_or_auto_install_marker() {
+    fn first_install_failure_leaves_no_record_or_marker_and_can_retry() {
         let f = Fixture::new();
-        let result = install_at(
+        let apps = SkillApps::only(&AppType::Codex);
+        assert!(install_at(
             &f.db,
             None,
-            SkillApps::only(&AppType::Codex),
+            apps.clone(),
             &f.ssot,
-            &f.projections,
-            |_, _| Err(anyhow!("read-only projection")),
-        );
-        assert!(result.is_err());
+            &f.active(&apps),
+            ImagegenTarget::Codex,
+            |_| Err(anyhow!("read only"))
+        )
+        .is_err());
         assert!(!exists(&f.source()));
         assert!(!exists(&f.projections[0].path));
         assert!(f
@@ -649,18 +1137,126 @@ mod tests {
             .get_installed_skill(BUILTIN_IMAGEGEN_ID)
             .unwrap()
             .is_none());
-        assert!(!should_skip(&f.db, None, false).unwrap());
+        assert!(!should_skip(&f.db, None, ImagegenTarget::Codex, false).unwrap());
+        f.install(None, ImagegenTarget::Codex).unwrap();
     }
 
     #[test]
-    fn missing_owned_source_and_projection_can_be_repaired() {
+    fn global_uninstall_rolls_back_when_optout_cannot_be_saved() {
         let f = Fixture::new();
-        let skill = f.install(None).unwrap();
+        let first = f.install(None, ImagegenTarget::Codex).unwrap();
+        let skill = f.install(Some(&first), ImagegenTarget::Dsh).unwrap();
+        f.db.conn.lock().unwrap().execute_batch(
+            "CREATE TRIGGER reject_imagegen_optout BEFORE INSERT ON settings
+             WHEN NEW.key = 'builtin_imagegen_uninstalled' BEGIN SELECT RAISE(ABORT, 'read only'); END;"
+        ).unwrap();
+        assert!(uninstall_at(&f.db, &skill, &f.source(), &f.active(&skill.apps)).is_err());
+        let saved = f.db.get_installed_skill(&skill.id).unwrap().unwrap();
+        assert_eq!(saved.apps, skill.apps);
+        assert_eq!(
+            SkillService::compute_dir_hash(&f.source()).unwrap(),
+            skill.content_hash.clone().unwrap()
+        );
+        for projection in f.active(&skill.apps) {
+            assert_eq!(
+                projection_hash(&projection).unwrap(),
+                skill.content_hash.clone().unwrap()
+            );
+        }
+        assert!(f.db.get_setting(UNINSTALLED_KEY).unwrap().is_none());
+    }
+
+    #[test]
+    fn hidden_source_additions_are_rejected_even_when_legacy_hash_matches() {
+        let f = Fixture::new();
+        let skill = f.install(None, ImagegenTarget::Codex).unwrap();
+        fs::write(f.source().join(".personal"), "keep").unwrap();
+        assert_eq!(
+            SkillService::compute_dir_hash(&f.source()).unwrap(),
+            skill.content_hash.clone().unwrap()
+        );
+        assert!(f.install(Some(&skill), ImagegenTarget::Dsh).is_err());
+        assert_eq!(
+            fs::read_to_string(f.source().join(".personal")).unwrap(),
+            "keep"
+        );
+    }
+
+    #[test]
+    fn export_snapshot_is_bound_and_independent_of_later_refresh() {
+        let f = Fixture::new();
+        let skill = f.install(None, ImagegenTarget::WorkBuddy).unwrap();
+        let projection = f.projection(ImagegenTarget::WorkBuddy);
+        let snapshot = export_snapshot_at(&skill, projection).unwrap();
+        assert_eq!(snapshot.len(), 5);
+        assert!(snapshot
+            .iter()
+            .all(|(name, _)| EXPORT_FILES.contains(&name.as_str())));
+        let binding: Binding = serde_json::from_slice(
+            &snapshot
+                .iter()
+                .find(|(name, _)| name == BINDING_FILE)
+                .unwrap()
+                .1,
+        )
+        .unwrap();
+        assert_eq!(binding, projection.binding());
+        fs::write(projection.path.join("SKILL.md"), "external edit").unwrap();
+        assert!(export_snapshot_at(&skill, projection).is_err());
+        assert_eq!(
+            snapshot
+                .iter()
+                .find(|(name, _)| name == "SKILL.md")
+                .unwrap()
+                .1,
+            BUILTIN_IMAGEGEN_SKILL_MD.as_bytes()
+        );
+    }
+
+    #[test]
+    fn shared_target_paths_are_rejected_before_any_write() {
+        let f = Fixture::new();
+        let mut second = f.projections[0].clone();
+        second.target = ImagegenTarget::Dsh;
+        let projections = vec![f.projections[0].clone(), second];
+        let mut apps = SkillApps::only(&AppType::Codex);
+        apps.dsh = true;
+        assert!(install_at(
+            &f.db,
+            None,
+            apps,
+            &f.ssot,
+            &projections,
+            ImagegenTarget::Dsh,
+            |_| Ok(())
+        )
+        .is_err());
+        assert!(!exists(&f.source()));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn owned_legacy_symlink_migrates_to_copy_without_binding_the_source() {
+        let f = Fixture::new();
+        let skill = f.install(None, ImagegenTarget::Codex).unwrap();
+        SkillService::remove_path(&f.projections[0].path).unwrap();
+        std::os::unix::fs::symlink(f.source(), &f.projections[0].path).unwrap();
+        f.install(Some(&skill), ImagegenTarget::Codex).unwrap();
+        assert!(!SkillService::is_symlink(&f.projections[0].path));
+        assert!(f.projections[0].validate_binding().unwrap());
+        assert!(!exists(&f.source().join(BINDING_FILE)));
+    }
+
+    #[test]
+    fn owned_legacy_copy_without_binding_migrates_and_missing_files_repair() {
+        let f = Fixture::new();
+        let skill = f.install(None, ImagegenTarget::Codex).unwrap();
+        fs::remove_file(f.projections[0].path.join(BINDING_FILE)).unwrap();
+        f.install(Some(&skill), ImagegenTarget::Codex).unwrap();
+        assert!(f.projections[0].validate_binding().unwrap());
         fs::remove_dir_all(f.source()).unwrap();
         fs::remove_dir_all(&f.projections[0].path).unwrap();
-        let repaired = f.install(Some(&skill)).unwrap();
-        assert_eq!(repaired.installed_at, skill.installed_at);
-        assert!(f.source().join("SKILL.md").exists());
-        assert!(f.projections[0].path.join("SKILL.md").exists());
+        f.install(Some(&skill), ImagegenTarget::Codex).unwrap();
+        assert!(f.projections[0].validate_binding().unwrap());
     }
 }

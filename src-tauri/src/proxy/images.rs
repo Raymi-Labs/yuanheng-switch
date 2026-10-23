@@ -27,15 +27,31 @@ const IMAGE_RESPONSE_LIMIT: usize = 256 * 1024 * 1024;
 const IMAGE_TIMEOUT: Duration = Duration::from_secs(15 * 60);
 const MODEL_CATALOG_TIMEOUT: Duration = Duration::from_secs(15);
 const MODEL_CATALOG_LIMIT: usize = 2 * 1024 * 1024;
+const IMAGE_NAMESPACES: &[&str] = &[
+    "codex",
+    "chatgpt-desktop",
+    "claude",
+    "gemini",
+    "grokbuild",
+    "opencode",
+    "hermes",
+    "dsh",
+    "workbuddy",
+];
 
 pub(super) fn routes() -> Router<ProxyState> {
     let mut router = Router::new();
-    for prefix in ["", "/v1", "/v1/v1", "/codex/v1", "/chatgpt-desktop/v1"] {
+    let prefixes = ["", "/v1", "/v1/v1"]
+        .into_iter()
+        .map(str::to_owned)
+        .chain(IMAGE_NAMESPACES.iter().map(|name| format!("/{name}/v1")));
+    for prefix in prefixes {
         for operation in ["generations", "edits"] {
             router = router.route(&format!("{prefix}/images/{operation}"), post(handle_images));
         }
     }
-    for prefix in ["/codex/v1", "/chatgpt-desktop/v1"] {
+    for namespace in IMAGE_NAMESPACES {
+        let prefix = format!("/{namespace}/v1");
         router = router.route(&format!("{prefix}/images/models"), get(handle_image_models));
     }
     router.layer(DefaultBodyLimit::max(IMAGE_REQUEST_LIMIT))
@@ -125,18 +141,44 @@ async fn handle_images(
     Response::from_parts(parts, Body::from_stream(stream))
 }
 
-fn provider_namespace(uri: &Uri) -> &'static str {
-    if uri.path().starts_with("/chatgpt-desktop/v1/") {
-        "chatgpt-desktop"
-    } else {
-        "codex"
+fn provider_namespace(uri: &Uri) -> Result<&'static str, ProxyError> {
+    for namespace in IMAGE_NAMESPACES {
+        if uri.path().starts_with(&format!("/{namespace}/v1/images/")) {
+            return Ok(namespace);
+        }
     }
+    // Only the historical unprefixed aliases imply Codex. New or malformed
+    // targets cannot silently select the user's unrelated Codex account.
+    if ["/images/", "/v1/images/", "/v1/v1/images/"]
+        .iter()
+        .any(|prefix| uri.path().starts_with(prefix))
+    {
+        return Ok("codex");
+    }
+    Err(ProxyError::InvalidRequest("未知图片应用路由".into()))
 }
 
 fn selected_provider(state: &ProxyState, uri: &Uri) -> Result<Provider, ProxyError> {
     // Deliberately bypass the chat failover queue and circuit breaker. Even its
     // first entry could differ from the user's selected account/provider.
-    let namespace = provider_namespace(uri);
+    let namespace = provider_namespace(uri)?;
+    if !matches!(namespace, "codex" | "chatgpt-desktop") {
+        let target = crate::services::skill::ImagegenTarget::parse(namespace)
+            .map_err(|_| ProxyError::InvalidRequest("未知图片应用路由".into()))?;
+        let enabled = state
+            .db
+            .get_installed_skill("builtin:meta-api-imagegen")
+            .map_err(|_| ProxyError::ConfigError("无法读取当前工具的图像技能状态".into()))?
+            .is_some_and(|skill| target.is_enabled(&skill.apps));
+        if !enabled {
+            return Err(ProxyError::ConfigError(
+                "当前工具的元衡图像技能未启用".into(),
+            ));
+        }
+        return crate::commands::imagegen_provider(&state.db, namespace)
+            .map_err(ProxyError::ConfigError)?
+            .ok_or(ProxyError::NoProvidersConfigured);
+    }
     let id = if namespace == "codex" {
         crate::settings::get_effective_current_provider(&state.db, &AppType::Codex)
     } else {
@@ -187,7 +229,7 @@ async fn handle_image_models(
     log::info!(
         "[ImageModels] request_id={} namespace={} status={}",
         request_id,
-        provider_namespace(&uri),
+        provider_namespace(&uri).unwrap_or("unknown"),
         response.status().as_u16(),
     );
     response
@@ -591,6 +633,150 @@ mod tests {
             Err(ProxyError::NoProvidersConfigured)
         ));
         assert!(selected_provider(&state, &"/codex/v1/images/models".parse().unwrap()).is_ok());
+        for path in [
+            "/other/v1/images/models",
+            "/dsh-wrong/v1/images/generations",
+            "/images-other/generations",
+        ] {
+            assert!(selected_provider(&state, &path.parse().unwrap()).is_err());
+        }
+    }
+
+    #[tokio::test]
+    #[serial_test::serial]
+    async fn configured_tool_namespaces_keep_credentials_and_single_attempt_transport_isolated() {
+        use crate::commands::imagegen_test_support::{enable, install, TestHome};
+        let _home = TestHome::new();
+        let db = Arc::new(Database::memory().unwrap());
+        let state = state(db.clone());
+        let count = Arc::new(AtomicUsize::new(0));
+        let seen = count.clone();
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+        let (url, task) = serve(Router::new().fallback(any(move |uri: Uri, headers: HeaderMap, body: Bytes| {
+            let tx = tx.clone();
+            let seen = seen.clone();
+            async move {
+                seen.fetch_add(1, Ordering::SeqCst);
+                tx.send((uri.path().to_owned(), headers, body)).unwrap();
+                if uri.path() == "/models" {
+                    (StatusCode::OK, Json(json!({"account":"private", "data":[{"id":"gpt-image-2.5-sunburst", "api_key":"must-not-leak"}]})))
+                } else {
+                    (StatusCode::SERVICE_UNAVAILABLE, Json(json!({"error":"synthetic failure"})))
+                }
+            }
+        }))).await;
+        let incoming = oauth_headers();
+        let raw = Bytes::from_static(
+            br#"{"model":"gpt-image-2.5-sunburst","prompt":"keep unchanged","opaque":true}"#,
+        );
+        for (index, target) in [
+            "claude",
+            "gemini",
+            "grokbuild",
+            "opencode",
+            "hermes",
+            "dsh",
+            "workbuddy",
+        ]
+        .iter()
+        .enumerate()
+        {
+            let key = format!("sk-fixture-{target}");
+            install(&db, target, &key);
+            let uri = format!("/{target}/v1/images/models").parse().unwrap();
+            assert!(selected_provider(&state, &uri).is_err());
+            enable(&db, target, true);
+            for operation in ["models", "generations", "edits"] {
+                let uri = format!("/{target}/v1/images/{operation}").parse().unwrap();
+                let provider = selected_provider(&state, &uri).unwrap();
+                let (prepared_url, headers) = if operation == "models" {
+                    prepare_model_catalog_request(&provider).unwrap()
+                } else {
+                    prepare_request(&provider, &uri, &incoming).unwrap()
+                };
+                // Exercise the same resolver/preparation/HTTP transport with a
+                // real local upstream; production destination validation stays
+                // strict and no global endpoint override is introduced.
+                let suffix = prepared_url
+                    .strip_prefix(crate::yuanheng_endpoints::API_URL)
+                    .unwrap();
+                let response = if operation == "models" {
+                    fetch_image_models(
+                        &client(),
+                        &format!("{url}{suffix}"),
+                        headers,
+                        Duration::from_secs(2),
+                        1024,
+                    )
+                    .await
+                } else {
+                    send_once(
+                        &client(),
+                        &format!("{url}{suffix}"),
+                        headers,
+                        raw.clone(),
+                        Duration::from_secs(2),
+                        1024,
+                    )
+                    .await
+                };
+                let (path, actual_headers, actual_body) = rx.recv().await.unwrap();
+                assert_eq!(path, suffix);
+                assert_eq!(actual_headers["authorization"], format!("Bearer {key}"));
+                for header in [
+                    "chatgpt-account-id",
+                    "cookie",
+                    "openai-organization",
+                    "openai-project",
+                ] {
+                    assert!(!actual_headers.contains_key(header));
+                }
+                if operation == "models" {
+                    assert_eq!(response.status(), StatusCode::OK);
+                    let value: Value = serde_json::from_slice(
+                        &to_bytes(response.into_body(), 1024).await.unwrap(),
+                    )
+                    .unwrap();
+                    assert_eq!(
+                        value,
+                        json!({"object":"list", "data":[{"id":"gpt-image-2.5-sunburst"}]})
+                    );
+                } else {
+                    assert_eq!(actual_body, raw);
+                    assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+                }
+            }
+            assert_eq!(count.load(Ordering::SeqCst), (index + 1) * 3);
+        }
+        crate::settings::set_current_provider(&AppType::Claude, Some("unrelated-provider"))
+            .unwrap();
+        assert!(
+            selected_provider(&state, &"/claude/v1/images/generations".parse().unwrap()).is_err()
+        );
+        assert_eq!(count.load(Ordering::SeqCst), 21);
+        // A task which already read its descriptor still cannot call a disabled
+        // skill. Exercise actual router handlers; rejection sends no HTTP.
+        enable(&db, "workbuddy", false);
+        for (method, operation) in [
+            ("GET", "models"),
+            ("POST", "generations"),
+            ("POST", "edits"),
+        ] {
+            let response = tower::Service::call(
+                &mut routes().with_state(state.clone()),
+                axum::http::Request::builder()
+                    .method(method)
+                    .uri(format!("/workbuddy/v1/images/{operation}"))
+                    .body(Body::from("{}"))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+            assert!(!response.status().is_success());
+            assert_eq!(response.headers()["x-yuanheng-response-source"], "local");
+        }
+        assert_eq!(count.load(Ordering::SeqCst), 21);
+        task.abort();
     }
 
     #[test]

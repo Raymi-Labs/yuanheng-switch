@@ -13,7 +13,7 @@ import {
 } from "node:fs/promises";
 import { constants as fsConstants } from "node:fs";
 import { homedir } from "node:os";
-import { basename, dirname, resolve } from "node:path";
+import { basename, dirname, isAbsolute, resolve } from "node:path";
 import { randomUUID } from "node:crypto";
 
 const DEFAULTS = {
@@ -26,11 +26,121 @@ const DEFAULTS = {
   out: "output/imagegen/output.png",
 };
 const MAX_IMAGE_BYTES = 64 * 1024 * 1024;
+const TARGETS = new Set([
+  "claude",
+  "codex",
+  "gemini",
+  "grokbuild",
+  "opencode",
+  "hermes",
+  "dsh",
+  "workbuddy",
+]);
+
+async function explicitRuntimeConnection(args) {
+  if (!isAbsolute(args.runtime) || /^(?:\\\\|\/\/)/.test(args.runtime))
+    throw new Error("Runtime path must be an absolute local filesystem path");
+  let metadata;
+  try {
+    metadata = await lstat(args.runtime);
+  } catch {
+    throw new Error(
+      "This tool's YuanHeng image runtime is missing; reconfigure it in YuanHeng",
+    );
+  }
+  if (
+    !metadata.isFile() ||
+    metadata.isSymbolicLink() ||
+    metadata.size > 16 * 1024
+  )
+    throw new Error("Invalid YuanHeng image runtime file");
+  const runtime = await readOptionalJson(
+    args.runtime,
+    "YuanHeng image runtime",
+  );
+  if (
+    !runtime ||
+    runtime.owner !== "yuanheng-imagegen" ||
+    runtime.version !== 2 ||
+    !TARGETS.has(runtime.target) ||
+    typeof runtime.enabled !== "boolean" ||
+    !runtime.routes ||
+    typeof runtime.routes !== "object" ||
+    Array.isArray(runtime.routes) ||
+    Object.keys(runtime).some(
+      (key) =>
+        ![
+          "owner",
+          "version",
+          "target",
+          "enabled",
+          "defaultSurface",
+          "routes",
+          "directOnly",
+        ].includes(key),
+    )
+  )
+    throw new Error("Invalid YuanHeng image runtime description");
+  if (
+    runtime.directOnly !== undefined &&
+    typeof runtime.directOnly !== "boolean"
+  )
+    throw new Error("Invalid image runtime route capability");
+  const allowed =
+    runtime.target === "codex"
+      ? ["codex", "chatgpt-desktop"]
+      : [runtime.target];
+  for (const [surface, url] of Object.entries(runtime.routes)) {
+    if (!allowed.includes(surface) || typeof url !== "string")
+      throw new Error("Runtime route does not belong to this tool");
+    const match = /^http:\/\/127\.0\.0\.1:([0-9]{1,5})\/([a-z-]+)\/v1$/.exec(
+      url,
+    );
+    if (
+      !match ||
+      Number(match[1]) < 1 ||
+      Number(match[1]) > 65535 ||
+      match[2] !== surface
+    )
+      throw new Error("Runtime URL does not match this tool's namespace");
+  }
+  if (!runtime.enabled) {
+    if (Object.keys(runtime.routes).length)
+      throw new Error("Disabled runtime must not contain routes");
+    throw new Error(
+      "YuanHeng image routing is disabled for this tool; configure it in YuanHeng",
+    );
+  }
+  if (
+    !allowed.includes(runtime.defaultSurface) ||
+    !runtime.routes[runtime.defaultSurface]
+  )
+    throw new Error("Invalid default image surface for this tool");
+  const surface =
+    args.surface ||
+    (runtime.target === "codex"
+      ? process.env.YUANHENG_IMAGEGEN_SURFACE
+      : undefined) ||
+    runtime.defaultSurface;
+  if (!allowed.includes(surface) || !runtime.routes[surface])
+    throw new Error(
+      "Image routing is unavailable for the requested tool surface",
+    );
+  return {
+    baseUrl: runtime.routes[surface],
+    headers: {},
+    catalogPath: "/images/models",
+    source: "yuanheng-local",
+    directOnly: runtime.target !== "codex" || runtime.directOnly === true,
+  };
+}
 
 function parseArgs(argv) {
   const args = { ...DEFAULTS, images: [] };
   const valueOptions = new Map([
     ["--api-key", "apiKey"],
+    ["--runtime", "runtime"],
+    ["--surface", "surface"],
     ["--base-url", "baseUrl"],
     ["--prompt", "prompt"],
     ["--prompt-file", "promptFile"],
@@ -76,7 +186,7 @@ function parseArgs(argv) {
 
 function printHelp() {
   console.log(
-    `YuanHeng ImageGen\n\nUsage:\n  meta_api_imagegen.mjs --prompt <text> [options]\n\nOptions:\n  --image <path>           Add an edit/reference image (repeatable)\n  --mask <path>            Optional mask (direct edit API only)\n  --out <path>             Output path\n  --image-model <model>    Default: auto; newest available GPT Image, quality first\n  --base-url <url>         Explicit direct API base URL (overrides YuanHeng runtime)\n  --api-key <key>          Explicit API key (overrides YuanHeng runtime)\n  --size <size>            Image size (default: 1024x1024)\n  --quality <quality>      Image quality (default: auto)\n  --responses-model <id>   Outer Responses chat model (default: gpt-5.5)\n  --responses-quality <q>  Optional separate fallback quality\n  --output-format <format> png, jpeg, or webp\n  --direct-only            Do not use the Responses fallback\n  --responses-only         Skip the direct Images API\n  --force                  Overwrite an existing output\n  --dry-run                Inspect the plan without network requests or model lookup`,
+    `YuanHeng ImageGen\n\nUsage:\n  meta_api_imagegen.mjs --prompt <text> [options]\n\nOptions:\n  --image <path>           Add an edit/reference image (repeatable)\n  --mask <path>            Optional mask (direct edit API only)\n  --out <path>             Output path\n  --image-model <model>    Default: auto; newest available GPT Image, quality first\n  --runtime <path>        Explicit managed runtime (absolute local path)\n  --surface <tool>        Select a surface allowed by that runtime\n  --base-url <url>         Explicit direct API base URL (overrides YuanHeng runtime)\n  --api-key <key>          Explicit API key (overrides YuanHeng runtime)\n  --size <size>            Image size (default: 1024x1024)\n  --quality <quality>      Image quality (default: auto)\n  --responses-model <id>   Outer Responses chat model (default: gpt-5.5)\n  --responses-quality <q>  Optional separate fallback quality\n  --output-format <format> png, jpeg, or webp\n  --direct-only            Do not use the Responses fallback\n  --responses-only         Skip the direct Images API\n  --force                  Overwrite an existing output\n  --dry-run                Inspect the plan without network requests or model lookup`,
   );
 }
 
@@ -147,6 +257,7 @@ function validateApiKey(value) {
 
 async function resolveConnection(args) {
   if (!args.apiKey && !args.explicitBaseUrl) {
+    if (args.runtime) return explicitRuntimeConnection(args);
     const runtime = await readOptionalJson(
       resolve(codexHome(), "yuanheng-imagegen.json"),
       "YuanHeng image runtime",
@@ -166,7 +277,7 @@ async function resolveConnection(args) {
         throw new Error(
           "YuanHeng image routing is disabled; select YuanHeng relay mode and configure Codex first",
         );
-      const surface = process.env.YUANHENG_IMAGEGEN_SURFACE;
+      const surface = args.surface || process.env.YUANHENG_IMAGEGEN_SURFACE;
       if (surface && !["codex", "chatgpt-desktop"].includes(surface))
         throw new Error("Unknown YuanHeng image surface");
       const baseUrl =
@@ -673,6 +784,11 @@ async function main() {
   const files = await prepareFiles(args);
   try {
     const connection = await resolveConnection(args);
+    if (connection.directOnly && args.responsesOnly)
+      throw new Error(
+        "This tool supports only the direct Images API; Responses compatibility is unavailable",
+      );
+    args.directOnly = args.directOnly || connection.directOnly;
     if (args.dryRun) {
       console.log(
         JSON.stringify({

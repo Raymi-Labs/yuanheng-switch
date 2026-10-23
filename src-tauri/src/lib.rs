@@ -1539,6 +1539,10 @@ pub fn run() {
             commands::remove_skill_repo,
             commands::install_skills_from_zip,
             commands::install_builtin_imagegen_skill,
+            commands::get_imagegen_tool_status,
+            commands::install_imagegen_for_tool,
+            commands::set_imagegen_tool_enabled,
+            commands::export_imagegen_skill,
             // Auto launch
             commands::set_auto_launch,
             commands::get_auto_launch_status,

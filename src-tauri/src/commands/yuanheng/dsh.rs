@@ -340,9 +340,11 @@ fn write(path: &Path, text: &str) -> Result<(), String> {
 }
 
 fn record(state: &AppState) -> Option<Record> {
-    state
-        .db
-        .get_setting(RECORD)
+    record_from_db(&state.db)
+}
+
+fn record_from_db(db: &crate::database::Database) -> Option<Record> {
+    db.get_setting(RECORD)
         .ok()
         .flatten()
         .and_then(|s| serde_json::from_str(&s).ok())
@@ -566,8 +568,11 @@ fn effective_matches(path: &Path, owned: &str) -> bool {
     })
 }
 
-pub(super) fn credential(state: &AppState, group: &str) -> Result<Option<String>, String> {
-    let Some(r) = record(state) else {
+pub(super) fn credential(
+    db: &crate::database::Database,
+    group: &str,
+) -> Result<Option<String>, String> {
+    let Some(r) = record_from_db(db) else {
         return Ok(None);
     };
     if r.group != group {
@@ -581,6 +586,24 @@ pub(super) fn credential(state: &AppState, group: &str) -> Result<Option<String>
             .as_str()
             .map(str::to_owned),
     )
+}
+
+/// The image route must belong to the currently configured local DSH home.
+/// Read the existing credential reference; never duplicate it in a provider.
+pub(super) fn imagegen_credential(
+    db: &crate::database::Database,
+) -> Result<Option<String>, String> {
+    let Some(r) = record_from_db(db) else {
+        return Ok(None);
+    };
+    if r.home != home() || r.group.trim().is_empty() || !intact(&r) {
+        return Err("DSH 配置已变化，请核对后重新配置".into());
+    }
+    let document = credentials_document(&read(&paths(&r.home)[0])?)?;
+    if credential_hash(&document).as_ref() != r.hashes.first() {
+        return Err("DSH 配置已变化，请核对后重新配置".into());
+    }
+    Ok(document["refs"][KEY].as_str().map(str::to_owned))
 }
 
 pub(super) fn status(

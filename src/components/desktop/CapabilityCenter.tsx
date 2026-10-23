@@ -11,21 +11,16 @@ import {
   Compass,
   Copy,
   ExternalLink,
-  ImageIcon,
   Loader2,
   PackageCheck,
-  RefreshCw,
   ShieldCheck,
   Sparkles,
   Wrench,
 } from "lucide-react";
 import { toast } from "sonner";
-import type { AppId } from "@/lib/api";
+import type { AppId, YuanhengToolId } from "@/lib/api";
 import { promptsApi, settingsApi } from "@/lib/api";
-import {
-  useInstallBuiltinImagegen,
-  useInstalledSkills,
-} from "@/hooks/useSkills";
+import { useInstalledSkills } from "@/hooks/useSkills";
 import { useAllMcpServers, useUpsertMcpServer } from "@/hooks/useMcp";
 import {
   BLENDER_DOWNLOAD_URL,
@@ -41,29 +36,30 @@ import { Button } from "@/components/ui/button";
 import { copyText } from "@/lib/clipboard";
 import { isWindows } from "@/lib/platform";
 import { PageHeader } from "./PageHeader";
+import { ImagegenCapabilityCard } from "./ImagegenCapabilityCard";
 import type { DesktopView } from "./types";
 import { dt } from "./desktopI18n";
 
 interface CapabilityCenterProps {
   activeApp: AppId;
+  activeTool: YuanhengToolId;
   onOpen: (view: DesktopView) => void;
 }
 
-export function CapabilityCenter({ activeApp, onOpen }: CapabilityCenterProps) {
+export function CapabilityCenter({
+  activeApp,
+  activeTool,
+  onOpen,
+}: CapabilityCenterProps) {
   const { t } = useTranslation();
   const [blenderGuideOpen, setBlenderGuideOpen] = useState(true);
   const { data: skills = [] } = useInstalledSkills(true);
-  const installImagegen = useInstallBuiltinImagegen();
   const { data: mcpServers = {} } = useAllMcpServers();
   const upsertMcp = useUpsertMcpServer();
   const { data: prompts = {} } = useQuery({
     queryKey: ["prompts", activeApp],
     queryFn: () => promptsApi.getPrompts(activeApp),
   });
-  const imagegenSkill = skills.find(
-    (skill) => skill.directory.toLowerCase() === "meta-api-imagegen",
-  );
-  const imagegenEnabled = Boolean(imagegenSkill?.apps.codex);
   const blenderPreset = mcpPresets.find(
     (preset) => preset.id === "blender-mcp",
   );
@@ -79,21 +75,6 @@ export function CapabilityCenter({ activeApp, onOpen }: CapabilityCenterProps) {
   const blenderUvInstallCommand = isWindows()
     ? BLENDER_MCP_UV_INSTALL_COMMANDS.windows
     : BLENDER_MCP_UV_INSTALL_COMMANDS.macos;
-
-  const handleInstallImagegen = async () => {
-    try {
-      await installImagegen.mutateAsync("codex");
-      toast.success(
-        imagegenEnabled
-          ? dt("图像生成能力已更新")
-          : dt("图像生成能力已启用到 Codex"),
-      );
-    } catch (error) {
-      toast.error(dt("图像生成能力安装失败"), {
-        description: String(error),
-      });
-    }
-  };
 
   const handleAddBlenderMcp = async () => {
     if (blenderServer) {
@@ -185,8 +166,7 @@ export function CapabilityCenter({ activeApp, onOpen }: CapabilityCenterProps) {
         eyebrow={dt("能力中心")}
         title={dt("能力中心")}
         description={dt(
-          "统一管理 {{v0}} 的 Skills、MCP、提示词与 Agent 能力。",
-          { v0: APP_ICON_MAP[activeApp].label },
+          "按工具管理图像生成、Skills、MCP、提示词与 Agent 能力。",
         )}
         actions={
           <Button
@@ -208,12 +188,12 @@ export function CapabilityCenter({ activeApp, onOpen }: CapabilityCenterProps) {
             </span>
             <div className="min-w-0 flex-1">
               <h2 className="font-display text-base font-semibold">
-                {dt("全局能力配置")}
+                {dt("通用能力配置")}
               </h2>
               <p className="mt-1 text-[11px] text-muted-foreground">
-                {dt("当前管理")}
-                {APP_ICON_MAP[activeApp].label}
-                {dt("，启用状态直接同步到对应工具。")}
+                {dt("此处管理 {{app}} 的通用能力，启用状态同步到该工具。", {
+                  app: APP_ICON_MAP[activeApp].label,
+                })}
               </p>
             </div>
             <span className="rounded-full bg-primary/10 px-3 py-1 text-[10px] font-semibold text-primary">
@@ -222,54 +202,11 @@ export function CapabilityCenter({ activeApp, onOpen }: CapabilityCenterProps) {
           </div>
         </section>
 
-        <section className="mt-4 overflow-hidden rounded-lg border border-emerald-600/20 bg-card">
-          <div className="flex flex-wrap items-center gap-4 px-5 py-4">
-            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-emerald-500/10 text-emerald-600">
-              <ImageIcon className="h-5 w-5" />
-            </span>
-            <div className="min-w-[220px] flex-1">
-              <div className="flex flex-wrap items-center gap-2">
-                <h2 className="font-display text-sm font-semibold">
-                  {dt("YuanHeng 图像生成")}
-                </h2>
-                <span className="rounded bg-emerald-500/10 px-2 py-0.5 text-[9px] font-semibold text-emerald-700 dark:text-emerald-300">
-                  {dt("自动选模 · 质量优先")}
-                </span>
-                <span className="rounded bg-muted px-2 py-0.5 text-[9px] font-medium text-muted-foreground">
-                  Images API
-                </span>
-              </div>
-              <p className="mt-1 text-[11px] leading-5 text-muted-foreground">
-                {dt(
-                  "配置元衡 Codex 后自动启用，按需在对话中生成或编辑图片。使用当前连接可用的最新 GPT Image 模型，生成后继续对话。",
-                )}
-              </p>
-            </div>
-            <div className="flex items-center gap-2">
-              {imagegenEnabled && (
-                <span className="flex items-center gap-1 text-[10px] font-medium text-emerald-600">
-                  <CheckCircle2 className="h-3.5 w-3.5" />
-                  {dt("已启用")}
-                </span>
-              )}
-              <Button
-                size="sm"
-                variant={imagegenEnabled ? "outline" : "default"}
-                disabled={installImagegen.isPending}
-                onClick={() => void handleInstallImagegen()}
-              >
-                {installImagegen.isPending ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : imagegenEnabled ? (
-                  <RefreshCw className="h-4 w-4" />
-                ) : (
-                  <Sparkles className="h-4 w-4" />
-                )}
-                {imagegenEnabled ? dt("更新能力") : dt("启用到 Codex")}
-              </Button>
-            </div>
-          </div>
-        </section>
+        <ImagegenCapabilityCard
+          key={activeTool}
+          tool={activeTool}
+          onOpenTools={() => onOpen("tools")}
+        />
 
         <section className="mt-4 overflow-hidden rounded-lg border border-orange-500/20 bg-card">
           <div className="flex flex-wrap items-center gap-4 px-5 py-4">

@@ -6,6 +6,30 @@ import { DESKTOP_ZH_TW } from "./desktopI18n.zhTW";
 type Values = Record<string, string | number | null | undefined>;
 
 export const DESKTOP_EN: Record<string, string> = {
+  图像能力操作失败: "Image capability action failed",
+  图像能力已安装或更新: "Image capability installed or updated",
+  办公技能包已导出: "Office skill package exported",
+  "{{tool}} 图像生成能力": "{{tool}} image generation",
+  "最新可用版本 · 质量优先": "Latest available version · Quality first",
+  "使用当前工具的元衡连接，按需生成或编辑图片，完成后继续对话。":
+    "Generate or edit images using this tool’s YuanHeng connection, then continue the conversation.",
+  "正在检查图像能力…": "Checking image capability…",
+  "无法检查图像能力，请重试。": "Could not check image capability. Try again.",
+  "当前工具暂不支持此图像技能。请选择其他工具。":
+    "This tool does not support this image skill yet. Choose another tool.",
+  图像技能已启用: "Image skill enabled",
+  图像技能未启用: "Image skill disabled",
+  元衡连接已配置: "YuanHeng connection configured",
+  元衡连接未配置: "YuanHeng connection not configured",
+  图像能力已就绪: "Image capability ready",
+  等待本地连接就绪: "Waiting for the local connection",
+  前往工具管理配置连接: "Configure the connection in Tools",
+  "开发模式安装到 ~/.codebuddy/skills；办公模式请导出 ZIP 后在 WorkBuddy 中导入。导入包仅限本机使用。":
+    "Code mode installs to ~/.codebuddy/skills. For Office mode, export a ZIP and import it in WorkBuddy. The package works only on this computer.",
+  "在 {{tool}} 中启用图像生成": "Enable image generation in {{tool}}",
+  安装并启用: "Install and enable",
+  "导出办公模式 ZIP": "Export Office ZIP",
+  检查图像能力: "Check image capability",
   下载进度: "Download",
   组件进度: "Components",
   "已处理 {{completed}} / {{total}} 个组件":
@@ -668,6 +692,11 @@ export const DESKTOP_EN: Record<string, string> = {
     "Manage Skills, MCP, prompts, and agent capabilities for {{v0}}.",
   发现能力: "Discover Capabilities",
   全局能力配置: "Global Capability Settings",
+  "按工具管理图像生成、Skills、MCP、提示词与 Agent 能力。":
+    "Manage image generation, Skills, MCP, prompts, and agents by tool.",
+  通用能力配置: "General Capability Settings",
+  "此处管理 {{app}} 的通用能力，启用状态同步到该工具。":
+    "Manage general capabilities for {{app}} here. Enabled settings sync to that tool.",
   当前管理: "Currently managing",
   "，启用状态直接同步到对应工具。":
     ". Enabled states sync directly to the corresponding tool.",

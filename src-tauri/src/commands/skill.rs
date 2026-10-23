@@ -227,7 +227,7 @@ pub async fn toggle_skill_app(
 ) -> Result<bool, String> {
     let app_type = parse_app_type(&app)?;
     SkillService::toggle_app(&app_state.db, &id, &app_type, enabled).map_err(|e| e.to_string())?;
-    if id == "builtin:meta-api-imagegen" && app_type == AppType::Codex {
+    if id == "builtin:meta-api-imagegen" {
         super::yuanheng::sync_yuanheng_imagegen(&app_state, false)
             .await
             .map_err(|error| format!("启用状态已保存，但图像连接同步未完成：{error}"))?;
@@ -288,11 +288,17 @@ pub async fn update_skill(
     service: State<'_, SkillServiceState>,
     app_state: State<'_, AppState>,
 ) -> Result<InstalledSkill, String> {
-    service
+    let skill = service
         .0
         .update_skill(&app_state.db, &id)
         .await
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?;
+    if id == "builtin:meta-api-imagegen" {
+        super::yuanheng::sync_yuanheng_imagegen(&app_state, false)
+            .await
+            .map_err(|error| format!("技能已更新，但图像连接同步未完成：{error}"))?;
+    }
+    Ok(skill)
 }
 
 /// 迁移 Skill 存储位置
@@ -482,8 +488,8 @@ pub async fn install_builtin_imagegen_skill(
     let app_type = parse_app_type(&current_app)?;
     let skill = SkillService::install_builtin_imagegen(&app_state.db, &app_type)
         .map_err(|e| e.to_string())?;
-    if app_type == AppType::Codex {
-        super::yuanheng::sync_yuanheng_imagegen(&app_state, false)
+    {
+        super::yuanheng::sync_yuanheng_imagegen_tool(&app_state, app_type.as_str(), false)
             .await
             .map_err(|error| format!("技能已安装，但图像连接同步未完成：{error}"))?;
     }

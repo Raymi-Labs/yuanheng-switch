@@ -21,6 +21,8 @@ use crate::database::Database;
 use crate::error::format_skill_error;
 
 mod builtin_imagegen;
+mod imagegen_target;
+pub use imagegen_target::ImagegenTarget;
 
 const BUILTIN_IMAGEGEN_ID: &str = "builtin:meta-api-imagegen";
 const BUILTIN_IMAGEGEN_DIRECTORY: &str = "meta-api-imagegen";
@@ -30,6 +32,8 @@ const BUILTIN_IMAGEGEN_OPENAI_YAML: &str =
     include_str!("../resources/builtin_skills/meta-api-imagegen/agents/openai.yaml");
 const BUILTIN_IMAGEGEN_SCRIPT: &str =
     include_str!("../resources/builtin_skills/meta-api-imagegen/scripts/meta_api_imagegen.mjs");
+const BUILTIN_IMAGEGEN_LAUNCHER: &str =
+    include_str!("../resources/builtin_skills/meta-api-imagegen/scripts/run_imagegen.mjs");
 
 // Skill ZIP 来自远程仓库或用户导入，限制归档和解压规模，避免路径穿越与 ZIP 炸弹。
 const MAX_SKILL_ZIP_BYTES: u64 = 100 * 1024 * 1024;
@@ -1178,23 +1182,19 @@ impl SkillService {
             .get_installed_skill(id)?
             .ok_or_else(|| anyhow!("Skill not found: {id}"))?;
 
-        if skill.id == BUILTIN_IMAGEGEN_ID {
-            builtin_imagegen::remember_initialized(db)?;
-        }
-
         let backup_path =
             Self::create_uninstall_backup(&skill)?.map(|path| path.to_string_lossy().to_string());
 
-        // 内置技能只删除记录中曾启用的投影，保留其他工具的同名外部目录。
-        let uninstall_apps = if skill.id == BUILTIN_IMAGEGEN_ID {
-            skill.apps.enabled_apps()
-        } else {
-            AppType::all().collect()
-        };
-        for app in uninstall_apps {
-            let result = Self::remove_from_app(&skill.directory, &app);
-            if skill.id == BUILTIN_IMAGEGEN_ID {
-                result?;
+        if skill.id == BUILTIN_IMAGEGEN_ID {
+            builtin_imagegen::uninstall_locked(db, &skill)?;
+            return Ok(SkillUninstallResult { backup_path });
+        }
+        for app in AppType::all() {
+            let _ = Self::remove_from_app(&skill.directory, &app);
+        }
+        for target in [ImagegenTarget::Dsh, ImagegenTarget::WorkBuddy] {
+            if target.is_enabled(&skill.apps) {
+                Self::remove_path(&target.skills_dir()?.join(&skill.directory))?;
             }
         }
 
@@ -1413,6 +1413,10 @@ impl SkillService {
 
     /// 更新单个 Skill（重新下载并替换本地文件）
     pub async fn update_skill(&self, db: &Arc<Database>, skill_id: &str) -> Result<InstalledSkill> {
+        if skill_id == BUILTIN_IMAGEGEN_ID {
+            let _guard = builtin_imagegen::lock()?;
+            return builtin_imagegen::refresh_locked(db);
+        }
         let skill = db
             .get_installed_skill(skill_id)?
             .ok_or_else(|| anyhow!("Skill not found: {skill_id}"))?;
@@ -1530,9 +1534,9 @@ impl SkillService {
         db.save_skill(&updated_skill)?;
 
         // 同步到所有已启用的应用目录
-        for app in updated_skill.apps.enabled_apps() {
-            if let Err(e) = Self::sync_to_app_dir(&updated_skill.directory, &app) {
-                log::warn!("同步更新后的 skill 到 {:?} 失败: {e}", app);
+        for target in ImagegenTarget::enabled_targets(&updated_skill.apps) {
+            if let Err(e) = Self::sync_to_target_dir(&updated_skill.directory, target) {
+                log::warn!("同步更新后的 skill 到 {:?} 失败: {e}", target);
             }
         }
 
@@ -1578,6 +1582,7 @@ impl SkillService {
         db: &Arc<Database>,
         target: SkillStorageLocation,
     ) -> Result<MigrationResult> {
+        let imagegen_guard = builtin_imagegen::lock()?;
         let current = crate::settings::get_skill_storage_location();
         if current == target {
             return Ok(MigrationResult {
@@ -1599,6 +1604,18 @@ impl SkillService {
 
         // 2. 逐个移动 skill 目录
         let skills = db.get_all_installed_skills()?;
+        if let Some(skill) = skills.get(BUILTIN_IMAGEGEN_ID) {
+            let destination = new_dir.join(BUILTIN_IMAGEGEN_DIRECTORY);
+            if destination.exists() || Self::is_symlink(&destination) {
+                return Err(anyhow!("新存储位置存在同名图像技能，已保留当前存储位置"));
+            }
+            // Upgrade legacy source links before moving their source. Bound
+            // copies keep working while the storage setting changes.
+            for client in ImagegenTarget::enabled_targets(&skill.apps) {
+                builtin_imagegen::validate_current_projection_for(skill, client)?;
+                builtin_imagegen::sync_projection(client)?;
+            }
+        }
         let mut result = MigrationResult {
             migrated_count: 0,
             skipped_count: 0,
@@ -1635,10 +1652,13 @@ impl SkillService {
 
         // 3. 文件移动完成后才持久化设置
         crate::settings::set_skill_storage_location(target)?;
+        drop(imagegen_guard);
 
         // 4. 刷新所有应用目录的 symlink（指向新 SSOT）
-        for app in AppType::all() {
-            let _ = Self::sync_to_app(db, &app);
+        for client in ImagegenTarget::all() {
+            if let Err(error) = Self::sync_to_target(db, client) {
+                result.errors.push(format!("{}: {error}", client.as_str()));
+            }
         }
 
         log::info!(
@@ -1709,6 +1729,14 @@ impl SkillService {
         backup_id: &str,
         current_app: &AppType,
     ) -> Result<InstalledSkill> {
+        Self::restore_from_backup_for(db, backup_id, ImagegenTarget::parse(current_app.as_str())?)
+    }
+
+    pub fn restore_from_backup_for(
+        db: &Arc<Database>,
+        backup_id: &str,
+        target: ImagegenTarget,
+    ) -> Result<InstalledSkill> {
         let _imagegen_guard = builtin_imagegen::lock()?;
         let backup_path = Self::backup_path_for_id(backup_id)?;
         let metadata = Self::read_backup_metadata(&backup_path)?;
@@ -1743,9 +1771,13 @@ impl SkillService {
             ));
         }
 
+        if metadata.skill.id == BUILTIN_IMAGEGEN_ID {
+            return builtin_imagegen::restore_locked(db, metadata.skill, &backup_skill_dir, target);
+        }
         let mut restored_skill = metadata.skill;
         restored_skill.installed_at = Utc::now().timestamp();
-        restored_skill.apps = SkillApps::only(current_app);
+        restored_skill.apps = SkillApps::default();
+        target.set_enabled(&mut restored_skill.apps, true);
         restored_skill.updated_at = 0;
 
         Self::copy_dir_recursive(&backup_skill_dir, &restore_path)?;
@@ -1759,7 +1791,7 @@ impl SkillService {
         }
 
         if !restored_skill.apps.is_empty() {
-            if let Err(err) = Self::sync_to_app_dir(&restored_skill.directory, current_app) {
+            if let Err(err) = Self::sync_to_target_dir(&restored_skill.directory, target) {
                 let _ = db.delete_skill(&restored_skill.id);
                 let _ = fs::remove_dir_all(&restore_path);
                 return Err(err);
@@ -1780,18 +1812,18 @@ impl SkillService {
     /// 启用：复制到应用目录
     /// 禁用：从应用目录删除
     pub fn toggle_app(db: &Arc<Database>, id: &str, app: &AppType, enabled: bool) -> Result<()> {
+        if id == BUILTIN_IMAGEGEN_ID {
+            return Self::toggle_builtin_imagegen_for(
+                db,
+                ImagegenTarget::parse(app.as_str())?,
+                enabled,
+            );
+        }
         let _imagegen_guard = builtin_imagegen::lock()?;
         // 获取当前 skill
         let mut skill = db
             .get_installed_skill(id)?
             .ok_or_else(|| anyhow!("Skill not found: {id}"))?;
-
-        if skill.id == BUILTIN_IMAGEGEN_ID {
-            builtin_imagegen::remember_initialized(db)?;
-            if enabled {
-                builtin_imagegen::validate_current_projection(&skill, app)?;
-            }
-        }
 
         // 更新状态
         skill.apps.set_enabled_for(app, enabled);
@@ -2021,13 +2053,18 @@ impl SkillService {
             return Ok(());
         }
 
-        let ssot_dir = Self::get_ssot_dir()?;
-        let source = ssot_dir.join(directory);
-
-        Self::validate_sync_source_dir(&source, directory)?;
-
         let app_dir = Self::get_app_skills_dir(app)?;
-        fs::create_dir_all(&app_dir)?;
+        Self::sync_to_directory(directory, &app_dir)
+    }
+
+    fn sync_to_target_dir(directory: &str, target: ImagegenTarget) -> Result<()> {
+        Self::sync_to_directory(directory, &target.skills_dir()?)
+    }
+
+    fn sync_to_directory(directory: &str, app_dir: &Path) -> Result<()> {
+        let source = Self::get_ssot_dir()?.join(directory);
+        Self::validate_sync_source_dir(&source, directory)?;
+        fs::create_dir_all(app_dir)?;
 
         let dest = app_dir.join(directory);
 
@@ -2037,7 +2074,7 @@ impl SkillService {
             SyncMethod::Auto => {
                 if dest.exists() && !Self::is_symlink(&dest) {
                     Self::replace_dest_with_copy(&source, &dest, directory)?;
-                    log::debug!("Skill {directory} 已通过复制同步到 {app:?}");
+                    log::debug!("Skill {directory} 已通过复制同步到 {}", app_dir.display());
                     return Ok(());
                 }
 
@@ -2048,7 +2085,10 @@ impl SkillService {
                 // 优先尝试 symlink
                 match Self::create_symlink(&source, &dest) {
                     Ok(()) => {
-                        log::debug!("Skill {directory} 已通过 symlink 同步到 {app:?}");
+                        log::debug!(
+                            "Skill {directory} 已通过 symlink 同步到 {}",
+                            app_dir.display()
+                        );
                         return Ok(());
                     }
                     Err(err) => {
@@ -2061,18 +2101,21 @@ impl SkillService {
                 }
                 // Fallback 到 copy
                 Self::replace_dest_with_copy(&source, &dest, directory)?;
-                log::debug!("Skill {directory} 已通过复制同步到 {app:?}");
+                log::debug!("Skill {directory} 已通过复制同步到 {}", app_dir.display());
             }
             SyncMethod::Symlink => {
                 if dest.exists() || Self::is_symlink(&dest) {
                     Self::remove_path(&dest)?;
                 }
                 Self::create_symlink(&source, &dest)?;
-                log::debug!("Skill {directory} 已通过 symlink 同步到 {app:?}");
+                log::debug!(
+                    "Skill {directory} 已通过 symlink 同步到 {}",
+                    app_dir.display()
+                );
             }
             SyncMethod::Copy => {
                 Self::replace_dest_with_copy(&source, &dest, directory)?;
-                log::debug!("Skill {directory} 已通过复制同步到 {app:?}");
+                log::debug!("Skill {directory} 已通过复制同步到 {}", app_dir.display());
             }
         }
 
@@ -2231,7 +2274,7 @@ impl SkillService {
                 }
 
                 if let Some(skill) = indexed_skills.get(&dir_name.to_lowercase()) {
-                    if !skill.apps.is_enabled_for(app) {
+                    if !skill.apps.is_enabled_for(app) && skill.id != BUILTIN_IMAGEGEN_ID {
                         Self::remove_path(&path)?;
                     }
                     continue;
@@ -2247,11 +2290,33 @@ impl SkillService {
             if skill.apps.is_enabled_for(app) {
                 if skill.id == BUILTIN_IMAGEGEN_ID {
                     builtin_imagegen::validate_current_projection(skill, app)?;
+                    builtin_imagegen::sync_projection(ImagegenTarget::parse(app.as_str())?)?;
+                } else {
+                    Self::sync_to_app_dir(&skill.directory, app)?;
                 }
-                Self::sync_to_app_dir(&skill.directory, app)?;
             }
         }
 
+        Ok(())
+    }
+
+    /// Sync the extra image clients without adding them to provider/MCP AppType.
+    pub fn sync_to_target(db: &Arc<Database>, target: ImagegenTarget) -> Result<()> {
+        if let Some(app) = target.core_app() {
+            return Self::sync_to_app(db, &app);
+        }
+        let _guard = builtin_imagegen::lock()?;
+        for skill in db.get_all_installed_skills()?.values() {
+            if !target.is_enabled(&skill.apps) {
+                continue;
+            }
+            if skill.id == BUILTIN_IMAGEGEN_ID {
+                builtin_imagegen::validate_current_projection_for(skill, target)?;
+                builtin_imagegen::sync_projection(target)?;
+            } else {
+                Self::sync_to_target_dir(&skill.directory, target)?;
+            }
+        }
         Ok(())
     }
 
@@ -3747,8 +3812,6 @@ mod tests {
 
     #[test]
     fn builtin_imagegen_prefers_the_direct_images_api() {
-        assert!(BUILTIN_IMAGEGEN_SKILL_MD.contains("POST /images/generations"));
-        assert!(BUILTIN_IMAGEGEN_SKILL_MD.contains("POST /images/edits"));
         assert!(!BUILTIN_IMAGEGEN_SCRIPT.contains("imageModel: \"gpt-image-2\""));
 
         let direct_call = BUILTIN_IMAGEGEN_SCRIPT

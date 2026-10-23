@@ -119,12 +119,20 @@ impl ProxyService {
                 if info.protocol_version == crate::core_daemon::CORE_PROTOCOL_VERSION
                     && (cfg!(debug_assertions) || info.version == env!("CARGO_PKG_VERSION")) =>
             {
-                crate::commands::refresh_codex_history_routes_at_port(info.status.port).map(|_| ())
+                let codex = crate::commands::refresh_codex_history_routes_at_port(info.status.port)
+                    .map(|_| ());
+                let images =
+                    crate::commands::refresh_yuanheng_imagegen_routes_at_port(info.status.port);
+                codex.and(images)
             }
             Ok(info) if info.status.active_connections > 0 => Ok(()),
             _ => {
                 let info = supervisor.ensure_running(&self.db).await?;
-                crate::commands::refresh_codex_history_routes_at_port(info.status.port).map(|_| ())
+                let codex = crate::commands::refresh_codex_history_routes_at_port(info.status.port)
+                    .map(|_| ());
+                let images =
+                    crate::commands::refresh_yuanheng_imagegen_routes_at_port(info.status.port);
+                codex.and(images)
             }
         }
     }
@@ -617,6 +625,11 @@ impl ProxyService {
                 crate::commands::refresh_codex_history_routes_at_port(info.status.port)
             {
                 log::warn!("Codex 历史会话配置待修复: {error}");
+            }
+            if let Err(error) =
+                crate::commands::refresh_yuanheng_imagegen_routes_at_port(info.status.port)
+            {
+                log::warn!("图像连接端口待同步: {error}");
             }
             return Ok(ProxyServerInfo {
                 address: info.status.address,
@@ -3227,7 +3240,12 @@ impl ProxyService {
             let require_restart = new_config.listen_address != previous.listen_address
                 || new_config.listen_port != previous.listen_port;
             if require_restart {
-                self.core_supervisor().restart(&self.db).await?;
+                let info = self.core_supervisor().restart(&self.db).await?;
+                if let Err(error) =
+                    crate::commands::refresh_yuanheng_imagegen_routes_at_port(info.status.port)
+                {
+                    log::warn!("图像连接端口待同步: {error}");
+                }
             } else {
                 self.core_supervisor().reload(&self.db).await?;
             }

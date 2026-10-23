@@ -100,6 +100,10 @@ pub struct SkillApps {
     pub opencode: bool,
     #[serde(default)]
     pub hermes: bool,
+    #[serde(default)]
+    pub dsh: bool,
+    #[serde(default)]
+    pub workbuddy: bool,
 }
 
 impl SkillApps {
@@ -163,6 +167,8 @@ impl SkillApps {
             && !self.grokbuild
             && !self.opencode
             && !self.hermes
+            && !self.dsh
+            && !self.workbuddy
     }
 
     /// 仅启用指定应用（其他应用设为禁用）

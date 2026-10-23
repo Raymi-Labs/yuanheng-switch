@@ -165,10 +165,12 @@ Claude diagnostic persistence uses a bounded background writer, not disk I/O on 
 
 回归：`yuanheng/model_catalog.rs`、`modelVendors.test.ts`、`ToolModelPicker.test.tsx`、`ModelPicker.groups.test.tsx`、`App.test.tsx`。见[同步决定及验证边界](../.agents/notes/implemented/bug-fix/2026-10-21-cloud-model-vendors.md)。
 
-## Codex 自动图像技能（2026-10-23）
+## 多应用自动图像技能（2026-10-23）
 
-成功配置元衡 Codex、切换到元衡模式和已有元衡路由的客户端启动，复用 [SkillService](../src-tauri/src/services/skill/builtin_imagegen.rs) 自动补装或刷新未自行修改的内置技能；禁用/卸载意图及未知同名内容保留。能力中心保留手动恢复入口并显示“自动选模 · 质量优先”。
+成功配置支持技能的元衡工具，或已有连接的客户端启动时，复用 [SkillService](../src-tauri/src/services/skill/builtin_imagegen.rs) 自动补装或刷新未自行修改的内置技能。[技能目标适配](../src-tauri/src/services/skill/imagegen_target.rs) 包含 Claude Code、Codex CLI/Desktop、Gemini CLI、Grok Build、OpenCode、Hermes、DSH 和 WorkBuddy，不扩展全局 AppType。每应用关闭和全局卸载意图、未知同名内容保留；独立 copy 与绑定文件纳入生命周期和回滚。
 
-[无密钥运行时描述](../src-tauri/src/commands/yuanheng/imagegen.rs) 连接现有 Core；[图片模型目录和图片路由](../src-tauri/src/proxy/images.rs) 按 Codex CLI/Desktop namespace 使用各自当前托管凭据。helper 每次读取该连接授权目录，选择最新数字版本、同版本质量优先；显式型号优先，目录失败不猜测。默认桌面连接，元衡终端桥接通过环境选择独立终端连接。
+[无密钥运行时描述](../src-tauri/src/commands/yuanheng/imagegen.rs) 连接现有 Core；[图片模型目录和图片路由](../src-tauri/src/proxy/images.rs) 按工具 namespace 读取[现有托管凭据](../src-tauri/src/commands/yuanheng/imagegen_credentials.rs)，配置变更或新目标技能关闭时拒绝调用，不新增 Key 副本。helper 每次读取该连接授权目录，选择最新数字版本、同版本质量优先；显式型号优先，目录失败不猜测。Codex 保留终端/桌面连接和旧描述兼容，其余目标只走 Images API。
 
-[Skill](../src-tauri/src/resources/builtin_skills/meta-api-imagegen/SKILL.md) 允许隐式调用，在对话中展示图片并继续原任务；实际选择仍由 Codex 决定。接口明确不支持时最多一次兼容回退，网络/业务/保存失败不重复生成，最终图片与 partial 区分。Node 模拟 HTTP、Rust 安装/路由与配置回归不代表真实付费生成验收。取舍见[自动图像技能](../.agents/notes/implemented/feature/2026-10-23-automatic-image-skill.md)。
+[图像卡片](../src/components/desktop/ImagegenCapabilityCard.tsx) 使用实际 activeTool 与[专用状态/启停/导出 API](../src-tauri/src/commands/skill_imagegen.rs)，其余能力保持 core AppId。DSH 使用当前 DSH_HOME/skills；WorkBuddy 开发模式读取 ~/.codebuddy/skills（同目录也供 CodeBuddy Code 发现），办公模式导出本机 ZIP 再由用户导入。导入包绑定本机稳定 runtime 路径，随 Core 端口同步，不包含密钥。
+
+[Skill](../src-tauri/src/resources/builtin_skills/meta-api-imagegen/SKILL.md) 允许隐式调用，按宿主支持的图片/结果预览展示后继续任务；实际选择由宿主 Agent 决定。纯文本模型不强制视觉检查。OpenCode 发现其他应用同名副本时，宿主标记检查会拒绝使用该绑定，需选择自己的安装路径。Codex 仅在接口明确不支持时最多一次兼容回退，网络/业务/保存失败不重复生成，最终图片与 partial 区分。Node 模拟 HTTP、Rust 安装/路由和界面回归不代表原生 WorkBuddy 办公导入或真实付费生成验收。原始取舍见[自动图像技能](../.agents/notes/implemented/feature/2026-10-23-automatic-image-skill.md)，多应用扩展见[决策笔记](../.agents/notes/implemented/feature/2026-10-23-multi-app-image-skill.md)。

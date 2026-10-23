@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 
 import type { AppId } from "@/lib/api/types";
+import type { YuanhengToolId } from "@/lib/api/yuanheng";
 
 export type AppType =
   | "claude"
@@ -11,6 +12,36 @@ export type AppType =
   | "opencode"
   | "openclaw"
   | "hermes";
+
+/** Tool-scoped image capability; desktop tools do not use the generic Skill AppId API. */
+export interface ImagegenToolStatus {
+  tool: YuanhengToolId;
+  target: string | null;
+  supported: boolean;
+  enabled: boolean;
+  configured: boolean;
+  ready: boolean;
+  error?: string | null;
+  scope: string;
+}
+
+export const imagegenApi = {
+  getStatus(tool: YuanhengToolId): Promise<ImagegenToolStatus> {
+    return invoke("get_imagegen_tool_status", { tool });
+  },
+  install(tool: YuanhengToolId): Promise<ImagegenToolStatus> {
+    return invoke("install_imagegen_for_tool", { tool });
+  },
+  setEnabled(
+    tool: YuanhengToolId,
+    enabled: boolean,
+  ): Promise<ImagegenToolStatus> {
+    return invoke("set_imagegen_tool_enabled", { tool, enabled });
+  },
+  exportSkill(tool: YuanhengToolId, filePath: string): Promise<string> {
+    return invoke("export_imagegen_skill", { tool, filePath });
+  },
+};
 
 /** Skill 应用启用状态 */
 export interface SkillApps {

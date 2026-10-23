@@ -4,6 +4,8 @@ import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { createServer } from "node:http";
 import {
+  cp,
+  symlink,
   mkdtemp,
   mkdir,
   readFile,
@@ -103,11 +105,53 @@ async function scenario(options = {}) {
   if (options.auth)
     await writeFile(resolve(home, "auth.json"), JSON.stringify(options.auth));
   const context = { directory, home, out, origin, calls };
+  if (options.projectedTarget) {
+    const target = options.projectedTarget;
+    context.projection = resolve(directory, "imported-skill");
+    context.runtimePath = resolve(
+      directory,
+      "stable-runtime",
+      `${target}.json`,
+    );
+    context.entry = resolve(context.projection, "scripts", "run_imagegen.mjs");
+    await cp(resolve(dirname(script), ".."), context.projection, {
+      recursive: true,
+    });
+    await mkdir(dirname(context.runtimePath));
+    const routes =
+      target === "codex"
+        ? {
+            codex: `${origin}/codex/v1`,
+            "chatgpt-desktop": `${origin}/chatgpt-desktop/v1`,
+          }
+        : { [target]: `${origin}/${target}/v1` };
+    const v2 = {
+      owner: "yuanheng-imagegen",
+      version: 2,
+      target,
+      enabled: true,
+      defaultSurface: target === "codex" ? "chatgpt-desktop" : target,
+      routes,
+      directOnly: target !== "codex",
+    };
+    await writeFile(context.runtimePath, JSON.stringify(v2));
+    await writeFile(
+      resolve(context.projection, "yuanheng-binding.json"),
+      JSON.stringify({
+        owner: "yuanheng-imagegen",
+        version: 1,
+        target,
+        runtimePath: context.runtimePath,
+      }),
+    );
+  }
   if (options.setup) await options.setup(context);
   const env = { ...process.env, CODEX_HOME: home };
   delete env.NAN_API_KEY;
   delete env.OPENAI_API_KEY;
   delete env.YUANHENG_IMAGEGEN_SURFACE;
+  delete env.OPENCODE;
+  delete env.OPENCODE_CLIENT;
   Object.assign(env, options.env);
   const extra =
     typeof options.args === "function"
@@ -117,7 +161,7 @@ async function scenario(options = {}) {
     const child = spawn(
       process.execPath,
       [
-        script,
+        context.entry || script,
         "--prompt",
         "Generate a small local test image",
         "--out",
@@ -758,6 +802,321 @@ test("redirects never replay image POSTs at another path", async () => {
     check: (result) => {
       failed(result);
       assert.equal(posts(result.calls).length, 1);
+    },
+  });
+});
+
+test("bound applications independently use their own image catalog and route", async (t) => {
+  for (const target of [
+    "claude",
+    "codex",
+    "gemini",
+    "grokbuild",
+    "opencode",
+    "hermes",
+    "dsh",
+    "workbuddy",
+  ])
+    await t.test(target, () =>
+      scenario({
+        projectedTarget: target,
+        env: { OPENAI_API_KEY: "sk-do-not-borrow" },
+        check: (result) => {
+          successful(result);
+          const surface = target === "codex" ? "chatgpt-desktop" : target;
+          assert.equal(result.calls[0].path, `/${surface}/v1/images/models`);
+          assert.equal(
+            result.calls[1].path,
+            `/${surface}/v1/images/generations`,
+          );
+          assert(result.calls.every((call) => !call.headers.authorization));
+        },
+      }),
+    );
+});
+
+test("non-Codex bound tools ignore inherited Codex surface environment", async () => {
+  await scenario({
+    projectedTarget: "dsh",
+    env: { YUANHENG_IMAGEGEN_SURFACE: "codex" },
+    check: (result) => {
+      successful(result);
+      assert.equal(result.calls[0].path, "/dsh/v1/images/models");
+    },
+  });
+  await scenario({
+    projectedTarget: "codex",
+    env: { YUANHENG_IMAGEGEN_SURFACE: "codex" },
+    check: (result) => {
+      successful(result);
+      assert.equal(result.calls[0].path, "/codex/v1/images/models");
+    },
+  });
+});
+
+test("OpenCode rejects discovered skills bound to other tools before any request", async (t) => {
+  for (const target of [
+    "claude",
+    "codex",
+    "gemini",
+    "grokbuild",
+    "hermes",
+    "dsh",
+    "workbuddy",
+  ])
+    await t.test(target, () =>
+      scenario({
+        projectedTarget: target,
+        env: { OPENCODE: "1" },
+        check: (result) => {
+          failed(result);
+          assert.match(result.stderr, /another tool.*OpenCode/);
+          assert.equal(result.calls.length, 0);
+        },
+      }),
+    );
+});
+
+test("OpenCode uses its own binding despite inherited Codex surface", async () => {
+  await scenario({
+    projectedTarget: "opencode",
+    env: { OPENCODE: "1", YUANHENG_IMAGEGEN_SURFACE: "codex" },
+    check: (result) => {
+      successful(result);
+      assert.equal(result.calls[0].path, "/opencode/v1/images/models");
+      assert.equal(result.calls[1].path, "/opencode/v1/images/generations");
+    },
+  });
+});
+
+test("explicit direct credentials cannot bypass the wrong OpenCode skill binding", async () => {
+  await scenario({
+    projectedTarget: "claude",
+    env: { OPENCODE: "1" },
+    args: ({ origin }) => [
+      "--base-url",
+      `${origin}/v1`,
+      "--api-key",
+      "sk-must-not-be-used",
+    ],
+    check: (result) => {
+      failed(result);
+      assert.match(result.stderr, /another tool.*OpenCode/);
+      assert.equal(result.calls.length, 0);
+      assert(!result.stderr.includes("sk-must-not-be-used"));
+    },
+  });
+});
+
+test("an unverified OpenCode client name does not guess or change the host", async () => {
+  await scenario({
+    projectedTarget: "codex",
+    env: {
+      OPENCODE_CLIENT: "unknown-client",
+      YUANHENG_IMAGEGEN_SURFACE: "codex",
+    },
+    check: (result) => {
+      successful(result);
+      assert.equal(result.calls[0].path, "/codex/v1/images/models");
+      assert.equal(result.calls[1].path, "/codex/v1/images/generations");
+    },
+  });
+});
+
+test("missing or altered binding fails without borrowing legacy Codex runtime", async (t) => {
+  for (const mutation of [
+    "missing",
+    "symlink",
+    "oversized",
+    "relative",
+    "foreign target",
+    "extra credential",
+  ])
+    await t.test(mutation, () =>
+      scenario({
+        projectedTarget: "dsh",
+        setup: async ({ projection }) => {
+          const path = resolve(projection, "yuanheng-binding.json");
+          const binding = JSON.parse(await readFile(path));
+          if (mutation === "missing") await rm(path);
+          if (mutation === "symlink") {
+            await renameFixture(path);
+          }
+          if (mutation === "oversized")
+            await writeFile(path, " ".repeat(17000));
+          if (mutation === "relative") {
+            binding.runtimePath = "../runtime.json";
+            await writeFile(path, JSON.stringify(binding));
+          }
+          if (mutation === "foreign target") {
+            binding.target = "unknown";
+            await writeFile(path, JSON.stringify(binding));
+          }
+          if (mutation === "extra credential") {
+            binding.apiKey = "sk-never-output";
+            await writeFile(path, JSON.stringify(binding));
+          }
+        },
+        check: (result) => {
+          failed(result);
+          assert.equal(result.calls.length, 0);
+          assert(!result.stderr.includes("sk-never-output"));
+        },
+      }),
+    );
+});
+
+async function renameFixture(path) {
+  const copy = `${path}.copy`;
+  await writeFile(copy, await readFile(path));
+  await rm(path);
+  await symlink(copy, path);
+}
+
+test("bound runtime missing, disabled, cross-target or wrong namespace stops before requests", async (t) => {
+  for (const mutation of [
+    "missing",
+    "symlink",
+    "disabled",
+    "target",
+    "namespace",
+    "remote",
+    "credentials",
+  ])
+    await t.test(mutation, () =>
+      scenario({
+        projectedTarget: "workbuddy",
+        setup: async ({ runtimePath, origin }) => {
+          const runtime = JSON.parse(await readFile(runtimePath));
+          if (mutation === "missing") {
+            await rm(runtimePath);
+            return;
+          }
+          if (mutation === "symlink") {
+            await renameFixture(runtimePath);
+            return;
+          }
+          if (mutation === "disabled") {
+            runtime.enabled = false;
+            runtime.routes = {};
+          }
+          if (mutation === "target") {
+            runtime.target = "dsh";
+            runtime.defaultSurface = "dsh";
+            runtime.routes = { dsh: `${origin}/dsh/v1` };
+          }
+          if (mutation === "namespace")
+            runtime.routes.workbuddy = `${origin}/codex/v1`;
+          if (mutation === "remote")
+            runtime.routes.workbuddy = "https://example.com/workbuddy/v1";
+          if (mutation === "credentials") runtime.apiKey = "sk-never-output";
+          await writeFile(runtimePath, JSON.stringify(runtime));
+        },
+        check: (result) => {
+          failed(result);
+          assert.equal(result.calls.length, 0);
+          assert(!result.stderr.includes("sk-never-output"));
+        },
+      }),
+    );
+});
+
+test("imported ZIP copy follows a changed Core port through its stable runtime", async () => {
+  await scenario({
+    projectedTarget: "workbuddy",
+    setup: async (context) => {
+      const imported = resolve(
+        context.directory,
+        "office import",
+        "skills",
+        "meta-api-imagegen",
+      );
+      await cp(context.projection, imported, { recursive: true });
+      await rm(context.projection, { recursive: true });
+      context.entry = resolve(imported, "scripts", "run_imagegen.mjs");
+      context.restartedCalls = [];
+      context.restarted = createServer(async (req, res) => {
+        for await (const _chunk of req) {
+          /* consume request */
+        }
+        context.restartedCalls.push(req.url);
+        json(
+          res,
+          200,
+          req.method === "GET" ? { data: [{ id: "gpt-image-3" }] } : image,
+        );
+      });
+      await new Promise((done) =>
+        context.restarted.listen(0, "127.0.0.1", done),
+      );
+      const runtime = JSON.parse(await readFile(context.runtimePath));
+      runtime.routes.workbuddy = `http://127.0.0.1:${context.restarted.address().port}/workbuddy/v1`;
+      await writeFile(context.runtimePath, JSON.stringify(runtime));
+    },
+    check: async (result) => {
+      try {
+        successful(result);
+        assert.equal(result.calls.length, 0);
+        assert.deepEqual(result.restartedCalls, [
+          "/workbuddy/v1/images/models",
+          "/workbuddy/v1/images/generations",
+        ]);
+        assert.match(result.stdout, /SELECTED_IMAGE_MODEL=gpt-image-3/);
+      } finally {
+        result.restarted.closeAllConnections();
+        await new Promise((done) => result.restarted.close(done));
+      }
+    },
+  });
+});
+
+test("non-Codex runtimes never use compatibility Responses even when endpoint unsupported", async () => {
+  await scenario({
+    projectedTarget: "dsh",
+    handler: (call, res) => {
+      if (call.method === "POST") {
+        json(res, 404, { error: { code: "unsupported_endpoint" } });
+        return true;
+      }
+    },
+    check: (result) => {
+      failed(result);
+      assert.equal(posts(result.calls).length, 1);
+      assert(!result.calls.some((call) => call.path.endsWith("/responses")));
+    },
+  });
+  await scenario({
+    projectedTarget: "workbuddy",
+    args: ["--responses-only"],
+    check: (result) => {
+      failed(result);
+      assert.equal(result.calls.length, 0);
+      assert.match(result.stderr, /only the direct Images API/);
+    },
+  });
+});
+
+test("explicit direct override remains available despite disabled bound runtime", async () => {
+  await scenario({
+    projectedTarget: "dsh",
+    setup: async ({ runtimePath }) => {
+      await writeFile(
+        runtimePath,
+        JSON.stringify({
+          owner: "yuanheng-imagegen",
+          version: 2,
+          target: "dsh",
+          enabled: false,
+          routes: {},
+          defaultSurface: "dsh",
+        }),
+      );
+    },
+    args: ({ origin }) => ["--base-url", origin, "--api-key", "sk-explicit"],
+    check: (result) => {
+      successful(result);
+      assert.equal(result.calls[0].path, "/v1/models");
+      assert.equal(result.calls[0].headers.authorization, "Bearer sk-explicit");
     },
   });
 });

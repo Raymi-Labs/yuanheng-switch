@@ -2,9 +2,18 @@
 pub(crate) mod credential_session;
 mod dsh;
 mod imagegen;
+mod imagegen_credentials;
 mod model_catalog;
 
+pub(crate) use imagegen::refresh_port as refresh_yuanheng_imagegen_routes_at_port;
 pub(crate) use imagegen::sync as sync_yuanheng_imagegen;
+pub(crate) use imagegen::{
+    sync_tool as sync_yuanheng_imagegen_tool, tool_status as imagegen_tool_status,
+    ImagegenToolStatus,
+};
+pub(crate) use imagegen_credentials::imagegen_provider;
+#[cfg(test)]
+pub(crate) use imagegen_credentials::test_support as imagegen_test_support;
 use std::collections::{BTreeSet, HashMap};
 use std::sync::OnceLock;
 use std::time::Duration;
@@ -1144,7 +1153,7 @@ fn stored_tool_credential(
     selected_model: Option<&str>,
 ) -> Result<Option<String>, String> {
     if app_name == "dsh" {
-        return dsh::credential(state, group);
+        return dsh::credential(&state.db, group);
     }
     if app_name == "workbuddy" {
         if state
@@ -2855,7 +2864,7 @@ async fn configure_codex_surface(
     }
 
     let mut warnings = Vec::new();
-    if let Err(error) = sync_yuanheng_imagegen(state, true).await {
+    if let Err(error) = sync_yuanheng_imagegen_tool(state, surface.namespace(), true).await {
         warnings.push(format!("图像能力自动启用未完成，请在能力中心重试：{error}"));
     }
     Ok(YuanhengToolConfigureResult {
@@ -4623,7 +4632,7 @@ pub async fn switch_codex_account_mode(
     let proxy_origin = format!("http://127.0.0.1:{}", proxy_status.port);
     let mut result =
         switch_codex_account_mode_at_origin(&state, mode, expectedMode.as_deref(), &proxy_origin)?;
-    if let Err(error) = sync_yuanheng_imagegen(&state, mode == "yuanheng").await {
+    if let Err(error) = sync_yuanheng_imagegen_tool(&state, "codex", mode == "yuanheng").await {
         result.message = Some(format!(
             "使用方式已切换；图像能力同步未完成，请在能力中心重试：{error}"
         ));
@@ -5542,6 +5551,15 @@ pub async fn configure_yuanheng_tools(
             Ok(mut result) => {
                 result.app = app_name.clone();
                 remember_tool_configured_at(&state, &app_name);
+                if !matches!(app_name.as_str(), "codex" | "chatgpt-desktop")
+                    && crate::services::skill::ImagegenTarget::parse(&app_name).is_ok()
+                {
+                    if let Err(error) = sync_yuanheng_imagegen_tool(&state, &app_name, true).await {
+                        result
+                            .warnings
+                            .push(format!("工具已配置，图像技能待处理：{error}"));
+                    }
+                }
                 if let Some(warning) = group_models_warning {
                     result.warnings.push(warning);
                 }
@@ -5906,7 +5924,7 @@ pub fn sign_out_yuanheng(app: AppHandle, state: State<'_, AppState>) -> Result<b
 }
 
 #[tauri::command]
-pub fn disconnect_yuanheng(
+pub async fn disconnect_yuanheng(
     app: AppHandle,
     state: State<'_, AppState>,
 ) -> Result<YuanhengDisconnectResult, String> {
@@ -5915,16 +5933,24 @@ pub fn disconnect_yuanheng(
             let _ = window.close();
         }
     }
-    disconnect_yuanheng_inner(&state)
+    let mut result = disconnect_yuanheng_inner(&state)?;
+    if let Err(error) = sync_yuanheng_imagegen(&state, false).await {
+        result.warnings.push(format!("图像连接同步未完成：{error}"));
+    }
+    Ok(result)
 }
 
 /// 恢复元衡接管前的工具配置，但保留账号连接和本机凭据。
 /// 仅在存在可验证的历史配置时恢复；外部修改过的文件会保留并返回警告。
 #[tauri::command]
-pub fn rollback_yuanheng_tools(
+pub async fn rollback_yuanheng_tools(
     state: State<'_, AppState>,
 ) -> Result<YuanhengDisconnectResult, String> {
-    restore_managed_tools_inner(&state)
+    let mut result = restore_managed_tools_inner(&state)?;
+    if let Err(error) = sync_yuanheng_imagegen(&state, false).await {
+        result.warnings.push(format!("图像连接同步未完成：{error}"));
+    }
+    Ok(result)
 }
 
 #[cfg(test)]
@@ -6722,6 +6748,81 @@ mod tests {
         (home, AppState::new(db))
     }
 
+    #[tokio::test]
+    #[serial]
+    async fn multi_app_image_skill_starts_core_and_tracks_each_tool_lifecycle() {
+        use crate::services::skill::{ImagegenTarget, SkillService};
+        let (_home, state) = isolated_state();
+        let mut config = state.db.get_proxy_config().await.unwrap();
+        config.listen_port = 0;
+        state.db.update_proxy_config(config).await.unwrap();
+        let models = vec!["test-model".into()];
+        dsh::configure(
+            &state,
+            "synthetic-dsh-key",
+            "test-model",
+            &models,
+            "premium",
+        )
+        .unwrap();
+        configure_workbuddy(
+            &state,
+            "synthetic-workbuddy-key",
+            "test-model",
+            &models,
+            "premium",
+        )
+        .unwrap();
+        assert!(!state.proxy_service.is_running().await);
+        sync_yuanheng_imagegen(&state, true).await.unwrap();
+        assert!(state.proxy_service.is_running().await);
+        for target in [ImagegenTarget::Dsh, ImagegenTarget::WorkBuddy] {
+            let status =
+                serde_json::to_value(imagegen_tool_status(&state, target.as_str()).await.unwrap())
+                    .unwrap();
+            assert_eq!(status["ready"], true, "{status}");
+            let runtime: Value =
+                crate::config::read_json_file(&target.runtime_path().unwrap()).unwrap();
+            assert_eq!(runtime["target"], target.as_str());
+            assert_eq!(runtime["directOnly"], true);
+            assert_eq!(runtime["routes"].as_object().unwrap().len(), 1);
+            assert!(runtime.to_string().find("synthetic-").is_none());
+        }
+        assert!(!ImagegenTarget::Codex.projection_path().unwrap().exists());
+        SkillService::toggle_builtin_imagegen_for(&state.db, ImagegenTarget::Dsh, false).unwrap();
+        sync_yuanheng_imagegen(&state, true).await.unwrap();
+        let dsh: Value =
+            crate::config::read_json_file(&ImagegenTarget::Dsh.runtime_path().unwrap()).unwrap();
+        assert_eq!(dsh["enabled"], false);
+        assert_eq!(dsh["routes"], json!({}));
+        assert_eq!(
+            serde_json::to_value(imagegen_tool_status(&state, "workbuddy").await.unwrap()).unwrap()
+                ["ready"],
+            true
+        );
+        restore_workbuddy_config(&state).unwrap();
+        sync_yuanheng_imagegen(&state, false).await.unwrap();
+        let workbuddy: Value =
+            crate::config::read_json_file(&ImagegenTarget::WorkBuddy.runtime_path().unwrap())
+                .unwrap();
+        assert_eq!(workbuddy["enabled"], false);
+        assert_eq!(
+            serde_json::to_value(imagegen_tool_status(&state, "workbuddy").await.unwrap()).unwrap()
+                ["configured"],
+            false
+        );
+        assert_eq!(
+            serde_json::to_value(
+                imagegen_tool_status(&state, "claude-desktop")
+                    .await
+                    .unwrap()
+            )
+            .unwrap()["supported"],
+            false
+        );
+        state.proxy_service.stop().await.unwrap();
+    }
+
     #[test]
     #[serial]
     fn dsh_configures_profiles_rotates_key_and_restores_without_touching_other_providers() {
@@ -6746,10 +6847,10 @@ mod tests {
         ];
         dsh::configure(&state, "synthetic-key-one", "gpt-5.6", &models, "default").unwrap();
         assert_eq!(
-            dsh::credential(&state, "default").unwrap().as_deref(),
+            dsh::credential(&state.db, "default").unwrap().as_deref(),
             Some("synthetic-key-one")
         );
-        assert!(dsh::credential(&state, "other").unwrap().is_none());
+        assert!(dsh::credential(&state.db, "other").unwrap().is_none());
         let connection = YuanhengConnectionStatus {
             models: models.clone(),
             terminal_models: models.clone(),
@@ -6765,7 +6866,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(
-            dsh::credential(&state, "default").unwrap().as_deref(),
+            dsh::credential(&state.db, "default").unwrap().as_deref(),
             Some("synthetic-key-two")
         );
         let contents = std::fs::read_to_string(&web).unwrap();
@@ -6852,13 +6953,13 @@ mod tests {
             )
             .unwrap();
             assert_eq!(
-                dsh::credential(&state, "default").unwrap().as_deref(),
+                dsh::credential(&state.db, "default").unwrap().as_deref(),
                 Some("synthetic-key")
             );
             if !restore_only {
                 dsh::configure(&state, "rotated-key", &models[0], &models, "default").unwrap();
                 assert_eq!(
-                    dsh::credential(&state, "default").unwrap().as_deref(),
+                    dsh::credential(&state.db, "default").unwrap().as_deref(),
                     Some("rotated-key")
                 );
                 assert!(std::fs::read_to_string(&web)
@@ -6906,7 +7007,7 @@ mod tests {
             .unwrap();
         let root = crate::config::get_home_dir().join(".dsh");
         std::fs::write(root.join("profiles/web/cordis.patch.yml"), "[]\n").unwrap();
-        assert!(dsh::credential(&state, "default").is_err());
+        assert!(dsh::credential(&state.db, "default").is_err());
         assert!(dsh::restore(&state).unwrap());
         assert!(!std::fs::read_to_string(root.join(".credentials.yaml"))
             .unwrap()
@@ -6960,23 +7061,23 @@ mod tests {
             assert!(!legacy_status.configured);
             assert!(legacy_status.needs_update);
             assert_eq!(
-                dsh::credential(&state, "default").unwrap().as_deref(),
+                dsh::credential(&state.db, "default").unwrap().as_deref(),
                 Some("synthetic-key")
             );
 
             if !restore_only {
-                let token = dsh::credential(&state, "default").unwrap().unwrap();
+                let token = dsh::credential(&state.db, "default").unwrap().unwrap();
                 dsh::configure(&state, &token, &models[0], &models, "default").unwrap();
                 let updated_status = dsh::status(&state, &connection);
                 assert!(updated_status.configured);
                 assert!(!updated_status.needs_update);
                 assert_eq!(
-                    dsh::credential(&state, "default").unwrap().as_deref(),
+                    dsh::credential(&state.db, "default").unwrap().as_deref(),
                     Some("synthetic-key")
                 );
             }
             assert!(dsh::restore(&state).unwrap());
-            assert!(dsh::credential(&state, "default").unwrap().is_none());
+            assert!(dsh::credential(&state.db, "default").unwrap().is_none());
         }
     }
 
@@ -6996,7 +7097,7 @@ mod tests {
             ),
         )
         .unwrap();
-        assert!(dsh::credential(&state, "default").is_err());
+        assert!(dsh::credential(&state.db, "default").is_err());
         std::fs::write(&web, before.replace("test-model", "user-model")).unwrap();
         assert!(dsh::configure(&state, "new-key", "test-model", &models, "default").is_err());
         assert!(dsh::restore(&state).is_err());

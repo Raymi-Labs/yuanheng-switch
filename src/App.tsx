@@ -340,7 +340,10 @@ function App() {
   });
 
   useTauriEvent<null | undefined>("yuanheng-imagegen-updated", async () => {
-    await queryClient.invalidateQueries({ queryKey: ["skills", "installed"] });
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ["skills", "installed"] }),
+      queryClient.invalidateQueries({ queryKey: ["imagegen", "tools"] }),
+    ]);
   });
 
   useEffect(() => {
@@ -472,7 +475,13 @@ function App() {
           <ToolsPage activeApp={activeTool} onSetActiveApp={persistActiveApp} />
         );
       case "capabilities":
-        return <CapabilityCenter activeApp={activeApp} onOpen={navigate} />;
+        return (
+          <CapabilityCenter
+            activeApp={activeApp}
+            activeTool={activeTool}
+            onOpen={navigate}
+          />
+        );
       case "usage":
         return (
           <UsageCenter
