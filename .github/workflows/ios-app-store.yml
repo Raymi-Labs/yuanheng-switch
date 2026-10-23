@@ -86,7 +86,7 @@ jobs:
           python3 scripts/verify_ios_store.py
       - name: Build and launch simulator
         run: |
-          pnpm tauri ios build --ci --target aarch64-sim --archive-only
+          pnpm tauri ios build --ci --target aarch64-sim --no-sign --archive-only
           python3 scripts/smoke_ios.py
       - uses: actions/upload-artifact@v7
         if: always()

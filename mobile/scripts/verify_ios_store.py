@@ -83,8 +83,8 @@ def main():
             "codesign", "-d", "--entitlements", ":-", str(app)], stderr=subprocess.DEVNULL))
         check_metadata(info, profile, entitlements, version, build)
         prefix = directory / "signer-"
-        subprocess.run(["codesign", "-d", "--extract-certificates", str(prefix), str(app)],
-                       check=True, stderr=subprocess.DEVNULL)
+        subprocess.run(["codesign", "-d", f"--extract-certificates={prefix}", str(app)],
+                       check=True)
         if hashlib.sha256(Path(f"{prefix}0").read_bytes()).hexdigest() != CERT_SHA256:
             raise ValueError("IPA signer differs from approved distribution certificate")
         report = {

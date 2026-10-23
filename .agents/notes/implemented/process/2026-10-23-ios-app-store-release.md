@@ -34,6 +34,8 @@ Status: implemented
 
 Tauri 的 --build-number 会追加到 bundleVersion（1 + 1 变成 1.1），不是替换；流程在初始化前直接将完整构建号写入 runner 的 iOS 配置，不再传追加参数。校验拒绝意外后缀，并保留不含凭据的包元数据，方便失败时定位。
 
+codesign 提取证书的可选前缀必须使用 --extract-certificates=prefix，不能作为独立位置参数。已通过本机现有签名应用验证命令形式。模拟器显式不签名，避免沿用同一生成项目中写入的 App Store 签名配置；真机 IPA 的证书核验不变。
+
 本地前端流程与流解析、TypeScript/Vite 构建、Rust 状态/请求边界测试与 clippy、签名元数据拒绝错误平台/团队/证书/过期和调试权限的测试通过。iOS 原生签名构建及模拟器启动在 GitHub macOS runner 上独立核验；结果记录到 mobile/app-store/README.md，未完成时不能宣称成功。本机 Node 25 的实验 Web Storage 与 jsdom 冲突，本地测试通过 NODE_OPTIONS=--no-experimental-webstorage 运行，CI 继续固定 Node 22。
 
 ## Consequences
