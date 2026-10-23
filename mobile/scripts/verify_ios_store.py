@@ -22,7 +22,9 @@ def check_metadata(info, profile, entitlements, version, build):
             or info.get("CFBundleShortVersionString") != version
             or info.get("CFBundleVersion") != build
             or info.get("DTPlatformName") != "iphoneos"):
-        raise ValueError("IPA platform, bundle ID or version mismatch")
+        actual = {key: info.get(key) for key in ("CFBundleIdentifier", "CFBundleShortVersionString",
+                                                "CFBundleVersion", "DTPlatformName")}
+        raise ValueError(f"IPA metadata mismatch: actual={actual}, expected_version={version}, expected_build={build}")
     if profile.get("TeamIdentifier") != [TEAM]:
         raise ValueError("Incorrect signing team")
     if "ProvisionedDevices" in profile or profile.get("ProvisionsAllDevices"):
@@ -59,6 +61,12 @@ def main():
             raise ValueError("Expected one app payload")
         app = apps[0]
         info = plistlib.loads((app / "Info.plist").read_bytes())
+        output = root / "artifacts"
+        output.mkdir(exist_ok=True)
+        metadata = {key: info.get(key) for key in (
+            "CFBundleIdentifier", "CFBundleShortVersionString", "CFBundleVersion",
+            "DTPlatformName", "UIDeviceFamily", "DTXcode", "DTSDKName")}
+        (output / "ios-build-metadata.json").write_text(json.dumps(metadata, indent=2) + "\n")
         if info.get("UIDeviceFamily") != [1] or int(info.get("DTXcode", "0")) < 2600:
             raise ValueError(
                 "Expected iPhone-only app built with Xcode 26 or later; "

@@ -37,7 +37,8 @@ class DistributionTests(unittest.TestCase):
 
     def test_rejects_incorrect_app_metadata(self):
         for key, value in (("DTPlatformName", "iphonesimulator"), ("CFBundleIdentifier", "other"),
-                           ("CFBundleShortVersionString", "0.1.0"), ("CFBundleVersion", "2")):
+                           ("CFBundleShortVersionString", "0.1.0"), ("CFBundleVersion", "2"),
+                           ("CFBundleVersion", "1.1")):
             with self.subTest(key=key), self.assertRaises(ValueError):
                 self.check(info={**self.info, key: value})
 

@@ -53,6 +53,15 @@ jobs:
           test "$(xcode-select --print-path)" = "$DEVELOPER_DIR"
           xcodebuild -version
           xcrun --sdk iphoneos --show-sdk-version
+          # Tauri's --build-number appends a suffix; set the full value directly.
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          path = Path('src-tauri/tauri.ios.conf.json')
+          config = json.loads(path.read_text())
+          config['bundle']['iOS']['bundleVersion'] = os.environ['IOS_BUILD_NUMBER']
+          path.write_text(json.dumps(config, indent=2) + '\n')
+          PY
       - run: pnpm install --frozen-lockfile
       - name: Checks
         run: |
@@ -73,11 +82,11 @@ jobs:
           for name in IOS_CERTIFICATE IOS_CERTIFICATE_PASSWORD IOS_MOBILE_PROVISION APPLE_DEVELOPMENT_TEAM; do
             test -n "${!name}" || { echo "Missing secret: $name"; exit 1; }
           done
-          pnpm tauri ios build --ci --target aarch64 --export-method app-store-connect --build-number "$IOS_BUILD_NUMBER"
+          pnpm tauri ios build --ci --target aarch64 --export-method app-store-connect
           python3 scripts/verify_ios_store.py
       - name: Build and launch simulator
         run: |
-          pnpm tauri ios build --ci --target aarch64-sim --archive-only --build-number "$IOS_BUILD_NUMBER"
+          pnpm tauri ios build --ci --target aarch64-sim --archive-only
           python3 scripts/smoke_ios.py
       - uses: actions/upload-artifact@v7
         if: always()

@@ -28,9 +28,21 @@ App Store Connect 应用 ID：`6826138396`；Bundle ID：`com.nanashiwang.yuanhe
 | Apple 上传处理 | 未执行 |
 | 专用普通审核账号、额度和联系人 | 待维护者提供，不在仓库记录密码 |
 | 实际功能截图、真机登录/相册/模型请求 | 待验收；不以模拟数据截图冒充 |
-| 隐私数据收集声明、支持页面、年龄分级 | 待核对真实服务行为后填写 |
+| 名称、简介、关键词、分类、版权、审核备注 | 已保存；简体中文，Productivity / Graphics & Design |
+| 隐私政策与支持链接 | 已保存官网隐私政策与排障文档；支持页面仍需补可公开的联系方式 |
+| 年龄分级 | 已填写问卷并按成人目标用户覆盖为 18+；旧系统显示 17+，不代表已核实所有模型的内容过滤 |
+| 隐私数据收集声明 | 已保存已确认类型的草稿，尚未发布；上游图像/内容留存等仍需核实 |
+| 第三方内容权利声明 | 待维护者确认实际授权，不代为虚构权利归属 |
 | App Review | 未提交 |
 
 现有后台 DeleteSelf 是软删除，不能声称会清除所有关联个人数据。首版仅已有账号登录；增加注册前需先落实完整账号删除与保留规则。现有公开隐私政策含账户、请求/用量与服务提供方条款，但移动端 AI 服务方、留存期限和直接联系途径仍需结合真实运营资料核对。
+
+## 资料交接
+
+审核联系人姓名、电话、邮箱，以及有可用额度的普通审核账号由维护者直接填写 App Store Connect 的 App Review Information；账号密码不得写进仓库。审核账号使用与普通用户相同的功能和权限，不能添加审核专用后门。商店免费分发不等于 AI 调用免费，模型调用仍消耗账号已有额度。
+
+App Privacy 当前草稿含 User ID、Other User Content、Other Usage Data、Other Diagnostic Data。可核对的依据包括账号/令牌标识、令牌名称、模型与额度日志、请求错误日志；后端代码也有违规文本加密留证能力。这是已确认部分，不是完整公开声明。发布前还须核对实际部署配置、第三方服务商的提示词/参考图留存及用途，补全用途、身份关联和追踪回答，不能默认无收集或零留存。
+
+Content Rights 页面要求声明第三方内容是否具备必要使用权，需由维护者基于实际服务授权确认。现有支持链接为 https://meta-api.vip/docs/troubleshooting，包含排障方法，但尚缺可直接联系的客服地址；补齐后再完成提审。截图须来自真实 iOS 界面，当前浏览器中的合成账号 UI 验收截图不作为商店截图。
 
 参考：[Apple 审核指南](https://developer.apple.com/app-store/review/guidelines/)、[Tauri iOS 签名](https://v2.tauri.app/distribute/sign/ios/)、[Apple 账号删除要求](https://developer.apple.com/help/app-review/guideline-reference/5-1-1-account-deletion)。

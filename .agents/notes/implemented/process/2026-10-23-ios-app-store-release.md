@@ -32,6 +32,8 @@ Status: implemented
 
 云端原生构建还发现 DEVELOPER_DIR 不能约束 cargo-mobile 的全部子进程：日志显示它调用默认 Xcode 16.4，虽然预检查显示 26.3。流程现在同时在临时 runner 上用 xcode-select 选择 26.3，并在最终 IPA 中核对 DTXcode；旧 SDK 产物被校验拦截，未上传 Apple。
 
+Tauri 的 --build-number 会追加到 bundleVersion（1 + 1 变成 1.1），不是替换；流程在初始化前直接将完整构建号写入 runner 的 iOS 配置，不再传追加参数。校验拒绝意外后缀，并保留不含凭据的包元数据，方便失败时定位。
+
 本地前端流程与流解析、TypeScript/Vite 构建、Rust 状态/请求边界测试与 clippy、签名元数据拒绝错误平台/团队/证书/过期和调试权限的测试通过。iOS 原生签名构建及模拟器启动在 GitHub macOS runner 上独立核验；结果记录到 mobile/app-store/README.md，未完成时不能宣称成功。本机 Node 25 的实验 Web Storage 与 jsdom 冲突，本地测试通过 NODE_OPTIONS=--no-experimental-webstorage 运行，CI 继续固定 Node 22。
 
 ## Consequences
