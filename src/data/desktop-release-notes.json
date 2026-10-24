@@ -2,14 +2,14 @@
   "schemaVersion": 1,
   "releases": [
     {
+      "version": "0.1.107",
+      "publishedAt": "2026-10-24T03:09:07.284Z",
+      "content": "【元衡客户端更新公告｜v0.1.107】\n\n• 修复 Claude Desktop 通过元衡连接时可能持续出现 400 Bad Request 的问题，自动选路和固定跳板、CF 线路均适用。\n• 普通回复和流式回复继续沿用所选模型及分组，无需重新填写密钥或调整渠道。\n• 保留 v0.1.106 的多应用图像能力与独立图像分组设置。\n\n提供 Windows x64、Apple 芯片 Mac 和 Intel Mac 安装包；macOS 继续使用 Apple Developer ID 签名和 Apple 公证。"
+    },
+    {
       "version": "0.1.106",
       "publishedAt": "2026-10-23T11:22:48.953Z",
       "content": "【元衡客户端更新公告｜v0.1.106】\n\n• 图像生成可单独选择有权限的图像分组，保留 DSH 等工具原有的聊天分组和模型，解决聊天正常但找不到 GPT Image 的问题。\n• 能力中心检查实际连接可用的图像模型，显示自动选择的最新型号；目录不可用或没有权限时给出明确提示。\n• 支持带命名空间前缀的 GPT Image 模型名称，继续按最新数字版本、同版本质量优先选择，生成请求保留完整型号。\n• 图像分组由用户明确选择，技能与 WorkBuddy 导入包不含 API Key；原有自动发现、每应用开关和生成后继续对话保持可用。已导入旧版 WorkBuddy 办公技能包的用户请重新导出并导入一次。\n\n提供 Windows x64、Apple 芯片 Mac 和 Intel Mac 安装包；macOS 继续使用 Apple Developer ID 签名和 Apple 公证。"
-    },
-    {
-      "version": "0.1.104",
-      "publishedAt": "2026-10-23T05:47:06.089Z",
-      "content": "【元衡客户端更新公告｜v0.1.104】\n\n• 图像生成能力扩展到 DSH、Claude Code、Gemini CLI、Grok Build、OpenCode、Hermes 和 WorkBuddy，成功配置元衡连接后自动安装，聊天中可按需生图并继续任务。\n• 每个应用使用自己的元衡连接和可用模型目录，沿用最新版本、同版本质量优先；关闭某个应用的图像能力不会影响其他应用。\n• WorkBuddy 代码开发模式读取本地技能；办公模式可在能力中心导出本机 ZIP 包，再通过 WorkBuddy 技能导入使用，图片按宿主支持的结果预览展示。\n• 保留自定义技能和主动关闭、卸载的选择；导入包不含密钥，同一电脑上的 Core 端口变化会同步更新。\n\n提供 Windows x64、Apple 芯片 Mac 和 Intel Mac 安装包；macOS 继续使用 Apple Developer ID 签名和 Apple 公证。"
     }
   ]
 }

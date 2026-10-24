@@ -27,8 +27,11 @@ Core 0.1.101 的托管 Claude Desktop 请求启用线路选择后返回 Nginx HT
 - 先在未修改发送器的代码上运行真实 loopback HTTP 回归，得到 400（期望 200），确认测试捕获缺 Host 而非仅复述实现。修复后相同回归通过。
 - Hyper/TLS 10 项、选路 11 项、forwarder 68 项通过（89 项）。新增覆盖原始 Host 位置/大小写保留、原始 map 缺 Host、HTTP CONNECT 隧道、无 case map 的 Hyper fallback、唯一 Host、请求路径/正文、JSON/SSE 完整响应。
 - 真实 Selector 的 Relay/Cloudflare 快照派生最终地址并序列化，核对 Host 对应实际 origin；显式端口、IPv6 方括号、重复执行、显式 Host 保留、无 authority 拒绝及 userinfo 不泄露均通过。
-- Core debug 候选构建、Rust 文件格式、diff 空白与笔记门禁作为本地交付检查；没有签名发布或替换运行版本。现有测试中的 HTTP/TLS 子进程、此次回归服务随测试退出回收，不留下后台进程。
+- 最初 Core debug 候选构建、Rust 文件格式、diff 空白与笔记门禁通过。实进程隔离验证中，现用 0.1.101 在跳板/CF × 普通/流式四场景均因缺 Host 返回400；修复版四场景均200且正文/结束标记完整，两版均拒绝错误gateway令牌，测试进程归零。正式发布与本机切换单独核验。现有测试中的 HTTP/TLS 子进程、此次回归服务随测试退出回收，不留下后台进程。
+
+- 基于伙伴 v0.1.106 重跑本地后端全库：2476 通过、3 项既有忽略；前端153文件1023项、类型检查、图像技能145项及分发/苹果签名验证脚本通过。直接 rustfmt 检查改动文件；本机 cargo-fmt/clippy 辅助程序缺失，三平台完整格式和 Clippy 检查交由仓库 CI 核验。
+- v0.1.107 隔离 Core 沿用已配置连接发起一次短文本真实 Messages 请求：HTTP200、claude-opus-5-5 返回 OK/end_turn，用量19输入/4输出 token，关闭前活跃0并优雅退出；未替换运行实例。仅含合成测试文字，未发送个人文件、姓名或历史会话。
 
 ## Consequences
 
-本地重现和代码验证不能代替安装后的 Claude Desktop 原生验收；切换 Core 会影响活跃连接，需在用户确认的时机安装。源码基于干净 v0.1.102 提交，当前运行 v0.1.101，候选不能混入工作区的 Accio 实验改动。
+本地重现和代码验证不能代替安装后的 Claude Desktop 原生验收；切换 Core 会影响活跃连接，需在用户确认的时机安装。源码已迁到伙伴 v0.1.106 的 main（7a456f25）后准备 v0.1.107；保留其图像授权等更新，不包含工作区 Accio 实验改动。
