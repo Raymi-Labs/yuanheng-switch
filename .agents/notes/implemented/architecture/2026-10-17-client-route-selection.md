@@ -16,7 +16,7 @@ Status: implemented
 - 复用 SQLite settings、CoreSupervisor 和已鉴权本地 Core 管理路由。GUI 停止显示后 Core 继续工作，不会因为打开设置而启动本地路由。
 - 复用 RequestForwarder 的原有协议、provider 和凭据解析；每个请求捕获不可变线路快照。只接受精确托管 provider ID/category 和规范 meta HTTPS 模型路径，拒绝用户信息、非443端口、片段、相似域名及控制面路径。
 - 被覆盖的是 Core 中经过 RequestForwarder 的托管文本模型 HTTP/SSE 请求，包括既有 reqwest 和原始头 Hyper 路径。图片独立 transport、WebSocket、官方账号、自定义供应商及绕过 Core 的工具不参与；卡片详情明确说明范围。
-- 仅替换已构建模型 URL 的 host，模型/分组/provider/认证上下文保持不变。转发前移除 Cookie 和旧 Host，reqwest 使用禁止重定向和隐式重试的连接池；本功能不新增业务请求重试、竞速或跨线重放。进行中的请求及现有 provider 重试继续使用原线路快照。
+- 仅替换已构建模型 URL 的 host，模型/分组/provider/认证上下文保持不变。转发前移除 Cookie 和旧 Host；reqwest 自动从最终 URL 生成 Host，Hyper 原始 HTTP 路径在发送边界从最终 URI 补齐缺失 Host，保留原始头位置/大小写，详见[Claude 选路 Host 修复](../bug-fix/2026-10-24-claude-routed-host.md)。reqwest 使用禁止重定向和隐式重试的连接池；本功能不新增业务请求重试、竞速或跨线重放。进行中的请求及现有 provider 重试继续使用原线路快照。
 - 登录、OAuth、充值、控制台和更新下载保持既有地址；不全局放宽 yuanheng_endpoints 的身份判断。
 - 活跃笔记检索后，[连接池与安全诊断](../../implemented/bug-fix/2026-10-12-outbound-connection-stability.md)部分相关，继续持有代理快照/连接池/脱敏契约；[更新下载择源](../../implemented/bug-fix/2026-10-12-update-download-failover.md)部分相关，下载可换源规则不能移植到计费生成。其他安装/R2笔记不持有本决定，没有需要归档的同题笔记。
 
