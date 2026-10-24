@@ -259,8 +259,8 @@ impl ProxyResponse {
 /// 2. Fallback: hyper-util Client with `title_case_headers(true)` when raw write
 ///    isn't feasible (e.g., missing original cases).
 ///
-/// The caller is expected to include `Host` in the supplied `headers` at the
-/// correct position.
+/// An explicit `Host` is preserved. If the caller removed it after rewriting
+/// the target URL, derive it from the final URI before either transport sends.
 ///
 /// `proxy_url`: optional upstream HTTP proxy URL (e.g. `http://127.0.0.1:7890`).
 /// When set, the raw write path uses HTTP CONNECT tunneling through the proxy,
@@ -273,12 +273,14 @@ pub async fn send_request(
     uri: http::Uri,
     log_display: &str,
     method: http::Method,
-    headers: http::HeaderMap,
+    mut headers: http::HeaderMap,
     original_extensions: http::Extensions,
     body: Vec<u8>,
     timeout: std::time::Duration,
     proxy_url: Option<&str>,
 ) -> Result<ProxyResponse, ProxyError> {
+    ensure_request_host(&uri, &mut headers)?;
+
     // Extract our own OriginalHeaderCases if available
     let original_cases = original_extensions.get::<OriginalHeaderCases>().cloned();
     let has_cases = original_cases
@@ -336,6 +338,28 @@ pub async fn send_request(
         .map_err(|e| ProxyError::ForwardFailed(format!("上游请求失败: {e}")))?;
 
     Ok(ProxyResponse::Hyper(resp))
+}
+
+// Raw HTTP/1.1 serialization does not synthesize Host like reqwest does.
+// Restore it after route selection, never from the pre-route case map. Keeping
+// the case map intact preserves the original spelling and position on the wire.
+fn ensure_request_host(uri: &http::Uri, headers: &mut http::HeaderMap) -> Result<(), ProxyError> {
+    if headers.contains_key(http::header::HOST) {
+        return Ok(());
+    }
+    let authority = uri
+        .authority()
+        .ok_or_else(|| ProxyError::ForwardFailed("Upstream URI has no authority".into()))?;
+    // Authority may contain userinfo for custom providers; it is not part of
+    // Host and must never be copied to a header or an error message.
+    let host = match authority.port() {
+        Some(port) => format!("{}:{}", authority.host(), port.as_str()),
+        None => authority.host().to_string(),
+    };
+    let value = http::HeaderValue::from_str(&host)
+        .map_err(|_| ProxyError::ForwardFailed("Invalid upstream Host header".into()))?;
+    headers.insert(http::header::HOST, value);
+    Ok(())
 }
 
 /// TCP or TLS stream returned by `connect_via_proxy`.
@@ -837,6 +861,233 @@ mod tests {
             );
         }
         ProxyResponse::buffered(http::StatusCode::OK, headers, Bytes::new())
+    }
+
+    #[test]
+    fn request_host_uses_final_authority_without_userinfo() {
+        for (url, expected) in [
+            ("https://meta-api.vip/v1/messages", "meta-api.vip"),
+            (
+                "https://nan.meta-api.vip/v1/messages?beta=true",
+                "nan.meta-api.vip",
+            ),
+            ("http://127.0.0.1:15721/v1/messages", "127.0.0.1:15721"),
+            (
+                "https://upstream.invalid:8443/v1/messages",
+                "upstream.invalid:8443",
+            ),
+            ("http://[::1]:15721/v1/messages", "[::1]:15721"),
+            ("https://[2001:db8::1]/v1/messages", "[2001:db8::1]"),
+            (
+                "https://synthetic:secret@upstream.invalid:8443/v1/messages",
+                "upstream.invalid:8443",
+            ),
+        ] {
+            let mut headers = http::HeaderMap::new();
+            let uri = url.parse().unwrap();
+            ensure_request_host(&uri, &mut headers).unwrap();
+            ensure_request_host(&uri, &mut headers).unwrap();
+            assert_eq!(headers[http::header::HOST], expected);
+            assert_eq!(headers.get_all(http::header::HOST).iter().count(), 1);
+        }
+    }
+
+    #[test]
+    fn request_host_preserves_explicit_value_and_rejects_missing_authority() {
+        let mut headers = http::HeaderMap::new();
+        headers.insert(http::header::HOST, "explicit.invalid:8080".parse().unwrap());
+        ensure_request_host(
+            &"https://upstream.invalid/v1/messages".parse().unwrap(),
+            &mut headers,
+        )
+        .unwrap();
+        assert_eq!(headers[http::header::HOST], "explicit.invalid:8080");
+        assert_eq!(headers.get_all(http::header::HOST).iter().count(), 1);
+        headers.remove(http::header::HOST);
+        let error = ensure_request_host(
+            &"/v1/messages?token=synthetic-secret".parse().unwrap(),
+            &mut headers,
+        )
+        .unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            "请求转发失败: Upstream URI has no authority"
+        );
+        assert!(headers.is_empty());
+    }
+
+    #[test]
+    fn routed_request_host_matches_each_selected_origin() {
+        use crate::route_selection::{Mode, Policy, RouteId, Selector};
+        let selector = Selector::new(Arc::new(crate::database::Database::memory().unwrap()));
+        let mut provider = crate::provider::Provider::with_id(
+            crate::commands::MANAGED_PROVIDER_ID.into(),
+            "synthetic".into(),
+            serde_json::json!({}),
+            None,
+        );
+        provider.category = Some("managed".into());
+        let original = OriginalHeaderCases::from_raw_bytes(
+            b"POST /v1/messages HTTP/1.1\r\nX-Before: a\r\nHoSt: localhost:15721\r\nX-After: b\r\n\r\n",
+        );
+        for (route, host) in [
+            (RouteId::Relay, "meta-api.vip"),
+            (RouteId::Cloudflare, "nan.meta-api.vip"),
+        ] {
+            selector
+                .set_policy(
+                    Policy {
+                        mode: Mode::Fixed,
+                        fixed_route_id: route,
+                    },
+                    selector.status().revision,
+                )
+                .unwrap();
+            let url = selector
+                .snapshot()
+                .rewrite(&provider, "https://meta-api.vip/v1/messages?beta=true")
+                .unwrap();
+            let mut headers = http::HeaderMap::new();
+            headers.insert("x-before", "a".parse().unwrap());
+            headers.insert("x-after", "b".parse().unwrap());
+            // RequestForwarder intentionally strips the old Host after rewriting.
+            ensure_request_host(&url.parse().unwrap(), &mut headers).unwrap();
+            let raw = build_raw_request(
+                &http::Method::POST,
+                "/v1/messages?beta=true",
+                &headers,
+                &original,
+                b"{}",
+            );
+            let raw = String::from_utf8(raw).unwrap();
+            assert!(raw.contains(&format!("X-Before: a\r\nHoSt: {host}\r\nX-After: b\r\n")));
+            assert_eq!(headers.get_all(http::header::HOST).iter().count(), 1);
+            assert!(!raw.contains("localhost"));
+        }
+    }
+
+    #[tokio::test]
+    async fn raw_request_restores_host_before_sending() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        // Route selection removes the old Host. Exercise both the preserved
+        // original Host position and clients whose case map contains no Host.
+        for (original_host, through_proxy, preserve_cases) in [
+            (true, false, true),
+            (false, false, true),
+            (true, true, true),
+            (false, false, false),
+        ] {
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let authority = listener.local_addr().unwrap().to_string();
+            let expected_host = authority.clone();
+            let body = br#"{"model":"synthetic","messages":[]}"#.to_vec();
+            let expected_body = body.clone();
+            let reply = if original_host {
+                "data: {\"type\":\"message_stop\"}\n\n"
+            } else {
+                "{\"ok\":true}"
+            };
+            let server = tokio::spawn(async move {
+                tokio::time::timeout(std::time::Duration::from_secs(5), async move {
+                    let (mut socket, _) = listener.accept().await.unwrap();
+                    if through_proxy {
+                        let mut connect = Vec::new();
+                        while !connect.ends_with(b"\r\n\r\n") {
+                            let mut byte = [0];
+                            socket.read_exact(&mut byte).await.unwrap();
+                            connect.extend_from_slice(&byte);
+                            assert!(connect.len() < 4096);
+                        }
+                        assert!(std::str::from_utf8(&connect).unwrap().starts_with(
+                            &format!("CONNECT {expected_host} HTTP/1.1\r\n")
+                        ));
+                        socket.write_all(b"HTTP/1.1 200 Connection Established\r\n\r\n").await.unwrap();
+                    }
+                    let mut received = Vec::new();
+                    let header_end = loop {
+                        let mut chunk = [0; 2048];
+                        let n = socket.read(&mut chunk).await.unwrap();
+                        assert!(n > 0, "request ended before headers");
+                        received.extend_from_slice(&chunk[..n]);
+                        assert!(received.len() < 16 * 1024);
+                        if let Some(end) = received.windows(4).position(|s| s == b"\r\n\r\n") {
+                            break end + 4;
+                        }
+                    };
+                    while received.len() < header_end + expected_body.len() {
+                        let mut chunk = [0; 2048];
+                        let n = socket.read(&mut chunk).await.unwrap();
+                        assert!(n > 0, "request ended before body");
+                        received.extend_from_slice(&chunk[..n]);
+                    }
+                    let head = std::str::from_utf8(&received[..header_end]).unwrap();
+                    let hosts: Vec<_> = head.lines().filter_map(|line| {
+                        let (name, value) = line.split_once(':')?;
+                        name.eq_ignore_ascii_case("host").then_some(value.trim())
+                    }).collect();
+                    let status = if hosts == [expected_host.as_str()] {
+                        "200 OK"
+                    } else {
+                        "400 Bad Request"
+                    };
+                    let content_type = if original_host { "text/event-stream" } else { "application/json" };
+                    let response = format!(
+                        "HTTP/1.1 {status}\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{reply}", reply.len()
+                    );
+                    socket.write_all(response.as_bytes()).await.unwrap();
+                    socket.shutdown().await.unwrap();
+                    assert_eq!(&received[header_end..], expected_body);
+                    received
+                }).await.expect("local HTTP fixture timed out")
+            });
+            let original = if original_host {
+                b"POST /v1/messages?beta=true HTTP/1.1\r\nX-Before: a\r\nhOsT: old.invalid\r\nX-After: b\r\nContent-Type: application/json\r\n\r\n".as_slice()
+            } else {
+                b"POST /v1/messages?beta=true HTTP/1.1\r\nX-Before: a\r\nX-After: b\r\nContent-Type: application/json\r\n\r\n".as_slice()
+            };
+            let mut extensions = http::Extensions::new();
+            if preserve_cases {
+                extensions.insert(OriginalHeaderCases::from_raw_bytes(original));
+            }
+            let mut headers = http::HeaderMap::new();
+            headers.insert("x-before", "a".parse().unwrap());
+            headers.insert("x-after", "b".parse().unwrap());
+            headers.insert("content-type", "application/json".parse().unwrap());
+            let proxy_url = through_proxy.then(|| format!("http://{authority}"));
+            let response = send_request(
+                format!("http://{authority}/v1/messages?beta=true")
+                    .parse()
+                    .unwrap(),
+                "local synthetic host regression",
+                http::Method::POST,
+                headers,
+                extensions,
+                body,
+                std::time::Duration::from_secs(5),
+                proxy_url.as_deref(),
+            )
+            .await
+            .unwrap();
+            let status = response.status();
+            let response_body = response.bytes_with_limit(1024).await.unwrap();
+            let received = server.await.unwrap();
+            assert_eq!(
+                status,
+                http::StatusCode::OK,
+                "missing or duplicate Host rejected"
+            );
+            assert_eq!(response_body, reply);
+            let wire = std::str::from_utf8(&received).unwrap();
+            assert!(wire.starts_with("POST /v1/messages?beta=true HTTP/1.1\r\n"));
+            if original_host && preserve_cases {
+                assert!(wire.contains(&format!(
+                    "X-Before: a\r\nhOsT: {authority}\r\nX-After: b\r\n"
+                )));
+            } else if preserve_cases {
+                assert!(wire.contains(&format!("\r\nhost: {authority}\r\n")));
+            }
+        }
     }
 
     #[test]
