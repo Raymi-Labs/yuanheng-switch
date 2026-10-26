@@ -653,6 +653,7 @@ mod tests {
     use crate::secure_storage;
     use serial_test::serial;
     use std::sync::Arc;
+    use std::time::Duration;
 
     fn db() -> Database {
         secure_storage::clear_for_tests();
