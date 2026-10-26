@@ -64,6 +64,7 @@ impl ClientConfig {
 struct ClientState {
     configured: Option<(ClientConfig, Client)>,
     route: Option<Client>,
+    account: Option<Client>,
 }
 
 impl ClientState {
@@ -75,11 +76,13 @@ impl ClientState {
         {
             return Ok(false);
         }
-        // Build before replacing either field; failure leaves the working client intact.
+        // Build all pools before replacing state; failure leaves working clients intact.
         let client = build_client(config.proxy_url.as_deref())?;
         let route = build_client_with_image_policy(config.proxy_url.as_deref(), true)?;
+        let account = build_account_client(config.proxy_url.as_deref())?;
         self.configured = Some((config, client));
         self.route = Some(route);
+        self.account = Some(account);
         GENERATION.fetch_add(1, Ordering::Relaxed);
         Ok(true)
     }
@@ -199,6 +202,26 @@ pub(crate) fn route_client() -> Result<Client, String> {
     build_client_with_image_policy(get_current_proxy_url().as_deref(), true)
 }
 
+/// Account/control requests share proxy settings and retain their own 15-second
+/// deadline. Refresh the system snapshot here too: GUI account operations need
+/// to observe proxy changes even when the separate Core process is not running.
+pub(crate) fn account_client() -> Result<Client, String> {
+    let mut state = GLOBAL_CLIENT
+        .write()
+        .map_err(|_| "无法读取元衡网络设置，请重试".to_string())?;
+    let proxy_url = state
+        .configured
+        .as_ref()
+        .and_then(|(config, _)| config.proxy_url.clone());
+    state
+        .apply(ClientConfig::capture(proxy_url.as_deref()))
+        .map_err(|_| "无法创建元衡网络连接，请检查全局代理设置".to_string())?;
+    state
+        .account
+        .clone()
+        .ok_or_else(|| "元衡网络连接尚未初始化，请重试".to_string())
+}
+
 /// Separate per-round pool makes the first probe include connection setup.
 pub(crate) fn route_probe_client() -> Result<Client, String> {
     build_client_with_image_policy(get_current_proxy_url().as_deref(), true)
@@ -240,9 +263,21 @@ pub(super) fn image_no_replay_policy(builder: reqwest::ClientBuilder) -> reqwest
 }
 
 fn build_client_with_image_policy(proxy_url: Option<&str>, images: bool) -> Result<Client, String> {
+    build_client_with_policy(proxy_url, images, Duration::from_secs(600))
+}
+
+fn build_account_client(proxy_url: Option<&str>) -> Result<Client, String> {
+    build_client_with_policy(proxy_url, true, Duration::from_secs(15))
+}
+
+fn build_client_with_policy(
+    proxy_url: Option<&str>,
+    no_replay: bool,
+    timeout: Duration,
+) -> Result<Client, String> {
     let mut builder = Client::builder()
-        .timeout(Duration::from_secs(600))
-        .connect_timeout(Duration::from_secs(30))
+        .timeout(timeout)
+        .connect_timeout(timeout.min(Duration::from_secs(30)))
         .pool_max_idle_per_host(10)
         .tcp_keepalive(Duration::from_secs(60))
         // 禁用 reqwest 自动解压：防止 reqwest 覆盖客户端原始 accept-encoding header。
@@ -252,7 +287,7 @@ fn build_client_with_image_policy(proxy_url: Option<&str>, images: bool) -> Resu
         .no_deflate()
         .no_zstd();
 
-    if images {
+    if no_replay {
         builder = image_no_replay_policy(builder);
     }
 
@@ -377,6 +412,7 @@ mod tests {
     struct TestProxy {
         url: String,
         accepts: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+        requests: std::sync::Arc<std::sync::atomic::AtomicUsize>,
         slow_started: std::sync::Arc<tokio::sync::Notify>,
         slow_release: std::sync::Arc<tokio::sync::Notify>,
         task: tokio::task::JoinHandle<()>,
@@ -397,14 +433,17 @@ mod tests {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let url = format!("http://{}", listener.local_addr().unwrap());
         let accepts = Arc::new(AtomicUsize::new(0));
+        let requests = Arc::new(AtomicUsize::new(0));
         let slow_started = Arc::new(tokio::sync::Notify::new());
         let slow_release = Arc::new(tokio::sync::Notify::new());
         let (count, started, release) =
             (accepts.clone(), slow_started.clone(), slow_release.clone());
+        let request_count = requests.clone();
         let task = tokio::spawn(async move {
             while let Ok((socket, _)) = listener.accept().await {
                 count.fetch_add(1, Ordering::SeqCst);
                 let (started, release) = (started.clone(), release.clone());
+                let request_count = request_count.clone();
                 tokio::spawn(async move {
                     let mut stream = BufReader::new(socket);
                     loop {
@@ -421,14 +460,22 @@ mod tests {
                                 break;
                             }
                         }
+                        request_count.fetch_add(1, Ordering::SeqCst);
+                        if first.contains("/drop") {
+                            return;
+                        }
                         if first.contains("/slow") {
                             started.notify_one();
                             release.notified().await;
                         }
-                        let response = format!(
-                            "HTTP/1.1 200 OK\r\nContent-Length: {}\r\n\r\n{label}",
-                            label.len()
-                        );
+                        let response = if first.contains("/redirect") {
+                            "HTTP/1.1 302 Found\r\nLocation: http://redirect.invalid/test\r\nContent-Length: 0\r\n\r\n".to_owned()
+                        } else {
+                            format!(
+                                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\n\r\n{label}",
+                                label.len()
+                            )
+                        };
                         if stream.write_all(response.as_bytes()).await.is_err() {
                             break;
                         }
@@ -439,6 +486,7 @@ mod tests {
         TestProxy {
             url,
             accepts,
+            requests,
             slow_started,
             slow_release,
             task,
@@ -514,6 +562,81 @@ mod tests {
         assert_eq!(read_proxy(&state).await, "second");
         first.slow_release.notify_one();
         assert_eq!(pending.await.unwrap(), "first");
+    }
+
+    #[tokio::test]
+    async fn account_pool_follows_proxy_changes_and_preserves_reuse_on_unchanged_settings() {
+        let first = test_proxy("first").await;
+        let second = test_proxy("second").await;
+        let mut state = ClientState::default();
+        state
+            .apply(ClientConfig::capture(Some(&first.url)))
+            .unwrap();
+        let read = |client: Client| async move {
+            client
+                .get("http://account.invalid/models")
+                .send()
+                .await
+                .unwrap()
+                .text()
+                .await
+                .unwrap()
+        };
+        let original = state.account.clone().unwrap();
+        assert_eq!(read(original.clone()).await, "first");
+        for _ in 0..20 {
+            assert!(!state
+                .apply(ClientConfig::capture(Some(&first.url)))
+                .unwrap());
+        }
+        assert_eq!(read(state.account.clone().unwrap()).await, "first");
+        assert!(state
+            .apply(ClientConfig::capture(Some("invalid://localhost:1")))
+            .is_err());
+        assert_eq!(read(state.account.clone().unwrap()).await, "first");
+        assert_eq!(first.accepts.load(Ordering::SeqCst), 1);
+        state
+            .apply(ClientConfig::capture(Some(&second.url)))
+            .unwrap();
+        assert_eq!(read(state.account.clone().unwrap()).await, "second");
+        assert_eq!(read(original).await, "first");
+    }
+
+    #[tokio::test]
+    async fn account_requests_do_not_follow_redirects_or_implicitly_replay_posts() {
+        let proxy = test_proxy("unused").await;
+        let client = build_account_client(Some(&proxy.url)).unwrap();
+        let response = client
+            .post("http://account.invalid/redirect")
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), reqwest::StatusCode::FOUND);
+        assert_eq!(proxy.requests.load(Ordering::SeqCst), 1);
+        assert!(client
+            .post("http://account.invalid/drop")
+            .send()
+            .await
+            .is_err());
+        assert_eq!(proxy.requests.load(Ordering::SeqCst), 2);
+    }
+
+    #[tokio::test]
+    async fn account_deadline_remains_fifteen_seconds_after_connection_established() {
+        let proxy = test_proxy("slow").await;
+        let client = build_account_client(Some(&proxy.url)).unwrap();
+        let started = std::time::Instant::now();
+        let error = tokio::time::timeout(
+            Duration::from_secs(18),
+            client.get("http://account.invalid/slow").send(),
+        )
+        .await
+        .expect("account request inherited the 600-second forwarding timeout")
+        .unwrap_err();
+        assert!(error.is_timeout());
+        assert!(started.elapsed() >= Duration::from_secs(14));
+        assert_eq!(proxy.requests.load(Ordering::SeqCst), 1);
+        proxy.slow_release.notify_one();
     }
 
     #[test]

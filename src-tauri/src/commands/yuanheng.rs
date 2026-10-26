@@ -1,3 +1,4 @@
+mod account_http;
 #[cfg(any(target_os = "macos", test))]
 pub(crate) mod credential_session;
 mod dsh;
@@ -696,11 +697,8 @@ fn parse_user_groups(value: &Value) -> Result<Vec<YuanhengGroupOption>, String> 
 }
 
 fn yuanheng_client() -> Result<reqwest::Client, String> {
-    reqwest::Client::builder()
-        .timeout(Duration::from_secs(15))
-        .redirect(reqwest::redirect::Policy::none())
-        .build()
-        .map_err(|e| format!("创建元衡客户端失败: {e}"))
+    crate::proxy::http_client::account_client()
+        .map_err(|_| "创建元衡客户端失败，请检查全局代理设置".to_string())
 }
 
 fn with_session(
@@ -718,20 +716,9 @@ fn with_session(
 }
 
 async fn parse_json_response(response: reqwest::Response) -> Result<(Value, HeaderMap), String> {
-    let status = response.status();
-    let headers = response.headers().clone();
-    let body = response
-        .text()
+    account_http::parse_response(response, None)
         .await
-        .map_err(|e| format!("读取元衡响应失败: {e}"))?;
-    let value: Value = serde_json::from_str(&body)
-        .map_err(|_| format!("元衡返回了非 JSON 响应 (HTTP {status})"))?;
-    if !status.is_success() {
-        return Err(
-            response_message(&value).unwrap_or_else(|| format!("元衡请求失败 (HTTP {status})"))
-        );
-    }
-    Ok((value, headers))
+        .map_err(|error| error.message("读取元衡响应失败"))
 }
 
 async fn fetch_json(
@@ -744,11 +731,13 @@ async fn fetch_json(
         .get(url)
         .header("Accept", "application/json")
         .header("User-Agent", "yuanheng-desktop/0.1");
-    let response = with_session(request, session_cookie, user_id)
-        .send()
-        .await
-        .map_err(|e| format!("连接元衡失败: {e}"))?;
-    parse_json_response(response).await.map(|(value, _)| value)
+    account_http::get_json(
+        with_session(request, session_cookie, user_id),
+        "连接元衡失败",
+        None,
+    )
+    .await
+    .map(|(value, _)| value)
 }
 
 async fn fetch_user_models(
@@ -774,11 +763,12 @@ async fn fetch_user_models_at(
     if let Some(group) = group {
         request = request.query(&[("group", group)]);
     }
-    let response = with_session(request, Some(session_cookie), Some(user_id))
-        .send()
-        .await
-        .map_err(|e| format!("读取账号模型失败: {e}"))?;
-    let (value, _) = parse_json_response(response).await?;
+    let (value, _) = account_http::get_json(
+        with_session(request, Some(session_cookie), Some(user_id)),
+        "读取账号模型失败",
+        None,
+    )
+    .await?;
     parse_user_models(&value)
 }
 
@@ -820,22 +810,17 @@ async fn fetch_api_models_at(
     origin: &str,
     api_token: &str,
 ) -> Result<Vec<String>, String> {
-    let response = client
+    let request = client
         .get(format!("{origin}/v1/models"))
         .header("Accept", "application/json")
         .header("User-Agent", "yuanheng-desktop/0.1")
-        .bearer_auth(api_token)
-        .send()
-        .await
-        .map_err(|_| "连接元衡模型接口失败，请检查网络后重试".to_string())?;
-    if !response.status().is_success() {
-        // 不回显上游原文，防止错误页回显 Authorization/账号信息。
-        return Err(format!(
-            "模型目录鉴权检查失败（HTTP {}）",
-            response.status().as_u16()
-        ));
-    }
-    let (value, _) = parse_json_response(response).await?;
+        .bearer_auth(api_token);
+    let (value, _) = account_http::get_json(
+        request,
+        "连接元衡模型接口失败",
+        Some("模型目录鉴权检查失败"),
+    )
+    .await?;
     parse_api_models(&value)
 }
 
@@ -858,7 +843,12 @@ async fn post_json(
     let response = with_session(request, session_cookie, user_id)
         .send()
         .await
-        .map_err(|e| format!("连接元衡失败: {e}"))?;
+        .map_err(|e| {
+            format!(
+                "连接元衡失败：{}",
+                crate::proxy::transport_error::account_error(&e)
+            )
+        })?;
     parse_json_response(response).await
 }
 

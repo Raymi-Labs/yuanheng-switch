@@ -21,6 +21,7 @@ fn classify(error: &(dyn Error + 'static)) -> Diagnostic {
     let mut dns = false;
     let mut tls = false;
     let mut tunnel = false;
+    let mut closed = false;
     // Limit depth and inspect text only for known categories, never output it.
     for _ in 0..12 {
         let Some(source) = current else { break };
@@ -40,6 +41,7 @@ fn classify(error: &(dyn Error + 'static)) -> Diagnostic {
             "name or service not known",
             "nodename nor servname",
             "getaddrinfo",
+            "no such host is known",
         ]
         .iter()
         .any(|term| text.contains(term));
@@ -47,6 +49,8 @@ fn classify(error: &(dyn Error + 'static)) -> Diagnostic {
             "certificate",
             "tls handshake",
             "ssl handshake",
+            "ssl routines",
+            "tls alert",
             "invalid peer",
         ]
         .iter()
@@ -59,6 +63,14 @@ fn classify(error: &(dyn Error + 'static)) -> Diagnostic {
         ]
         .iter()
         .any(|term| text.contains(term));
+        closed |= [
+            "connection closed before message completed",
+            "connection reset by peer",
+            "unexpected eof",
+            "broken pipe",
+        ]
+        .iter()
+        .any(|term| text.contains(term));
         current = source.source();
     }
     diagnostic.kind = if dns {
@@ -67,6 +79,8 @@ fn classify(error: &(dyn Error + 'static)) -> Diagnostic {
         "tls"
     } else if tunnel {
         "proxy_tunnel"
+    } else if closed {
+        "connection_closed"
     } else {
         match diagnostic.io_kind {
             Some(ErrorKind::ConnectionRefused) => "connection_refused",
@@ -108,9 +122,55 @@ impl Diagnostic {
             "connection_refused" => "请检查出站代理或目标服务是否启动、端口是否正确",
             "network_unreachable" => "请检查当前网络和出站代理路由",
             "connection_closed" => "连接被中断，请检查出站代理节点及网络稳定性",
+            "timeout" => "连接超时，请检查当前网络和出站代理后重试",
             _ => "请检查 DNS、出站代理及目标域名的分流规则",
         }
     }
+}
+
+/// A bounded diagnostic for account calls. The caller adds its operation label;
+/// URLs, group queries, headers and connector source text never leave this module.
+pub(crate) fn account_error(error: &reqwest::Error) -> String {
+    let mut diagnostic = classify(error);
+    if error.is_timeout() {
+        diagnostic.kind = "timeout";
+    }
+    let description = match diagnostic.kind {
+        "dns" => "域名解析失败",
+        "tls" => "安全连接验证失败",
+        "proxy_tunnel" => "代理连接失败",
+        "connection_refused" => "连接被拒绝",
+        "network_unreachable" => "网络不可达",
+        "connection_closed" => "连接中断",
+        "timeout" => "请求超时",
+        _ if error.is_builder() => "请求参数无效",
+        _ => "网络请求失败",
+    };
+    format!(
+        "{description} [{}]；{}",
+        diagnostic.summary(),
+        diagnostic.hint()
+    )
+}
+
+fn retryable_account_diagnostic(diagnostic: &Diagnostic, timeout: bool, connect: bool) -> bool {
+    !matches!(diagnostic.kind, "tls" | "proxy_tunnel")
+        && (timeout
+            || diagnostic.kind == "connection_closed"
+            || (connect
+                && matches!(
+                    diagnostic.kind,
+                    "dns" | "connection_refused" | "network_unreachable"
+                )))
+}
+
+/// Only callers that know the request is a read-only GET may use this decision.
+/// This does not retry anything itself and must never be used for account writes.
+pub(crate) fn is_retryable_account_read(error: &reqwest::Error) -> bool {
+    !error.is_builder()
+        && !error.is_redirect()
+        && !error.is_status()
+        && retryable_account_diagnostic(&classify(error), error.is_timeout(), error.is_connect())
 }
 
 pub(super) fn map_send_error(error: reqwest::Error) -> ProxyError {
@@ -192,6 +252,62 @@ mod tests {
                 assert!(!output.contains(sensitive), "{output}");
             }
         }
+    }
+
+    #[test]
+    fn account_read_retry_excludes_certificate_and_proxy_auth_failures() {
+        for raw in [
+            "invalid peer certificate: private.example",
+            "SSL routines: wrong version number",
+            "proxy authentication required: secret",
+        ] {
+            let diagnostic = classify(&Wrapped(
+                "connect failed",
+                Some(Box::new(Wrapped(raw, None))),
+            ));
+            assert!(!retryable_account_diagnostic(&diagnostic, false, true));
+            assert!(!retryable_account_diagnostic(&diagnostic, true, true));
+        }
+        let closed = classify(&Wrapped("connection closed before message completed", None));
+        assert_eq!(closed.kind, "connection_closed");
+        assert!(retryable_account_diagnostic(&closed, false, false));
+        let unknown = classify(&Wrapped("JSON syntax failure", None));
+        assert!(!retryable_account_diagnostic(&unknown, false, false));
+        // Native TLS/Schannel can report localized errors. Unknown connect
+        // failures are not safe evidence of a transient network failure.
+        assert!(!retryable_account_diagnostic(&unknown, false, true));
+    }
+
+    #[tokio::test]
+    async fn account_errors_keep_safe_details_and_reject_builder_or_http_failures() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        drop(listener);
+        let client = reqwest::Client::builder().no_proxy().build().unwrap();
+        let error = client
+            .get(format!("http://{addr}/private-path?group=private-group"))
+            .send()
+            .await
+            .unwrap_err();
+        assert!(is_retryable_account_read(&error));
+        let message = account_error(&error);
+        assert!(message.contains("连接被拒绝"));
+        assert!(message.contains("network=connection_refused"));
+        for sensitive in ["private-path", "private-group", "127.0.0.1", "http://"] {
+            assert!(!message.contains(sensitive), "{message}");
+        }
+        let error = client.get("not a valid URL").send().await.unwrap_err();
+        assert!(!is_retryable_account_read(&error));
+        assert!(account_error(&error).contains("请求参数无效"));
+        let response = reqwest::Response::from(
+            http::Response::builder()
+                .status(401)
+                .body("authentication required")
+                .unwrap(),
+        );
+        assert!(!is_retryable_account_read(
+            &response.error_for_status().unwrap_err()
+        ));
     }
 
     #[test]

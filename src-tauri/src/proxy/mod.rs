@@ -35,7 +35,7 @@ mod system_proxy;
 pub mod thinking_budget_rectifier;
 pub mod thinking_optimizer;
 pub mod thinking_rectifier;
-mod transport_error;
+pub(crate) mod transport_error;
 pub(crate) mod types;
 pub mod usage;
 

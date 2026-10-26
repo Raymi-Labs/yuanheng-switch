@@ -8,6 +8,7 @@ import type {
   YuanhengToolStatus,
 } from "@/lib/api";
 import { useModelSwitchCenter } from "@/components/desktop/useModelSwitchCenter";
+import type { ToolVersionInfo } from "@/lib/api/settings";
 import { createTestQueryClient } from "../utils/testQueryClient";
 
 const invokeMock = vi.fn();
@@ -383,6 +384,131 @@ describe("useModelSwitchCenter", () => {
     expect(
       invokeMock.mock.calls.some(([command]) => command === "launch_tool"),
     ).toBe(false);
+  });
+
+  it("retains DSH after an account catalog network failure and revalidates before a manual launch", async () => {
+    const group = "OpenAI · 独享账号";
+    connection.groups = [{ id: group, description: "", ratio: 1 }];
+    connection.modelGroups = { "model-a": [group] };
+    statuses = [{ ...toolStatus("dsh", "model-a"), group, configured: false }];
+    let installed = false;
+    let preflightAttempts = 0;
+    const base = invokeMock.getMockImplementation()!;
+    invokeMock.mockImplementation(async (command, payload = {}) => {
+      if (command === "run_tool_lifecycle_action") {
+        installed = true;
+        return true;
+      }
+      if (command === "get_installed_tool_versions") {
+        const versions: ToolVersionInfo[] = await base(command, payload);
+        return versions.map((item) =>
+          item.name === "dsh" && !installed ? { ...item, version: null } : item,
+        );
+      }
+      if (command === "preflight_yuanheng_tool") {
+        preflightAttempts += 1;
+        const result = await base(command, payload);
+        if (preflightAttempts === 1) {
+          return {
+            ...result,
+            status: "error",
+            checks: [
+              {
+                id: "account",
+                status: "error",
+                title: "账号或平台连接失败",
+                message: "读取账号模型失败：连接超时，请检查网络后重试",
+              },
+            ],
+            message: "兼容性预检未通过，已阻止写入配置",
+          };
+        }
+        return { ...result, requiresConfiguration: true };
+      }
+      return base(command, payload);
+    });
+    const { wrapper } = createWrapper();
+    const { result } = renderHook(() => useModelSwitchCenter(), { wrapper });
+    await waitFor(() => expect(result.current.models.dsh).toBe("model-a"));
+    expect(result.current.installedApps.has("dsh")).toBe(false);
+
+    await act(async () => {
+      await result.current.install("dsh");
+    });
+
+    expect(installed).toBe(true);
+    expect(result.current.installedApps.has("dsh")).toBe(true);
+    expect(result.current.runnableRows).toContain("dsh");
+    expect(result.current.preflightResults.dsh?.status).toBe("error");
+    expect(result.current.pendingApps.has("dsh")).toBe(false);
+    expect(result.current.installingApps.has("dsh")).toBe(false);
+    expect(preflightAttempts).toBe(1);
+    expect(configureResolvers.size).toBe(0);
+    expect(invokeMock.mock.calls.some(([cmd]) => cmd === "launch_tool")).toBe(
+      false,
+    );
+
+    let launch!: Promise<void>;
+    act(() => {
+      launch = result.current.launch("dsh");
+    });
+    await waitFor(() => expect(configureResolvers.has("dsh")).toBe(true));
+    expect(preflightAttempts).toBe(2);
+    expect(invokeMock).toHaveBeenCalledWith(
+      "configure_yuanheng_tools",
+      expect.objectContaining({
+        apps: ["dsh"],
+        models: { dsh: "model-a" },
+        groups: { dsh: group },
+      }),
+    );
+    expect(invokeMock.mock.calls.some(([cmd]) => cmd === "launch_tool")).toBe(
+      false,
+    );
+    await act(async () => {
+      configureResolvers.get("dsh")!([
+        {
+          app: "dsh",
+          configured: true,
+          model: "model-a",
+          warnings: [],
+          error: null,
+        },
+      ]);
+      await launch;
+    });
+    expect(result.current.preflightResults.dsh?.status).toBe("ok");
+    expect(
+      invokeMock.mock.calls.filter(([cmd]) => cmd === "launch_tool"),
+    ).toHaveLength(1);
+    expect(
+      invokeMock.mock.calls.filter(
+        ([cmd]) => cmd === "run_tool_lifecycle_action",
+      ),
+    ).toHaveLength(1);
+  });
+
+  it("detects an existing DSH without applying configuration or launching it", async () => {
+    statuses = [{ ...toolStatus("dsh", "model-a"), configured: false }];
+    const { wrapper } = createWrapper();
+    const { result } = renderHook(() => useModelSwitchCenter(), { wrapper });
+    await waitFor(() => expect(result.current.bootstrapPhase).toBe("ready"));
+    await act(async () => {
+      await result.current.retryBootstrap();
+    });
+
+    expect(result.current.installedApps.has("dsh")).toBe(true);
+    expect(result.current.runnableRows).toContain("dsh");
+    expect(
+      invokeMock.mock.calls.filter(([command]) =>
+        [
+          "preflight_yuanheng_tool",
+          "configure_yuanheng_tools",
+          "launch_tool",
+          "run_tool_lifecycle_action",
+        ].includes(command),
+      ),
+    ).toHaveLength(0);
   });
 
   it("does not configure or launch when the DSH installation is cancelled", async () => {
