@@ -2,9 +2,15 @@
 //! A failed management request alone never grants permission to replace it.
 use super::{candidate_ports, runtime_record_path, CoreRuntimeRecord, ProxyConfig};
 use std::error::Error;
+use std::future::Future;
 use std::net::{IpAddr, SocketAddr};
 use std::path::Path;
 use std::time::{Duration, Instant};
+
+// Windows can deliver an asynchronous loopback connection refusal after the
+// old 350 ms deadline. All candidates run concurrently, so this is also the
+// total TCP evidence budget, rather than a per-candidate cumulative delay.
+const TCP_PROBE_TIMEOUT: Duration = Duration::from_secs(5);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ProcessState {
@@ -83,40 +89,118 @@ async fn require_runtime_and_ports_stopped(
             return Err(format!("stage=runtime state=unknown io={:?}", error.kind()));
         }
     }
-    for (address, port) in candidate_ports(config_dir, config) {
-        let address = match address.as_str() {
-            "0.0.0.0" | "localhost" => "127.0.0.1",
-            "::" => "::1",
-            value => value,
-        };
-        let ip: IpAddr = address
-            .parse()
-            .map_err(|_| "stage=tcp state=unknown reason=invalid_address".to_string())?;
-        if port == 0 {
-            return Err("stage=tcp state=unknown reason=invalid_port".into());
-        }
-        match tokio::time::timeout(
-            Duration::from_millis(350),
-            tokio::net::TcpStream::connect(SocketAddr::new(ip, port)),
-        )
-        .await
-        {
-            Ok(Ok(_stream)) => return Err(format!("stage=tcp port={port} state=listening")),
-            Ok(Err(error)) if error.kind() == std::io::ErrorKind::ConnectionRefused => {}
-            Ok(Err(error)) => {
-                return Err(format!(
-                    "stage=tcp port={port} state=unknown io={:?}",
-                    error.kind()
-                ));
+    require_ports_stopped_with(candidate_ports(config_dir, config), probe_tcp).await
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TcpState {
+    Listening,
+    Refused,
+    Unknown,
+}
+
+#[derive(Debug)]
+struct TcpProbe {
+    state: TcpState,
+    detail: String,
+}
+
+async fn observe_tcp_connection<T>(
+    timeout: Duration,
+    connect: impl Future<Output = std::io::Result<T>>,
+) -> TcpProbe {
+    let started = Instant::now();
+    let (state, detail) = match tokio::time::timeout(timeout, connect).await {
+        Ok(Ok(_stream)) => (TcpState::Listening, "state=listening".to_string()),
+        Ok(Err(error)) => {
+            let state = if error.kind() == std::io::ErrorKind::ConnectionRefused {
+                TcpState::Refused
+            } else {
+                TcpState::Unknown
+            };
+            let name = if state == TcpState::Refused {
+                "refused"
+            } else {
+                "unknown"
+            };
+            let mut detail = format!("state={name} io={:?}", error.kind());
+            if let Some(code) = error.raw_os_error() {
+                detail.push_str(&format!(" os={code}"));
             }
-            Err(_) => {
-                return Err(format!(
-                    "stage=tcp port={port} state=unknown reason=timeout"
-                ))
-            }
+            (state, detail)
         }
+        Err(_) => (
+            TcpState::Unknown,
+            "state=unknown reason=timeout".to_string(),
+        ),
+    };
+    TcpProbe {
+        state,
+        detail: format!("{detail} elapsed_ms={}", started.elapsed().as_millis()),
     }
-    Ok(())
+}
+
+async fn probe_tcp(address: SocketAddr) -> TcpProbe {
+    observe_tcp_connection(TCP_PROBE_TIMEOUT, tokio::net::TcpStream::connect(address)).await
+}
+
+async fn require_ports_stopped_with<F, Fut>(
+    candidates: Vec<(String, u16)>,
+    probe: F,
+) -> Result<(), String>
+where
+    F: Fn(SocketAddr) -> Fut,
+    Fut: Future<Output = TcpProbe>,
+{
+    let inspect = |(index, (address, port)): (usize, (String, u16))| {
+        let probe = &probe;
+        async move {
+            let candidate = format!("candidate={} port={port}", index + 1);
+            let address = match address.as_str() {
+                "0.0.0.0" | "localhost" => "127.0.0.1",
+                "::" => "::1",
+                value => value,
+            };
+            let Ok(ip) = address.parse::<IpAddr>() else {
+                return TcpProbe {
+                    state: TcpState::Unknown,
+                    detail: format!("{candidate} state=unknown reason=invalid_address"),
+                };
+            };
+            if port == 0 {
+                return TcpProbe {
+                    state: TcpState::Unknown,
+                    detail: format!("{candidate} state=unknown reason=invalid_port"),
+                };
+            }
+            let mut result = probe(SocketAddr::new(ip, port)).await;
+            result.detail = format!("{candidate} address={ip} {}", result.detail);
+            result
+        }
+    };
+    let results = futures::future::join_all(candidates.into_iter().enumerate().map(inspect)).await;
+    let state = if results
+        .iter()
+        .any(|result| result.state == TcpState::Listening)
+    {
+        "listening"
+    } else if results.is_empty()
+        || results
+            .iter()
+            .any(|result| result.state == TcpState::Unknown)
+    {
+        "unknown"
+    } else {
+        return Ok(());
+    };
+    Err(format!(
+        "stage=tcp state={state} probes=[{}]",
+        results
+            .iter()
+            .map(|result| result.detail.as_str())
+            .collect::<Vec<_>>()
+            .join("; ")
+    ))
 }
 
 pub(super) async fn require_stopped(config_dir: &Path, config: &ProxyConfig) -> Result<(), String> {
@@ -401,7 +485,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn exited_runtime_still_requires_every_candidate_port_to_be_closed() {
+    async fn runtime_candidate_cannot_hide_another_listening_port() {
         let dir = tempfile::tempdir().unwrap();
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let port = listener.local_addr().unwrap().port();
@@ -413,15 +497,170 @@ mod tests {
             require_runtime_and_ports_stopped(dir.path(), &config(port), |_| ProcessState::Exited)
                 .await
                 .unwrap_err();
-        assert!(error.contains("state=listening"));
+        assert!(error.starts_with("stage=tcp state=listening"), "{error}");
+        assert!(error.contains("candidate=1"), "{error}");
+        assert!(error.contains("candidate=2"), "{error}");
         drop(listener);
-        assert!(
-            require_runtime_and_ports_stopped(dir.path(), &config(port), |_| {
-                ProcessState::Exited
-            })
+    }
+
+    #[tokio::test]
+    async fn real_closed_loopback_port_reports_refused_within_probe_budget() {
+        for attempt in 1..=3 {
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let address = listener.local_addr().unwrap();
+            drop(listener);
+            let result = probe_tcp(address).await;
+            match result.state {
+                TcpState::Refused => return,
+                // Parallel socket tests can acquire the released ephemeral
+                // port. Only that positive listening evidence permits trying
+                // a new fixture; timeouts/unknown results must still fail.
+                TcpState::Listening if attempt < 3 => continue,
+                _ => panic!(
+                    "closed loopback port did not report refusal: attempt={attempt} port={} {}",
+                    address.port(),
+                    result.detail
+                ),
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn delayed_connection_refused_is_not_mistaken_for_unknown() {
+        let result = observe_tcp_connection(TCP_PROBE_TIMEOUT, async {
+            // Reproduce a refusal delivered later than the original 350 ms
+            // deadline without depending on the host TCP implementation.
+            tokio::time::sleep(Duration::from_millis(500)).await;
+            Err::<(), _>(std::io::Error::new(
+                std::io::ErrorKind::ConnectionRefused,
+                "private-underlying-error",
+            ))
+        })
+        .await;
+        assert_eq!(result.state, TcpState::Refused, "{}", result.detail);
+        assert!(result.detail.contains("io=ConnectionRefused"));
+        assert!(result.detail.contains("elapsed_ms="));
+        assert!(!result.detail.contains("private"));
+    }
+
+    #[tokio::test]
+    async fn tcp_timeout_remains_unknown_and_never_proves_exit() {
+        let result = observe_tcp_connection(
+            Duration::ZERO,
+            std::future::pending::<std::io::Result<()>>(),
+        )
+        .await;
+        assert_eq!(result.state, TcpState::Unknown);
+        assert!(result.detail.contains("reason=timeout"));
+    }
+
+    fn synthetic_probe(state: TcpState) -> TcpProbe {
+        TcpProbe {
+            state,
+            detail: match state {
+                TcpState::Listening => "state=listening",
+                TcpState::Refused => "state=refused io=ConnectionRefused",
+                TcpState::Unknown => "state=unknown reason=timeout",
+            }
+            .into(),
+        }
+    }
+
+    #[tokio::test]
+    async fn tcp_candidates_are_all_observed_with_listening_prioritized_in_any_order() {
+        for states in [
+            [TcpState::Unknown, TcpState::Listening, TcpState::Refused],
+            [TcpState::Listening, TcpState::Unknown, TcpState::Refused],
+            [TcpState::Refused, TcpState::Unknown, TcpState::Listening],
+        ] {
+            let observed = std::sync::Mutex::new(Vec::new());
+            let error = require_ports_stopped_with(
+                (100..103).map(|port| ("127.0.0.1".into(), port)).collect(),
+                |address| {
+                    observed.lock().unwrap().push(address.port());
+                    std::future::ready(synthetic_probe(states[(address.port() - 100) as usize]))
+                },
+            )
             .await
-            .is_ok()
+            .unwrap_err();
+            let mut observed = observed.into_inner().unwrap();
+            observed.sort_unstable();
+            assert_eq!(observed, [100, 101, 102]);
+            assert!(error.starts_with("stage=tcp state=listening"), "{error}");
+            for (index, port) in (100..103).enumerate() {
+                assert!(
+                    error.contains(&format!("candidate={} port={port}", index + 1)),
+                    "{error}"
+                );
+            }
+            assert!(error.contains("state=unknown reason=timeout"), "{error}");
+        }
+    }
+
+    #[tokio::test]
+    async fn every_tcp_candidate_must_be_refused_before_recovery() {
+        for states in [
+            [TcpState::Unknown, TcpState::Refused],
+            [TcpState::Refused, TcpState::Unknown],
+            [TcpState::Refused, TcpState::Refused],
+        ] {
+            let result = require_ports_stopped_with(
+                vec![("127.0.0.1".into(), 100), ("127.0.0.1".into(), 101)],
+                |address| {
+                    std::future::ready(synthetic_probe(states[(address.port() - 100) as usize]))
+                },
+            )
+            .await;
+            if states.contains(&TcpState::Unknown) {
+                let error = result.unwrap_err();
+                assert!(error.starts_with("stage=tcp state=unknown"), "{error}");
+                assert!(
+                    error.contains("candidate=1") && error.contains("candidate=2"),
+                    "{error}"
+                );
+            } else {
+                result.unwrap();
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn invalid_tcp_candidate_does_not_hide_later_listener_or_expose_address_text() {
+        let error = require_ports_stopped_with(
+            vec![
+                ("private-invalid-address".into(), 100),
+                ("127.0.0.1".into(), 101),
+            ],
+            |_| std::future::ready(synthetic_probe(TcpState::Listening)),
+        )
+        .await
+        .unwrap_err();
+        assert!(error.starts_with("stage=tcp state=listening"), "{error}");
+        assert!(
+            error.contains("candidate=1 port=100 state=unknown reason=invalid_address"),
+            "{error}"
         );
+        assert!(error.contains("candidate=2 port=101"), "{error}");
+        assert!(!error.contains("private"), "{error}");
+    }
+
+    #[tokio::test]
+    async fn tcp_candidates_share_a_concurrent_probe_budget() {
+        let barrier = tokio::sync::Barrier::new(2);
+        let result = tokio::time::timeout(
+            Duration::from_secs(3),
+            require_ports_stopped_with(
+                vec![("127.0.0.1".into(), 100), ("127.0.0.1".into(), 101)],
+                |_| async {
+                    barrier.wait().await;
+                    synthetic_probe(TcpState::Refused)
+                },
+            ),
+        )
+        .await;
+        result
+            .expect("both candidates must be polled concurrently")
+            .unwrap();
     }
 
     #[cfg(target_os = "macos")]
