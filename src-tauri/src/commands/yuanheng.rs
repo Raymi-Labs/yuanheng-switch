@@ -28,9 +28,8 @@ pub(crate) use imagegen_credentials::imagegen_provider;
 pub(crate) use imagegen_credentials::test_support as imagegen_test_support;
 use std::collections::{BTreeSet, HashMap};
 use std::sync::OnceLock;
-use std::time::Duration;
 #[cfg(target_os = "macos")]
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use reqwest::header::{HeaderMap, COOKIE, SET_COOKIE};
 use serde::{Deserialize, Serialize};

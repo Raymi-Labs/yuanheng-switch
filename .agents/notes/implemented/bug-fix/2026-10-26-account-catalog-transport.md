@@ -32,6 +32,7 @@ DSH 安装完成后会继续执行账号分组预检，`/api/user/models` 的传
 - 新增前端测试验证 DSH 安装后预检失败不配置/启动，保留安装，手动重试成功才续接；单纯检测和重新检测不自动配置。
 - 全量前端 153 文件、1,025 项通过。Node 25 运行需 `NODE_OPTIONS=--no-experimental-webstorage`，否则原生 localStorage 干扰既有测试替身。Rust 2,486 项单元测试和 116 项集成测试通过，3 项既有忽略；测试运行给 loopback 设置 NO_PROXY，避免系统代理把既有“本机端口拒绝连接”用例变成 HTTP 503。
 - 类型、前端格式、Rust 格式、Clippy、renderer 与 Core 构建、版本公告与笔记校验通过。三平台签名发布由现有工作流核验；本地验证不代表客户电脑的真实网络或 Windows 真机验收。
+- v0.1.108 的云端 Windows/Linux Clippy 暴露原有 `Duration` 导入在本次移走超时构建后仅用于 macOS；导入随使用方限定 macOS。该版本在公开前取消发布，修正版本为 v0.1.109，不改写已推送标签。
 
 ## Consequences
 
