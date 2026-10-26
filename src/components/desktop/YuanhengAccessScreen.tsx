@@ -7,12 +7,13 @@ import {
   ShieldCheck,
   Sparkles,
 } from "lucide-react";
-import { toast } from "sonner";
+import { toast } from "@/lib/toast";
 import appIcon from "@/assets/icons/app-icon.png";
 import { YUANHENG_WEBSITE_URL } from "@/config/yuanhengBrand";
 import { settingsApi } from "@/lib/api";
 import { YuanhengConnectionPanel } from "./YuanhengConnectionPanel";
 import { AccessUpdateControl } from "./AccessUpdateControl";
+import { ErrorFeedbackButton } from "./ErrorFeedbackButton";
 import { dt } from "./desktopI18n";
 
 interface YuanhengAccessScreenProps {
@@ -35,7 +36,10 @@ export function YuanhengAccessScreen({
       <div className="pointer-events-none absolute inset-0 opacity-[0.08] [background-image:linear-gradient(rgba(255,255,255,0.16)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.16)_1px,transparent_1px)] [background-size:42px_42px]" />
 
       <div className="sticky top-0 z-10 mx-auto flex w-full max-w-[1120px] shrink-0 justify-end bg-[#10191a]/90 px-6 pb-1 pt-3 backdrop-blur-md md:px-8 lg:px-12">
-        <AccessUpdateControl />
+        <div className="flex items-center gap-2">
+          <ErrorFeedbackButton />
+          <AccessUpdateControl />
+        </div>
       </div>
 
       <div className="relative mx-auto grid w-full max-w-[1120px] flex-1 items-center gap-6 px-6 py-4 md:grid-cols-[0.86fr_1.14fr] md:px-8 lg:gap-9 lg:px-12">

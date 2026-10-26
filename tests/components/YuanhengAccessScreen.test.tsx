@@ -41,7 +41,7 @@ vi.mock("@/lib/updater", () => ({
   getCurrentVersion: async () => "0.1.69",
   checkForUpdate: checkMock,
 }));
-vi.mock("sonner", () => ({ toast: { error: toastErrorMock } }));
+vi.mock("@/lib/toast", () => ({ toast: { error: toastErrorMock } }));
 
 vi.mock("@/components/desktop/YuanhengConnectionPanel", () => ({
   YuanhengConnectionPanel: () => <div>登录面板</div>,

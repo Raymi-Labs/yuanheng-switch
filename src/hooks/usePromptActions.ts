@@ -1,6 +1,6 @@
 import { useState, useCallback } from "react";
 import { useTranslation } from "react-i18next";
-import { toast } from "sonner";
+import { toast } from "@/lib/toast";
 import { promptsApi, type Prompt, type AppId } from "@/lib/api";
 
 export function usePromptActions(appId: AppId) {

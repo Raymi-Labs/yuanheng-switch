@@ -1883,7 +1883,7 @@
     "configLoadFailedTitle": "設定の読み込みに失敗しました",
     "configLoadFailedMessage": "設定ファイルを読み込めません:\n{{path}}\n\nエラー詳細:\n{{detail}}\n\nJSON が正しいか確認するか、同じディレクトリのバックアップファイル（config.json.bak など）から復元してください。\n\nアプリを終了して修正してください。",
     "frontendCrashTitle": "画面で問題が発生しました",
-    "frontendCrashMessage": "エラー情報をアプリ診断ログに保存しようとしました。画面を再読み込みし、問題が続く場合は Issue にログを添付してください。",
+    "frontendCrashMessage": "問題を報告して調査にご協力いただくか、画面を再読み込みして続行してください。",
     "reloadInterface": "画面を再読み込み"
   },
   "presetSelector": {
@@ -3451,5 +3451,27 @@
       "interrupted": "ストリームが途中で終了",
       "buffered": "ストリームデータが一括で届きました"
     }
+  },
+  "feedback": {
+    "title": "問題を報告",
+    "reportError": "このエラーを報告",
+    "introduction": "クライアントの問題を調査するため、元衡プラットフォームの管理者に報告します。",
+    "description": "問題の説明と再現手順",
+    "placeholder": "操作手順、期待した結果、実際に起きたことを説明してください。",
+    "privacy": "パスワード、API キー、会話内容は入力しないでください。一般的な機密情報は自動で隠されます。送信前にプレビューを確認してください。",
+    "includeErrors": "機密情報を隠したエラー {{count}} 件を添付",
+    "noErrors": "記録されたエラーはありません。問題を直接説明できます。",
+    "preview": "送信内容のプレビュー",
+    "loginRequired": "送信するにはログインしてください。報告をコピーしてサポートに共有することもできます。",
+    "submit": "報告を送信",
+    "submitting": "送信中…",
+    "failed": "送信が完了しませんでした。内容は保持されています。再試行またはコピーできます。",
+    "received": "報告を受け付けました：#{{id}}",
+    "receivedHint": "管理者はプラットフォームの管理画面でこの報告を確認できます。",
+    "close": "閉じる",
+    "copy": "報告をコピー",
+    "copied": "報告をコピーしました",
+    "copyFailed": "コピーに失敗しました。プレビューを手動でコピーしてください。",
+    "versionAutomatic": "クライアントが自動で提供"
   }
 }

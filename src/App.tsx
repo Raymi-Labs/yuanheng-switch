@@ -19,7 +19,7 @@ import {
   Store,
   X,
 } from "lucide-react";
-import { toast } from "sonner";
+import { toast } from "@/lib/toast";
 
 import type { AppId, YuanhengToolId } from "@/lib/api";
 import { settingsApi } from "@/lib/api";
@@ -79,6 +79,8 @@ import { YuanhengAccessScreen } from "@/components/desktop/YuanhengAccessScreen"
 import type { DesktopView } from "@/components/desktop/types";
 import { useYuanhengConnection } from "@/lib/query/yuanheng";
 import { PlatformAnnouncementCenter } from "@/components/desktop/PlatformAnnouncementCenter";
+import { ErrorFeedbackButton } from "@/components/desktop/ErrorFeedbackButton";
+import { updateFeedbackContext } from "@/lib/feedbackContext";
 
 import { DESKTOP_TOOLS, isCoreApp } from "@/config/desktopTools";
 
@@ -231,6 +233,26 @@ function App() {
   const { data: settingsData } = useSettingsQuery();
   const { data: yuanhengConnection, isLoading: isYuanhengConnectionLoading } =
     useYuanhengConnection();
+  useEffect(() => {
+    if (isYuanhengConnectionLoading) return;
+    updateFeedbackContext(
+      {
+        userId: yuanhengConnection?.connected
+          ? yuanhengConnection.userId
+          : null,
+        view: yuanhengConnection?.connected ? view : "login",
+        tool: activeTool,
+      },
+      yuanhengConnection?.baseUrl,
+    );
+  }, [
+    isYuanhengConnectionLoading,
+    yuanhengConnection?.connected,
+    yuanhengConnection?.userId,
+    yuanhengConnection?.baseUrl,
+    view,
+    activeTool,
+  ]);
   useEffect(() => {
     if (!yuanhengConnection?.connected) setHelpOpen(false);
   }, [yuanhengConnection?.connected]);
@@ -849,6 +871,7 @@ function App() {
                     ⌘K
                   </kbd>
                 </button>
+                <ErrorFeedbackButton />
                 <PlatformAnnouncementCenter />
                 <LanguageSwitcher />
                 <ModeToggle />

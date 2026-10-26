@@ -17,7 +17,7 @@ import {
   Sparkles,
   Wrench,
 } from "lucide-react";
-import { toast } from "sonner";
+import { toast } from "@/lib/toast";
 import type { AppId, YuanhengToolId } from "@/lib/api";
 import { promptsApi, settingsApi } from "@/lib/api";
 import { useInstalledSkills } from "@/hooks/useSkills";

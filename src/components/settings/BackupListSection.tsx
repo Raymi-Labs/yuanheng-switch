@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { toast } from "sonner";
+import { toast } from "@/lib/toast";
 import { Pencil, RotateCcw, Check, X, Download, Trash2 } from "lucide-react";
 import {
   Dialog,

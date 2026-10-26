@@ -1649,6 +1649,7 @@ pub fn run() {
             commands::prepare_claude_workspace,
             commands::get_yuanheng_diagnostic_snapshot,
             commands::export_yuanheng_diagnostics,
+            commands::submit_desktop_feedback,
             commands::configure_yuanheng_tools,
             commands::login_yuanheng,
             commands::register_yuanheng,

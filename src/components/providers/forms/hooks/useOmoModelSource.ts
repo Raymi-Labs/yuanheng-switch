@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { toast } from "sonner";
+import { toast } from "@/lib/toast";
 import { providersApi } from "@/lib/api";
 import { useProvidersQuery } from "@/lib/query/queries";
 import type { OpenCodeProviderConfig } from "@/types";

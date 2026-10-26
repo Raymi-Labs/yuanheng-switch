@@ -5,7 +5,7 @@ import { usageKeys } from "@/lib/query/usage";
 import { Database, FileText, RefreshCw, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useState } from "react";
-import { toast } from "sonner";
+import { toast } from "@/lib/toast";
 
 interface DataSourceBarProps {
   refreshIntervalMs: number;

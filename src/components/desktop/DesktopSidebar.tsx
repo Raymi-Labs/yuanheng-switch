@@ -22,7 +22,7 @@ import { useYuanhengTopup } from "@/hooks/useYuanhengTopup";
 import { settingsApi } from "@/lib/api";
 import type { YuanhengConnectionStatus } from "@/lib/api/yuanheng";
 import { cn } from "@/lib/utils";
-import { toast } from "sonner";
+import { toast } from "@/lib/toast";
 import type { DesktopView } from "./types";
 import { desktopSection } from "./types";
 import { dt } from "./desktopI18n";

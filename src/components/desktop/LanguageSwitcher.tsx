@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Check, Languages, Loader2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useQueryClient } from "@tanstack/react-query";
-import { toast } from "sonner";
+import { toast } from "@/lib/toast";
 
 import { settingsApi } from "@/lib/api";
 import { useSettingsQuery } from "@/lib/query";

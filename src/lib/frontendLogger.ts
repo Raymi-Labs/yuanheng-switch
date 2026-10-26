@@ -1,4 +1,5 @@
 import { error as writeErrorLog } from "@tauri-apps/plugin-log";
+import { recordFeedbackError } from "@/lib/errorFeedback";
 
 const MAX_LOG_MESSAGE_LENGTH = 12_000;
 const MAX_RAW_LOG_INPUT_LENGTH = 16_000;
@@ -298,6 +299,9 @@ export function reportFrontendError(
   error: unknown,
   details?: string,
 ): void {
+  // Feedback keeps a bounded, sanitized message only. Native stack/details
+  // remain in the existing local logger and never enter the feedback payload.
+  recordFeedbackError(context, error);
   // 先限制每段原始输入，再执行全局正则，避免异常携带多 MiB 文本时阻塞 UI。
   const raw = truncateForProcessing(
     [

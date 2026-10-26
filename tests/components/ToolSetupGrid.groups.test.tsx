@@ -72,7 +72,7 @@ vi.mock("@/components/desktop/desktopI18n", () => ({
   dt: (key: string, values: Record<string, unknown> = {}) =>
     key.replace(/\{\{(\w+)\}\}/g, (_, name) => String(values[name] ?? "")),
 }));
-vi.mock("sonner", () => ({
+vi.mock("@/lib/toast", () => ({
   toast: { success: vi.fn(), error: mocks.error, info: vi.fn() },
 }));
 

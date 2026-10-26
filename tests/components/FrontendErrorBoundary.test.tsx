@@ -24,7 +24,12 @@ describe("FrontendErrorBoundary", () => {
     );
 
     expect(screen.getByRole("alert")).toBeInTheDocument();
-    expect(screen.getByRole("button")).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "重新加载界面" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "feedback.title" }),
+    ).toBeInTheDocument();
     expect(reportFrontendError).toHaveBeenCalledWith(
       "react.error_boundary",
       expect.objectContaining({ message: "sensitive render failure" }),

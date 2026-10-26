@@ -1883,7 +1883,7 @@
     "configLoadFailedTitle": "Configuration Load Failed",
     "configLoadFailedMessage": "Unable to read configuration file:\n{{path}}\n\nError details:\n{{detail}}\n\nPlease check if the JSON is valid, or restore from a backup file (e.g., config.json.bak) in the same directory.\n\nThe app will exit so you can fix this.",
     "frontendCrashTitle": "Something went wrong in the interface",
-    "frontendCrashMessage": "An attempt was made to write the error to the application diagnostic log. Reload the interface, and attach the log when opening an issue if the problem continues.",
+    "frontendCrashMessage": "Submit a problem report to help us investigate, or reload the interface to continue.",
     "reloadInterface": "Reload interface"
   },
   "presetSelector": {
@@ -3451,5 +3451,27 @@
       "interrupted": "Stream ended early",
       "buffered": "Streaming data arrived in a batch"
     }
+  },
+  "feedback": {
+    "title": "Report a problem",
+    "reportError": "Report this error",
+    "introduction": "Send a report to YuanHeng administrators to help investigate client issues.",
+    "description": "Description and steps to reproduce",
+    "placeholder": "Describe what you did, what you expected, and what happened.",
+    "privacy": "Do not include passwords, API keys, or conversations. Common sensitive values are hidden automatically; review the content before submitting.",
+    "includeErrors": "Include {{count}} redacted error(s)",
+    "noErrors": "No errors recorded. You can still describe the problem.",
+    "preview": "Submission preview",
+    "loginRequired": "Sign in to submit. You can copy this report and share it with support.",
+    "submit": "Submit report",
+    "submitting": "Submitting…",
+    "failed": "Submission did not complete. Your report is preserved; retry or copy it.",
+    "received": "Report received: #{{id}}",
+    "receivedHint": "Administrators can review and track this report in the platform dashboard.",
+    "close": "Close",
+    "copy": "Copy report",
+    "copied": "Report copied",
+    "copyFailed": "Copy failed. Please copy the preview manually.",
+    "versionAutomatic": "Provided automatically by the client"
   }
 }

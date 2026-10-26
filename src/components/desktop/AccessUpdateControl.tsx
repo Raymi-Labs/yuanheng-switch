@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { ArrowUpCircle, ExternalLink, Loader2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { toast } from "sonner";
+import { toast } from "@/lib/toast";
 import { useUpdate } from "@/contexts/UpdateContext";
 import { settingsApi } from "@/lib/api";
 import { getCurrentVersion } from "@/lib/updater";

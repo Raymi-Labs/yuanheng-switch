@@ -2176,12 +2176,15 @@ mod tests {
 
     /// 测试进程内可能有其他用例临时 set_var HTTP_PROXY（http_client 的
     /// loopback 检测测试），NO_PROXY 保证本地回环请求始终直连。
+    /// 账户请求等用例也可能已经初始化全局连接池；reqwest 在建池时捕获代理，
+    /// 所以设置环境后还须刷新测试用池，不能依赖执行顺序或宿主系统代理行为。
     fn ensure_no_proxy_for_loopback() {
         static ONCE: std::sync::Once = std::sync::Once::new();
         ONCE.call_once(|| {
             std::env::set_var("NO_PROXY", "127.0.0.1,localhost");
             std::env::set_var("no_proxy", "127.0.0.1,localhost");
         });
+        crate::proxy::http_client::apply_proxy(None).expect("refresh loopback test HTTP pool");
     }
 
     /// 起一个只服务一次连接的本地 HTTP server。`response=None` 表示读完请求

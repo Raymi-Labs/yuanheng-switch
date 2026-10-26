@@ -15,7 +15,7 @@ import {
   Wrench,
   FileSearch,
 } from "lucide-react";
-import { toast } from "sonner";
+import { toast } from "@/lib/toast";
 import { Button } from "@/components/ui/button";
 import { settingsApi, yuanhengApi } from "@/lib/api";
 import { copyText } from "@/lib/clipboard";

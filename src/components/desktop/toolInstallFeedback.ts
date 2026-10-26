@@ -1,4 +1,4 @@
-import { toast } from "sonner";
+import { toast } from "@/lib/toast";
 import { settingsApi } from "@/lib/api/settings";
 import { extractErrorMessage } from "@/utils/errorUtils";
 import { dt } from "./desktopI18n";

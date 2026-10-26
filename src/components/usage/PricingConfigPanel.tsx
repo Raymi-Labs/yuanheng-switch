@@ -31,7 +31,7 @@ import { useModelPricing, useDeleteModelPricing } from "@/lib/query/usage";
 import { PricingEditModal } from "./PricingEditModal";
 import { isNonNegativeDecimalString, type ModelPricing } from "@/types/usage";
 import { Plus, Pencil, Trash2, Loader2 } from "lucide-react";
-import { toast } from "sonner";
+import { toast } from "@/lib/toast";
 import { proxyApi } from "@/lib/api/proxy";
 
 const PRICING_APPS = ["claude", "codex", "gemini", "grokbuild"] as const;

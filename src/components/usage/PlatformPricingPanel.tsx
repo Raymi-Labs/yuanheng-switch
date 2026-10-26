@@ -9,7 +9,7 @@ import {
   useRefreshPlatformPricing,
   type PlatformPriceBook,
 } from "@/lib/query/platformPricing";
-import { toast } from "sonner";
+import { toast } from "@/lib/toast";
 
 function CatalogRate({
   book,

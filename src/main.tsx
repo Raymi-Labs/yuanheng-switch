@@ -15,6 +15,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { message } from "@tauri-apps/plugin-dialog";
 import { exit } from "@tauri-apps/plugin-process";
 import { FrontendErrorBoundary } from "./components/FrontendErrorBoundary";
+import { ErrorFeedbackDialog } from "./components/desktop/ErrorFeedbackDialog";
 import { UpdatePrompt } from "./components/UpdatePrompt";
 import { DesktopAnnouncementCenter } from "./components/desktop/PlatformAnnouncementCenter";
 import {
@@ -101,6 +102,7 @@ async function bootstrap() {
               <Toaster />
             </ThemeProvider>
           </FrontendErrorBoundary>
+          <ErrorFeedbackDialog />
         </React.StrictMode>,
       );
       return;
@@ -132,6 +134,7 @@ async function bootstrap() {
           </ThemeProvider>
         </QueryClientProvider>
       </FrontendErrorBoundary>
+      <ErrorFeedbackDialog />
     </React.StrictMode>,
   );
 }

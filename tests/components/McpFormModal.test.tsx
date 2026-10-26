@@ -17,7 +17,7 @@ const upsertMock = vi.hoisted(() => {
   return fn;
 });
 
-vi.mock("sonner", () => ({
+vi.mock("@/lib/toast", () => ({
   toast: {
     error: (...args: unknown[]) => toastErrorMock(...args),
     success: (...args: unknown[]) => toastSuccessMock(...args),

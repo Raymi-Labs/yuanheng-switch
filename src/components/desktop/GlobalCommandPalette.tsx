@@ -10,7 +10,7 @@ import {
   RefreshCw,
   Settings,
 } from "lucide-react";
-import { toast } from "sonner";
+import { toast } from "@/lib/toast";
 import type { YuanhengToolId } from "@/lib/api";
 import { settingsApi } from "@/lib/api";
 import type { VisibleApps } from "@/types";

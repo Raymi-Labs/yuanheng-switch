@@ -3,6 +3,7 @@ import { RefreshCw, TriangleAlert } from "lucide-react";
 import i18n from "@/i18n";
 import { reportFrontendError } from "@/lib/frontendLogger";
 import { Button } from "@/components/ui/button";
+import { ErrorFeedbackButton } from "@/components/desktop/ErrorFeedbackButton";
 
 interface FrontendErrorBoundaryState {
   hasError: boolean;
@@ -48,7 +49,7 @@ export class FrontendErrorBoundary extends React.Component<
               <p className="text-sm leading-6 text-muted-foreground">
                 {i18n.t("errors.frontendCrashMessage", {
                   defaultValue:
-                    "已尝试将错误信息写入应用诊断日志。请重新加载界面；如果问题持续，请在提交 Issue 时附上日志。",
+                    "可以提交问题反馈，帮助我们排查；也可以重新加载界面后继续使用。",
                 })}
               </p>
             </div>
@@ -59,6 +60,7 @@ export class FrontendErrorBoundary extends React.Component<
               defaultValue: "重新加载界面",
             })}
           </Button>
+          <ErrorFeedbackButton />
         </section>
       </main>
     );

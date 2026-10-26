@@ -1,11 +1,14 @@
 mod account_http;
 #[cfg(any(target_os = "macos", test))]
 pub(crate) mod credential_session;
+mod desktop_feedback;
 mod dsh;
 mod imagegen;
 mod imagegen_connection;
 mod imagegen_credentials;
 mod model_catalog;
+
+pub use desktop_feedback::*;
 
 pub(crate) use imagegen::refresh_port as refresh_yuanheng_imagegen_routes_at_port;
 pub(crate) use imagegen::sync as sync_yuanheng_imagegen;

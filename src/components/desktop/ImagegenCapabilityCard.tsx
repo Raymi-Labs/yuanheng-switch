@@ -8,7 +8,7 @@ import {
   RefreshCw,
   Sparkles,
 } from "lucide-react";
-import { toast } from "sonner";
+import { toast } from "@/lib/toast";
 import type { YuanhengToolId } from "@/lib/api/yuanheng";
 import { toolLabel } from "@/config/desktopTools";
 import { useImagegen } from "@/hooks/useImagegen";

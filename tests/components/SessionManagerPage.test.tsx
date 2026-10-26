@@ -19,7 +19,7 @@ const toastErrorMock = vi.fn();
 const GROUP_EXPANSION_STORAGE_KEY =
   "yuanheng-switch.sessionManager.groupExpansionState";
 
-vi.mock("sonner", () => ({
+vi.mock("@/lib/toast", () => ({
   toast: {
     success: (...args: unknown[]) => toastSuccessMock(...args),
     error: (...args: unknown[]) => toastErrorMock(...args),

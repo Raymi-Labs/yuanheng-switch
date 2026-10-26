@@ -1,7 +1,7 @@
 import { ToolInstallProgress } from "./ToolInstallProgress";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Loader2, RefreshCw } from "lucide-react";
-import { toast } from "sonner";
+import { toast } from "@/lib/toast";
 import { settingsApi } from "@/lib/api";
 import { DESKTOP_INVENTORY_KEY } from "@/lib/query/toolInventory";
 import { useToolLifecycleState } from "@/lib/toolLifecycleState";

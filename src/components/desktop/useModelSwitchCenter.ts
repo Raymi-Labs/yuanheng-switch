@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useInstallContinuation } from "./useInstallContinuation";
 import { ClaudeWorkspaceDeferredError } from "@/lib/claudeWorkspaceSetup";
 import { useQueryClient } from "@tanstack/react-query";
-import { toast } from "sonner";
+import { toast } from "@/lib/toast";
 import {
   isToolLifecycleBusy,
   useToolLifecycleState,

@@ -1,5 +1,5 @@
 import { Loader2, Network, Route, ShieldCheck } from "lucide-react";
-import { toast } from "sonner";
+import { toast } from "@/lib/toast";
 import { YuanhengConnectionPanel } from "./YuanhengConnectionPanel";
 import { PageHeader } from "./PageHeader";
 import { ProxyTabContent } from "@/components/settings/ProxyTabContent";
