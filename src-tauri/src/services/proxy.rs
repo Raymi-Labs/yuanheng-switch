@@ -16,8 +16,9 @@ use serde_json::{json, Map, Value};
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 use tauri::Emitter;
-use tokio::sync::RwLock;
+use tokio::sync::{Mutex, RwLock};
 
 /// 用于接管 Live 配置时的占位符（避免客户端提示缺少 key，同时不泄露真实 Token）
 const PROXY_TOKEN_PLACEHOLDER: &str = "PROXY_MANAGED";
@@ -61,6 +62,7 @@ pub struct ProxyService {
     server: Arc<RwLock<Option<ProxyServer>>>,
     runtime_mode: ProxyRuntimeMode,
     core_config_dir: Arc<PathBuf>,
+    core_maintenance: Arc<Mutex<CoreMaintenance>>,
     /// AppHandle，用于传递给 ProxyServer 以支持故障转移时的 UI 更新
     app_handle: Arc<RwLock<Option<tauri::AppHandle>>>,
     switch_locks: SwitchLockManager,
@@ -70,6 +72,32 @@ pub struct ProxyService {
 enum ProxyRuntimeMode {
     InProcess,
     ManagedCore,
+}
+
+/// Shared by GUI service clones: a slow/failed probe must not produce a burst
+/// of recovery attempts. Explicit user actions keep their own lifecycle path.
+#[derive(Default)]
+struct CoreMaintenance {
+    failures: u32,
+    probe_failures: u32,
+    retry_at: Option<Instant>,
+}
+
+impl CoreMaintenance {
+    fn ready(&self, now: Instant) -> bool {
+        self.retry_at.is_none_or(|deadline| now >= deadline)
+    }
+
+    fn failed(&mut self, now: Instant) -> Duration {
+        self.failures = self.failures.saturating_add(1);
+        let delay = Duration::from_secs((5_u64 << (self.failures - 1).min(4)).min(60));
+        self.retry_at = Some(now + delay);
+        delay
+    }
+
+    fn recovered(&mut self) {
+        *self = Self::default();
+    }
 }
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -84,6 +112,7 @@ impl ProxyService {
             server: Arc::new(RwLock::new(None)),
             runtime_mode: ProxyRuntimeMode::InProcess,
             core_config_dir: Arc::new(crate::config::get_app_config_dir()),
+            core_maintenance: Arc::new(Mutex::new(CoreMaintenance::default())),
             app_handle: Arc::new(RwLock::new(None)),
             switch_locks: SwitchLockManager::new(),
         }
@@ -95,6 +124,7 @@ impl ProxyService {
             server: Arc::new(RwLock::new(None)),
             runtime_mode: ProxyRuntimeMode::ManagedCore,
             core_config_dir: Arc::new(crate::config::get_app_config_dir()),
+            core_maintenance: Arc::new(Mutex::new(CoreMaintenance::default())),
             app_handle: Arc::new(RwLock::new(None)),
             switch_locks: SwitchLockManager::new(),
         }
@@ -154,8 +184,43 @@ impl ProxyService {
             return Ok(());
         }
 
+        let mut maintenance = self.core_maintenance.lock().await;
+        if !maintenance.ready(Instant::now()) {
+            return Ok(());
+        }
+        let result = self.maintain_managed_core_once(&mut maintenance).await;
+        match result {
+            Ok(()) => {
+                if maintenance.failures > 0 {
+                    log::info!("[Core] 健康巡检已恢复，清除失败退避");
+                }
+                maintenance.recovered();
+                self.refresh_imagegen_credentials().await;
+                Ok(())
+            }
+            Err(error) => {
+                let delay = maintenance.failed(Instant::now());
+                Err(format!(
+                    "{error}；连续失败 {} 次，{} 秒后重试",
+                    maintenance.failures,
+                    delay.as_secs()
+                ))
+            }
+        }
+    }
+
+    async fn maintain_managed_core_once(
+        &self,
+        maintenance: &mut CoreMaintenance,
+    ) -> Result<(), String> {
         let supervisor = self.core_supervisor();
-        let result = match supervisor.status(&self.db).await {
+        let probe = supervisor.status(&self.db).await;
+        if probe.is_ok() {
+            maintenance.probe_failures = 0;
+        } else {
+            maintenance.probe_failures = maintenance.probe_failures.saturating_add(1);
+        }
+        match probe {
             Ok(info)
                 if info.protocol_version == crate::core_daemon::CORE_PROTOCOL_VERSION
                     && (cfg!(debug_assertions) || info.version == env!("CARGO_PKG_VERSION")) =>
@@ -167,7 +232,7 @@ impl ProxyService {
                 codex.and(images)
             }
             Ok(info) if info.status.active_connections > 0 => Ok(()),
-            _ => {
+            Ok(_) => {
                 let info = supervisor.ensure_running(&self.db).await?;
                 let codex = crate::commands::refresh_codex_history_routes_at_port(info.status.port)
                     .map(|_| ());
@@ -175,11 +240,24 @@ impl ProxyService {
                     crate::commands::refresh_yuanheng_imagegen_routes_at_port(info.status.port);
                 codex.and(images)
             }
-        };
-        if result.is_ok() {
-            self.refresh_imagegen_credentials().await;
+            Err(error) if maintenance.probe_failures < 2 => Err(format!(
+                "Core 健康探测失败，保留现有服务等待下一次确认: {error}"
+            )),
+            Err(error) => {
+                log::warn!("[Core] 健康探测再次失败，先核验存活状态再恢复: {error}");
+                let info = supervisor
+                    .ensure_running(&self.db)
+                    .await
+                    .map_err(|recovery| {
+                        format!("Core 健康探测失败: {error}；恢复未完成: {recovery}")
+                    })?;
+                let codex = crate::commands::refresh_codex_history_routes_at_port(info.status.port)
+                    .map(|_| ());
+                let images =
+                    crate::commands::refresh_yuanheng_imagegen_routes_at_port(info.status.port);
+                codex.and(images)
+            }
         }
-        result
     }
 
     pub async fn prepare_for_config_dir_change(&self) -> Result<(), String> {
@@ -3542,6 +3620,102 @@ mod tests {
         db.update_proxy_config(proxy_config)
             .await
             .expect("set test proxy config to an ephemeral port");
+    }
+
+    #[test]
+    fn core_maintenance_backoff_caps_and_resets_after_recovery() {
+        let mut state = CoreMaintenance::default();
+        let mut now = Instant::now();
+        assert!(state.ready(now));
+        for expected in [5, 10, 20, 40, 60, 60] {
+            let delay = state.failed(now);
+            assert_eq!(delay, Duration::from_secs(expected));
+            assert!(!state.ready(now + delay - Duration::from_millis(1)));
+            now += delay;
+            assert!(state.ready(now));
+        }
+        state.recovered();
+        assert_eq!(state.failures, 0);
+        assert!(state.ready(now));
+        assert_eq!(state.failed(now), Duration::from_secs(5));
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn core_maintenance_transient_failure_preserves_service_and_clones_share_backoff() {
+        use axum::{http::StatusCode, response::IntoResponse, routing::get, Json, Router};
+        use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+
+        let _home = crate::commands::imagegen_test_support::TestHome::new();
+        let db = Arc::new(Database::memory().unwrap());
+        let service = ProxyService::new_managed(db.clone());
+        let core_root = service.core_config_dir.join("core");
+        std::fs::create_dir_all(&core_root).unwrap();
+        std::fs::write(core_root.join("admin.token"), "synthetic-token").unwrap();
+        let failing = Arc::new(AtomicBool::new(true));
+        let calls = Arc::new(AtomicUsize::new(0));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let mut config = db.get_proxy_config().await.unwrap();
+        config.listen_port = port;
+        config.listen_address = "127.0.0.1".into();
+        db.update_proxy_config(config).await.unwrap();
+        let failed_probe = failing.clone();
+        let seen = calls.clone();
+        let router = Router::new().route(
+            "/__yuanheng/core/info",
+            get(move || {
+                let failed_probe = failed_probe.clone();
+                let seen = seen.clone();
+                async move {
+                    seen.fetch_add(1, Ordering::SeqCst);
+                    if failed_probe.load(Ordering::SeqCst) {
+                        StatusCode::SERVICE_UNAVAILABLE.into_response()
+                    } else {
+                        Json(json!({
+                            "protocolVersion": crate::core_daemon::CORE_PROTOCOL_VERSION,
+                            "version": env!("CARGO_PKG_VERSION"),
+                            "buildProfile": "test", "pid": std::process::id(),
+                            "binaryId": "synthetic", "configDir": "synthetic",
+                            "status": ProxyStatus { port, ..Default::default() }
+                        }))
+                        .into_response()
+                    }
+                }
+            }),
+        );
+        let server = tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
+        // A preceding route-refresh error is not a failed health probe.
+        service.core_maintenance.lock().await.failures = 2;
+        let first = service.maintain_managed_core().await.unwrap_err();
+        assert!(first.contains("等待下一次确认"), "{first}");
+        assert!(first.contains("503"), "{first}");
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+        let clone = service.clone();
+        clone.maintain_managed_core().await.unwrap();
+        assert_eq!(
+            calls.load(Ordering::SeqCst),
+            1,
+            "backoff must skip HTTP probes too"
+        );
+        assert!(
+            !core_root.join("current").exists(),
+            "transient failure must not install/start a Core"
+        );
+
+        failing.store(false, Ordering::SeqCst);
+        clone.core_maintenance.lock().await.retry_at = Some(Instant::now());
+        clone.maintain_managed_core().await.unwrap();
+        assert_eq!(service.core_maintenance.lock().await.failures, 0);
+
+        failing.store(true, Ordering::SeqCst);
+        let again = service.maintain_managed_core().await.unwrap_err();
+        assert!(
+            again.contains("等待下一次确认"),
+            "recovery must reset the failure threshold: {again}"
+        );
+        server.abort();
+        let _ = server.await;
     }
 
     async fn running_codex_base_url(service: &ProxyService) -> String {

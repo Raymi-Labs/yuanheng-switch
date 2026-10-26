@@ -18,6 +18,8 @@ use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 use tokio::sync::{mpsc, oneshot, RwLock};
 
+mod recovery;
+
 pub const CORE_PROTOCOL_VERSION: u32 = 2;
 const CORE_EXECUTABLE_NAME: &str = if cfg!(windows) {
     "yuanheng-core.exe"
@@ -168,14 +170,15 @@ impl CoreSupervisor {
             .get_or_init(|| tokio::sync::Mutex::new(()))
             .lock()
             .await;
-        let installed = install_versioned_core(&self.config_dir, source)?;
         let token = ensure_admin_token(&self.config_dir)?;
         let config = db
             .get_proxy_config()
             .await
             .map_err(|error| format!("读取代理配置失败: {error}"))?;
 
-        if let Ok(info) = self.query_info(&token, &config).await {
+        let probe = self.query_info(&token, &config).await;
+        if let Ok(info) = probe {
+            let installed = install_versioned_core(&self.config_dir, source)?;
             if info.protocol_version != CORE_PROTOCOL_VERSION {
                 if info.status.active_connections > 0 {
                     log::info!(
@@ -208,6 +211,12 @@ impl CoreSupervisor {
             return Ok(info);
         }
 
+        let probe_error = probe.unwrap_err();
+        recovery::require_stopped(&self.config_dir, &config)
+            .await
+            .map_err(|reason| format!("{probe_error}；保留现有 Core，暂不恢复：{reason}"))?;
+        log::warn!("[Core] 状态探测失败，确认进程与端口均已退出后恢复：{probe_error}");
+        let installed = install_versioned_core(&self.config_dir, source)?;
         activate_core_version(&self.config_dir, &installed.path)?;
         self.install_and_start_service().await?;
         self.wait_until_ready(&token, &config, Some(&installed.id))
@@ -268,9 +277,19 @@ impl CoreSupervisor {
             Ok(info) => Ok(info),
             Err(error) => {
                 // 启动已经发生时不能覆盖可能仍运行的新进程。
-                if self.query_info(token, config).await.is_ok() {
-                    return Err(format!("Core 升级核验失败，保留正在运行的核心：{error}"));
-                }
+                let probe_error = match self.query_info(token, config).await {
+                    Ok(_) => {
+                        return Err(format!("Core 升级核验失败，保留正在运行的核心：{error}"));
+                    }
+                    Err(probe_error) => probe_error,
+                };
+                recovery::require_stopped(&self.config_dir, config)
+                    .await
+                    .map_err(|reason| {
+                        format!(
+                            "Core 升级核验失败，未覆盖现有核心：{error}；{probe_error}；{reason}"
+                        )
+                    })?;
                 activate_core_version(&self.config_dir, &old.path)?;
                 self.install_and_start_service().await?;
                 self.wait_until_ready(token, config, Some(&old.id))
@@ -473,31 +492,32 @@ impl CoreSupervisor {
     async fn query_info(&self, token: &str, config: &ProxyConfig) -> Result<CoreInfo, String> {
         let ports = candidate_ports(&self.config_dir, config);
         let client = admin_client()?;
-        let mut last_error = String::new();
+        let mut failures = Vec::new();
 
         for (address, port) in ports {
+            let started = std::time::Instant::now();
             let url = format!("{}{CORE_ADMIN_PREFIX}/info", proxy_origin(&address, port));
             match client.get(url).bearer_auth(token).send().await {
                 Ok(response) if response.status().is_success() => {
                     return response
                         .json::<CoreInfo>()
                         .await
-                        .map_err(|error| format!("解析 Core 状态失败: {error}"));
+                        .map_err(|error| recovery::probe_error("decode", port, started, &error));
                 }
                 Ok(response) => {
-                    last_error = format!("Core 状态接口返回 {}", response.status());
+                    failures.push(format!(
+                        "stage=http port={port} status={} elapsed_ms={}",
+                        response.status().as_u16(),
+                        started.elapsed().as_millis()
+                    ));
                 }
                 Err(error) => {
-                    last_error = error.to_string();
+                    failures.push(recovery::probe_error("request", port, started, &error));
                 }
             }
         }
 
-        Err(if last_error.is_empty() {
-            "YuanHeng Core 未运行".to_string()
-        } else {
-            format!("YuanHeng Core 未运行: {last_error}")
-        })
+        Err(format!("Core 状态探测失败: {}", failures.join("; ")))
     }
 
     async fn post_admin(
@@ -875,6 +895,7 @@ async fn persist_ephemeral_port(
 fn admin_client() -> Result<reqwest::Client, String> {
     reqwest::Client::builder()
         .no_proxy()
+        .redirect(reqwest::redirect::Policy::none())
         .connect_timeout(Duration::from_millis(800))
         .timeout(CORE_REQUEST_TIMEOUT)
         .build()
@@ -1205,6 +1226,7 @@ fn launchd_plist(config_dir: &Path) -> Result<String, String> {
 
 #[cfg(target_os = "macos")]
 fn install_platform_service(config_dir: &Path) -> Result<(), String> {
+    recovery::validate_launchd_config(config_dir)?;
     let plist_path = launchd_plist_path()?;
     let content = launchd_plist(config_dir)?;
     if fs::read_to_string(&plist_path).ok().as_deref() != Some(content.as_str()) {
@@ -1214,18 +1236,10 @@ fn install_platform_service(config_dir: &Path) -> Result<(), String> {
 }
 
 #[cfg(target_os = "macos")]
-fn start_platform_service(_config_dir: &Path) -> Result<(), String> {
+fn start_platform_service(config_dir: &Path) -> Result<(), String> {
     let domain = launchd_domain();
-    let service = format!("{domain}/{}", launchd_label());
-    if command_success("launchctl", &["print", &service]) {
-        // 查询失败时可能是 app_config_dir 已切换；重新 bootstrap 才会加载新 plist。
-        command_checked("launchctl", &["bootout", &service])?;
-    }
     let plist = launchd_plist_path()?;
-    command_checked(
-        "launchctl",
-        &["bootstrap", &domain, &plist.display().to_string()],
-    )
+    recovery::start_launchd(config_dir, &domain, &plist)
 }
 
 #[cfg(target_os = "macos")]
@@ -1371,6 +1385,224 @@ mod tests {
     #[cfg(windows)]
     use super::CORE_EXECUTABLE_NAME;
     use super::{activate_core_version, current_core_path, install_versioned_core};
+
+    #[tokio::test]
+    async fn failed_info_probe_preserves_existing_core_for_http_decode_and_timeout() {
+        use axum::{http::StatusCode, response::IntoResponse, routing::get, Router};
+
+        for (failure, expected) in [(0, "status=500"), (1, "kind=decode"), (2, "kind=timeout")] {
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let port = listener.local_addr().unwrap().port();
+            let router = Router::new().route(
+                "/__yuanheng/core/info",
+                get(move || async move {
+                    match failure {
+                        0 => (StatusCode::INTERNAL_SERVER_ERROR, "private-probe-body")
+                            .into_response(),
+                        1 => (StatusCode::OK, "{private-probe-body").into_response(),
+                        _ => {
+                            tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+                            (StatusCode::OK, "{}").into_response()
+                        }
+                    }
+                }),
+            );
+            let task = tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
+            let dir = tempfile::tempdir().unwrap();
+            let source = dir.path().join("old.bin");
+            std::fs::write(&source, b"old-core").unwrap();
+            let old = install_versioned_core(dir.path(), &source).unwrap();
+            activate_core_version(dir.path(), &old.path).unwrap();
+            let source = dir.path().join("new.bin");
+            std::fs::write(&source, b"new-core").unwrap();
+            super::write_private_file(&super::admin_token_path(dir.path()), b"private-admin-token")
+                .unwrap();
+            let db = crate::database::Database::memory().unwrap();
+            let mut config = db.get_proxy_config().await.unwrap();
+            config.listen_address = "127.0.0.1".into();
+            config.listen_port = port;
+            db.update_proxy_config(config).await.unwrap();
+            let error = super::CoreSupervisor::new(dir.path().into())
+                .ensure_running_from(&db, &source)
+                .await
+                .unwrap_err();
+            task.abort();
+            let _ = task.await;
+            assert!(error.contains(expected), "{error}");
+            assert!(error.contains("state=listening"), "{error}");
+            assert!(error.contains("elapsed_ms="), "{error}");
+            assert!(!error.contains("private"), "{error}");
+            assert_eq!(
+                std::fs::read(current_core_path(dir.path())).unwrap(),
+                b"old-core"
+            );
+            assert_eq!(
+                std::fs::read_dir(super::core_root(dir.path()).join("versions"))
+                    .unwrap()
+                    .count(),
+                1
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn live_pid_with_unavailable_info_does_not_replace_current() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        drop(listener);
+        let dir = tempfile::tempdir().unwrap();
+        let source = dir.path().join("old.bin");
+        std::fs::write(&source, b"old-core").unwrap();
+        let old = install_versioned_core(dir.path(), &source).unwrap();
+        activate_core_version(dir.path(), &old.path).unwrap();
+        super::write_runtime_record(
+            dir.path(),
+            &crate::proxy::ProxyServerInfo {
+                address: "127.0.0.1".into(),
+                port,
+                started_at: String::new(),
+            },
+            &old.id,
+        )
+        .unwrap();
+        let source = dir.path().join("new.bin");
+        std::fs::write(&source, b"new-core").unwrap();
+        let db = crate::database::Database::memory().unwrap();
+        let mut config = db.get_proxy_config().await.unwrap();
+        config.listen_address = "127.0.0.1".into();
+        config.listen_port = port;
+        db.update_proxy_config(config).await.unwrap();
+        let error = super::CoreSupervisor::new(dir.path().into())
+            .ensure_running_from(&db, &source)
+            .await
+            .unwrap_err();
+        assert!(error.contains("state=alive"), "{error}");
+        assert_eq!(
+            std::fs::read(current_core_path(dir.path())).unwrap(),
+            b"old-core"
+        );
+    }
+
+    #[tokio::test]
+    async fn core_info_probe_does_not_follow_redirects() {
+        use axum::{http::StatusCode, routing::get, Router};
+        use std::sync::{
+            atomic::{AtomicUsize, Ordering},
+            Arc,
+        };
+        let calls = Arc::new(AtomicUsize::new(0));
+        let seen = calls.clone();
+        let destination = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let destination_port = destination.local_addr().unwrap().port();
+        let destination_task = tokio::spawn(async move {
+            axum::serve(
+                destination,
+                Router::new().fallback(move || {
+                    seen.fetch_add(1, Ordering::SeqCst);
+                    async { StatusCode::OK }
+                }),
+            )
+            .await
+            .unwrap();
+        });
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let task = tokio::spawn(async move {
+            axum::serve(
+                listener,
+                Router::new().route(
+                    "/__yuanheng/core/info",
+                    get(move || async move {
+                        (
+                            StatusCode::TEMPORARY_REDIRECT,
+                            [(
+                                "location",
+                                format!("http://127.0.0.1:{destination_port}/private-destination"),
+                            )],
+                        )
+                    }),
+                ),
+            )
+            .await
+            .unwrap();
+        });
+        let dir = tempfile::tempdir().unwrap();
+        let config = crate::proxy::ProxyConfig {
+            listen_port: port,
+            listen_address: "127.0.0.1".into(),
+            ..Default::default()
+        };
+        let error = super::CoreSupervisor::new(dir.path().into())
+            .query_info("private-token", &config)
+            .await
+            .unwrap_err();
+        task.abort();
+        destination_task.abort();
+        let _ = task.await;
+        let _ = destination_task.await;
+        assert!(error.contains("status=307"));
+        assert!(!error.contains("private"));
+        assert_eq!(calls.load(Ordering::SeqCst), 0);
+    }
+
+    #[cfg(target_os = "macos")]
+    #[tokio::test]
+    async fn failed_upgrade_never_rolls_back_over_a_listening_core() {
+        use axum::{
+            http::StatusCode,
+            routing::{get, post},
+            Router,
+        };
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let task = tokio::spawn(async move {
+            axum::serve(
+                listener,
+                Router::new()
+                    .route(
+                        "/__yuanheng/core/info",
+                        get(|| async { StatusCode::INTERNAL_SERVER_ERROR }),
+                    )
+                    .route(
+                        "/__yuanheng/core/shutdown",
+                        post(|| async { StatusCode::SERVICE_UNAVAILABLE }),
+                    ),
+            )
+            .await
+            .unwrap();
+        });
+        let dir = tempfile::tempdir().unwrap();
+        let source = dir.path().join("old.bin");
+        std::fs::write(&source, b"old-core").unwrap();
+        let old = install_versioned_core(dir.path(), &source).unwrap();
+        activate_core_version(dir.path(), &old.path).unwrap();
+        let source = dir.path().join("new.bin");
+        std::fs::write(&source, b"new-core").unwrap();
+        let next = install_versioned_core(dir.path(), &source).unwrap();
+        let config = crate::proxy::ProxyConfig {
+            listen_port: port,
+            listen_address: "127.0.0.1".into(),
+            ..Default::default()
+        };
+        let previous = serde_json::from_value(serde_json::json!({
+            "protocolVersion": super::CORE_PROTOCOL_VERSION, "version": "synthetic",
+            "buildProfile":"test", "pid":42, "binaryId":old.id, "configDir":"test",
+            "status": crate::proxy::ProxyStatus::default()
+        }))
+        .unwrap();
+        let error = super::CoreSupervisor::new(dir.path().into())
+            .upgrade_idle_core("synthetic", &config, &next, &previous)
+            .await
+            .unwrap_err();
+        task.abort();
+        let _ = task.await;
+        assert!(error.contains("state=listening"), "{error}");
+        assert!(error.contains("status=500"), "{error}");
+        assert_eq!(
+            std::fs::read(current_core_path(dir.path())).unwrap(),
+            b"new-core"
+        );
+    }
 
     #[test]
     fn imagegen_credentials_only_target_literal_loopback_addresses() {
