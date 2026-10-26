@@ -34,6 +34,7 @@ DSH 安装完成后会继续执行账号分组预检，`/api/user/models` 的传
 - 类型、前端格式、Rust 格式、Clippy、renderer 与 Core 构建、版本公告与笔记校验通过。三平台签名发布由现有工作流核验；本地验证不代表客户电脑的真实网络或 Windows 真机验收。
 - v0.1.108 的云端 Windows/Linux Clippy 暴露原有 `Duration` 导入在本次移走超时构建后仅用于 macOS；导入随使用方限定 macOS。v0.1.109 的测试编译进一步暴露图像分组测试对该类型的间接依赖，由 `6a17f55c` 改为测试模块显式导入。两个候选版均在公开前取消，不改写已推送标签；修复随后续统一版本分发。
 - 合入统一主分支后的 Windows CI 已通过本修复新增的 10 项账号传输/连接池/脱敏用例。统一版本 v0.1.111 的其他 [Core 恢复](2026-10-26-core-health-recovery.md)端口探测用例失败由该能力继续处理，不能将本模块测试通过描述为整版发布成功。
+- [v0.1.110](https://github.com/nanashiwang/yuanheng-switch/releases/tag/v0.1.110) 已包含 `7cd5e720` / `7a9e7270` 的完整运行时代码；账号 HTTP、共享代理和错误分类与后续通过相关测试的主分支一致。[发布流程](https://github.com/nanashiwang/yuanheng-switch/actions/runs/40284750783) 的三平台构建、Mac 签名公证、集中发布及 R2/平台分发全部成功。2026-10-26 核验 GitHub 正式版 9 个附件均已上传且有 SHA-256，线上更新清单版本为 0.1.110、6 个平台键均有签名。本结果不把旧标签上测试模块缺失导入导致的 CI 失败说成通过，也不替代客户现场网络验收。
 
 ## Consequences
 
