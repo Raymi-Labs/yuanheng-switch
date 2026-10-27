@@ -17,7 +17,7 @@
 | `APPLE_ID` | 用于公证的 Apple 账号邮箱 |
 | `APPLE_PASSWORD` | 该账号生成的 App 专用密码，不是 Apple 账号登录密码 |
 
-私钥、`.p12`、导出密码和 App 专用密码保存在仓库外，不提交 Git、不写进公告或日志。可通过交互式 `gh secret set NAME --repo nanashiwang/yuanheng-switch` 设置值，避免把秘密直接放进命令行或聊天。
+私钥、`.p12`、导出密码和 App 专用密码保存在仓库外，不提交 Git、不写进公告或日志。可通过交互式 `gh secret set NAME --repo Raymi-Labs/yuanheng-switch` 设置值，避免把秘密直接放进命令行或聊天。
 
 Tauri 更新密钥 `TAURI_SIGNING_PRIVATE_KEY` 及其密码继续沿用；自动更新 `.sig` 验证下载字节，Developer ID 与 Apple 公证负责 macOS 分发信任，两个链路均须验证。
 

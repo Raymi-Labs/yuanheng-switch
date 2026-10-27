@@ -4,10 +4,10 @@
 
 ### Der All-in-One-Manager für Claude Code, Claude Desktop, Codex, Gemini CLI, Grok Build, OpenCode, OpenClaw & Hermes Agent
 
-[![Version](https://img.shields.io/github/v/release/nanashiwang/yuanheng-switch?color=blue&label=version)](https://github.com/nanashiwang/yuanheng-switch/releases)
-[![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey.svg)](https://github.com/nanashiwang/yuanheng-switch/releases)
+[![Version](https://img.shields.io/github/v/release/Raymi-Labs/yuanheng-switch?color=blue&label=version)](https://github.com/Raymi-Labs/yuanheng-switch/releases)
+[![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey.svg)](https://github.com/Raymi-Labs/yuanheng-switch/releases)
 [![Built with Tauri](https://img.shields.io/badge/built%20with-Tauri%202-orange.svg)](https://tauri.app/)
-[![Downloads](https://img.shields.io/github/downloads/nanashiwang/yuanheng-switch/total)](https://github.com/nanashiwang/yuanheng-switch/releases/latest)
+[![Downloads](https://img.shields.io/github/downloads/Raymi-Labs/yuanheng-switch/total)](https://github.com/Raymi-Labs/yuanheng-switch/releases/latest)
 
 Eine eigenstaendige, von `nanashiwang` gepflegte Ableitung von [farion1231/cc-switch](https://github.com/farion1231/cc-switch) unter der MIT-Lizenz.
 

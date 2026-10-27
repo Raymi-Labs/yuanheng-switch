@@ -1,7 +1,7 @@
 import tauriConfig from "../../src-tauri/tauri.conf.json";
 
 const githubReleaseManifest =
-  "https://github.com/nanashiwang/yuanheng-switch/releases/latest/download/latest.json";
+  "https://github.com/Raymi-Labs/yuanheng-switch/releases/latest/download/latest.json";
 const yuanHengReleaseManifest =
   "https://meta-api.vip/desktop/update/latest.json";
 

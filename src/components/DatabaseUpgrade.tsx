@@ -13,8 +13,7 @@ import {
   AlertTriangle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-
-const RELEASES_URL = "https://github.com/nanashiwang/yuanheng-switch/releases";
+import { YUANHENG_RELEASES_URL } from "@/config/yuanhengBrand";
 
 interface DatabaseUpgradeProps {
   payload: {
@@ -268,7 +267,7 @@ export function DatabaseUpgrade({ payload }: DatabaseUpgradeProps) {
               variant="outline"
               className="gap-2"
               onClick={() =>
-                void invoke("open_external", { url: RELEASES_URL })
+                void invoke("open_external", { url: YUANHENG_RELEASES_URL })
               }
             >
               <ExternalLink className="h-4 w-4" />

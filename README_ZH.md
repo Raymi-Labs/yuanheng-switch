@@ -55,6 +55,6 @@ pnpm build:renderer
 
 ## 来源与许可
 
-本项目由 `nanashiwang` 独立维护，早期代码基于 [farion1231/cc-switch](https://github.com/farion1231/cc-switch) 二次开发。当前产品定位与交互已转向元衡 API 的桌面项目联动。
+本项目由 [Raymi Labs](https://github.com/Raymi-Labs/yuanheng-switch) 维护，早期版本由 `nanashiwang` 维护，早期代码基于 [farion1231/cc-switch](https://github.com/farion1231/cc-switch) 二次开发。当前产品定位与交互已转向元衡 API 的桌面项目联动。
 
 MIT License

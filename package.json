@@ -1,6 +1,6 @@
 {
   "name": "yuanheng-switch",
-  "version": "0.1.112",
+  "version": "0.1.113",
   "description": "YuanHeng API desktop companion for local AI coding tools",
   "type": "module",
   "scripts": {
@@ -23,7 +23,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/nanashiwang/yuanheng-switch.git"
+    "url": "https://github.com/Raymi-Labs/yuanheng-switch.git"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.8.0",
