@@ -52,6 +52,11 @@ fn official_sources(url: &Url, version: &str) -> Option<Vec<Url>> {
         ))
         .ok()?;
         let github = Url::parse(&format!(
+            "https://github.com/Raymi-Labs/yuanheng-switch/releases/download/v{version}/{name}"
+        ))
+        .ok()?;
+        // Historical manifests keep their signed assets and original repository URL.
+        let legacy_github = Url::parse(&format!(
             "https://github.com/nanashiwang/yuanheng-switch/releases/download/v{version}/{name}"
         ))
         .ok()?;
@@ -61,7 +66,12 @@ fn official_sources(url: &Url, version: &str) -> Option<Vec<Url>> {
         .ok()?;
         let mut direct = mirror.clone();
         direct.set_query(Some("origin=1"));
-        if *url == mirror || *url == direct || *url == github || *url == cdn {
+        if *url == mirror
+            || *url == direct
+            || *url == github
+            || *url == legacy_github
+            || *url == cdn
+        {
             return Some(vec![direct, cdn, github]);
         }
     }

@@ -11,7 +11,8 @@ import subprocess
 import sys
 import tempfile
 
-REPOSITORY = "nanashiwang/yuanheng-switch"
+REPOSITORY = "Raymi-Labs/yuanheng-switch"
+LEGACY_REPOSITORY = "nanashiwang/yuanheng-switch"
 PUBLIC_BASE = "https://download.meta-api.vip/desktop/update/releases"
 CACHE_CONTROL = "public, max-age=31536000, immutable"
 MAX_BYTES = 256 * 1024 * 1024
@@ -72,13 +73,16 @@ def validate_files(directory, assets, version):
     require(manifest.get("version") == version, "Updater version mismatch")
     platforms = manifest.get("platforms", {})
     require(set(UPDATERS) <= platforms.keys(), "Incomplete updater platforms")
-    prefix = f"https://github.com/{REPOSITORY}/releases/download/v{version}/"
+    # Transferred historical releases retain their original immutable manifest.
+    prefixes = [f"https://github.com/{repo}/releases/download/v{version}/"
+                for repo in (REPOSITORY, LEGACY_REPOSITORY)]
     for name, platform in platforms.items():
         require(isinstance(platform, dict), "Invalid updater platform")
         family = name.removesuffix("-app").removesuffix("-nsis")
         require(family in UPDATERS, "Unexpected updater platform")
         filename = f"YuanHeng.Desktop_{version}_{UPDATERS[family]}"
-        require(platform.get("url") == prefix + filename, "Unexpected updater asset URL")
+        require(platform.get("url") in [prefix + filename for prefix in prefixes],
+                "Unexpected updater asset URL")
         signature = (directory / (filename + ".sig")).read_text().strip()
         require(bool(signature) and platform.get("signature") == signature,
                 "Updater signature mismatch: " + filename)

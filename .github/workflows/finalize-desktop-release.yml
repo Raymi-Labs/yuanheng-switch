@@ -29,10 +29,10 @@ jobs:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       DESKTOP_RELEASE_CONTEXT: release/context.json
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: ${{ github.sha }}
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version: "20"
       - name: Verify source run, builds, tag and metadata
@@ -40,7 +40,7 @@ jobs:
         env:
           SOURCE_RUN_ID: ${{ inputs.source_run_id }}
         run: node scripts/desktop-release.mjs recover-context "$SOURCE_RUN_ID" release/context.json
-      - uses: actions/download-artifact@v8
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           repository: ${{ github.repository }}

@@ -1,5 +1,7 @@
 # YuanHeng Desktop — Project Instructions
 
+主仓库为 `Raymi-Labs/yuanheng-switch`，常规提交和发布使用该仓库。原 `nanashiwang/yuanheng-switch` 由 GitHub 自动重定向，不要重建同名仓库。应用标识、签名公钥和分发域名保持兼容。迁移约定见 [发布说明](docs/release-announcements.md#公司仓库与旧版本兼容)。
+
 Read README.md and the existing architecture/build documentation relevant to the task.
 
 

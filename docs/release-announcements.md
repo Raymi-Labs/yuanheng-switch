@@ -1,5 +1,13 @@
 # 客户端更新公告
 
+## 公司仓库与旧版本兼容
+
+主仓库与新版本发布使用 [Raymi-Labs/yuanheng-switch](https://github.com/Raymi-Labs/yuanheng-switch)。仓库完整转移保留 Git 历史、Release 附件与签名配置；原 `nanashiwang/yuanheng-switch` 地址由 GitHub 重定向，不能重新创建该路径下的同名仓库。
+
+新客户端和新清单直接使用公司仓库；旧清单不重写，下载器与 R2 补发同时识别两个精确仓库路径。应用标识、更新公钥、安装包文件名、平台更新清单、R2 和源站下载路径保持一致。移动端历史 Release 也随仓库保留。公司默认分支要求 PR，工作流依赖使用完整提交 SHA；签名、公证、完整资产及分发门禁继续生效。
+
+官网下载页的桌面与 Android GitHub 备用链接由 `Raymi-Labs/meta-api` 维护，与本仓库同步更新；源码发布与官网部署分别验收。迁移边界见[决策笔记](../.agents/notes/implemented/process/2026-10-27-raymi-repository-migration.md)。
+
 公告只维护一份：`src/data/desktop-release-notes.json`，按版本倒序保留最近两版。
 这是用户可读的更新内容，不填提交列表、凭据、个人路径或调试日志。
 
@@ -26,7 +34,7 @@
 
 从 v0.1.70 开始，登录页顶部始终提供当前版本和“检查更新”，登录加载中、账号密码报错、旧钥匙串不可读、注册和两步验证时均可使用。主动检查不受自动检查关闭、忽略版本或稍后提醒限制；发现更新后使用原有签名验证、下载进度和安装重启流程。检查失败可以重试，或点击“打开下载页”下载正式安装包。
 
-旧版没有该按钮时，可退出客户端，前往[正式发布页](https://github.com/nanashiwang/yuanheng-switch/releases/latest)下载对应芯片的 macOS DMG，将应用拖入“应用程序”并选择替换，再从“应用程序”启动并重新登录。Windows 使用新版安装程序覆盖安装。覆盖应用程序不要求删除 `~/.yuanheng-switch/` 或旧钥匙串条目。
+旧版没有该按钮时，可退出客户端，前往[正式发布页](https://github.com/Raymi-Labs/yuanheng-switch/releases/latest)下载对应芯片的 macOS DMG，将应用拖入“应用程序”并选择替换，再从“应用程序”启动并重新登录。Windows 使用新版安装程序覆盖安装。覆盖应用程序不要求删除 `~/.yuanheng-switch/` 或旧钥匙串条目。
 
 如果电脑上存在多个客户端副本，应确认启动的是刚更新的那份；项目构建目录、下载目录和“应用程序”内的版本可能不同。
 

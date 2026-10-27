@@ -136,6 +136,9 @@ fn only_exact_project_assets_have_an_alternative() {
     assert_eq!(sources[0].as_str(), format!("{known}?origin=1"));
     assert_eq!(sources[1].host_str(), Some("download.meta-api.vip"));
     assert_eq!(sources[2].host_str(), Some("github.com"));
+    assert!(sources[2]
+        .path()
+        .starts_with("/Raymi-Labs/yuanheng-switch/"));
     for suffix in ["x64.app.tar.gz", "x64-setup.exe"] {
         let raw = known.replace("aarch64.app.tar.gz", suffix);
         let candidates = official_sources(&Url::parse(&raw).unwrap(), "0.1.76").unwrap();
@@ -145,6 +148,22 @@ fn only_exact_project_assets_have_an_alternative() {
     }
     for source in &sources {
         assert_eq!(official_sources(source, "0.1.76").unwrap(), sources);
+    }
+    for suffix in ["aarch64.app.tar.gz", "x64.app.tar.gz", "x64-setup.exe"] {
+        let current = sources[2].as_str().replace("aarch64.app.tar.gz", suffix);
+        let legacy = current.replace("Raymi-Labs", "nanashiwang");
+        assert_eq!(
+            official_sources(&Url::parse(&legacy).unwrap(), "0.1.76"),
+            official_sources(&Url::parse(&current).unwrap(), "0.1.76")
+        );
+        for invalid in [
+            format!("{legacy}?token=private"),
+            format!("{current}#fragment"),
+            current.replace("Raymi-Labs", "untrusted"),
+            legacy.replace("yuanheng-switch/", "yuanheng-switch-other/"),
+        ] {
+            assert!(official_sources(&Url::parse(&invalid).unwrap(), "0.1.76").is_none());
+        }
     }
     for raw in [
         format!("{known}?token=private"),

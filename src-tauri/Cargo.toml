@@ -1,10 +1,10 @@
 [package]
 name = "yuanheng-switch"
-version = "0.1.112"
+version = "0.1.113"
 description = "YuanHeng API desktop companion for local AI coding tools"
 authors = ["nanashiwang"]
 license = "MIT"
-repository = "https://github.com/nanashiwang/yuanheng-switch"
+repository = "https://github.com/Raymi-Labs/yuanheng-switch"
 edition = "2021"
 rust-version = "1.85.0"
 default-run = "yuanheng-switch"
