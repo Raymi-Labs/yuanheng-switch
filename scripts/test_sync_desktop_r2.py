@@ -103,6 +103,26 @@ class DeliveryTests(unittest.TestCase):
         self.assertEqual(len(self.storage.writes), 8)
         self.assertEqual(len(self.checked), 8)
 
+    def test_transferred_historical_manifest_remains_deliverable(self):
+        for platform in self.manifest["platforms"].values():
+            platform["url"] = platform["url"].replace(delivery.REPOSITORY, delivery.LEGACY_REPOSITORY)
+        self.prepare()
+        self.sync()
+        self.assertEqual(len(self.storage.writes), 8)
+
+    def test_repository_aliases_do_not_allow_other_owners_or_paths(self):
+        for repo in (delivery.REPOSITORY, delivery.LEGACY_REPOSITORY):
+            for bad_repo in (repo + "-other", "untrusted/yuanheng-switch"):
+                self.manifest["platforms"]["darwin-aarch64"]["url"] = (
+                    f"https://github.com/{bad_repo}/releases/download/v{self.version}/"
+                    f"YuanHeng.Desktop_{self.version}_aarch64.app.tar.gz"
+                )
+                self.prepare()
+                with self.assertRaises(delivery.DeliveryError):
+                    self.sync()
+        self.assertEqual(self.storage.writes, [])
+        self.assertEqual(self.checked, [])
+
     def test_one_corrupt_file_prevents_all_writes(self):
         (self.root / f"YuanHeng.Desktop_{self.version}_x64.dmg").write_bytes(b"corrupt")
         with self.assertRaises(delivery.DeliveryError):

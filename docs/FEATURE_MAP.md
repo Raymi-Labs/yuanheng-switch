@@ -24,6 +24,10 @@ Fresh macOS password, registration and two-factor sign-ins use [credential sessi
 
 pnpm remains the application package manager. Existing Tauri/Rust checks and signed release workflows remain unchanged.
 
+## 公司仓库与客户端下载
+
+[发布入口](release-announcements.md#公司仓库与旧版本兼容)使用 Raymi-Labs/yuanheng-switch；[下载器](../src-tauri/src/services/update_download.rs)识别新旧精确 GitHub 地址并优先生成新地址，[R2 分发器](../scripts/sync-desktop-r2.py)保留历史清单兼容。应用标识、公钥、文件名与分发域不变。官网桌面/Android 备用链接由 Raymi-Labs/meta-api 维护；见[迁移决定](../.agents/notes/implemented/process/2026-10-27-raymi-repository-migration.md)。
+
 ## DSH 安装、更新与本机 Web（2026-10-17，本地）
 
 DSH 安装由工作台 `FocusToolCard` 和工具管理 `ToolSetupGrid` 直接触发，复用 `useModelSwitchCenter` 与共享生命周期。已安装工具仅在工具管理通过 `DshUpdateControl` 显示当前版和官方版、检查及更新入口；工作台不常驻版本面板，仅在任务进行时显示共享进度与取消按钮。`settingsApi.runToolLifecycleAction` → `misc.rs` 的 DSH 专用分支 → `dsh_install.rs`，复用任务 ID、锁、取消与进程组/Windows Job 监督。Node 24.14.0 按平台固定 SHA256，DSH 每次安装/更新先读取官方 npm latest 元数据，再以经过严格校验的精确版本安装；独立目录、不执行 npm lifecycle scripts、不改全局 Node，engine-strict 拒绝不兼容运行时。成功验证后原子发布安装标记，取消/失败不替换旧安装；安装后配置成功才请求启动。

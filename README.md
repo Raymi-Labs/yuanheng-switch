@@ -56,6 +56,6 @@ pnpm build:renderer
 
 ## Attribution and License
 
-This project is independently maintained by `nanashiwang`. Its early codebase was derived from [farion1231/cc-switch](https://github.com/farion1231/cc-switch). The product direction and interaction model now focus on YuanHeng API project integration.
+This project is maintained by [Raymi Labs](https://github.com/Raymi-Labs/yuanheng-switch), with its earlier releases maintained by `nanashiwang`. Its early codebase was derived from [farion1231/cc-switch](https://github.com/farion1231/cc-switch). The product direction and interaction model now focus on YuanHeng API project integration.
 
 MIT License

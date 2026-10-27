@@ -27,7 +27,7 @@ const context = releaseContext(
     GITHUB_RUN_ID: "123",
     GITHUB_RUN_NUMBER: "8",
     GITHUB_REF: `refs/tags/v${version}`,
-    GITHUB_REPOSITORY: "nanashiwang/yuanheng-switch",
+    GITHUB_REPOSITORY: "Raymi-Labs/yuanheng-switch",
   },
   version,
 );
@@ -202,7 +202,7 @@ describe("parallel desktop release assembly", () => {
     ]);
     expect(manifest.notes).toBe(feed.releases[0].content);
     expect(manifest.platforms["darwin-aarch64"].url).toBe(
-      `https://github.com/nanashiwang/yuanheng-switch/releases/download/v${version}/YuanHeng.Desktop_${version}_aarch64.app.tar.gz`,
+      `https://github.com/Raymi-Labs/yuanheng-switch/releases/download/v${version}/YuanHeng.Desktop_${version}_aarch64.app.tar.gz`,
     );
     expect(manifest.platforms["windows-x86_64"].url).toContain(
       "_x64-setup.exe",
