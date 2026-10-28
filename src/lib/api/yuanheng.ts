@@ -5,7 +5,12 @@ import {
   ClaudeWorkspaceDeferredError,
 } from "@/lib/claudeWorkspaceSetup";
 
-export type YuanhengToolId = AppId | "chatgpt-desktop" | "workbuddy" | "dsh";
+export type YuanhengToolId =
+  | AppId
+  | "chatgpt-desktop"
+  | "workbuddy"
+  | "dsh"
+  | "accio-work";
 
 export const YUANHENG_CLI_TOOLS = [
   "claude",
@@ -380,6 +385,14 @@ export const yuanhengApi = {
     restart = false,
     cwd?: string,
   ): Promise<boolean> {
+    if (
+      app === "accio-work" &&
+      !(await window.confirm(
+        "Accio Work 实验性接入：主模型走元衡；插件目录和连接状态由官方账号服务提供，云端业务工具尚未接入。官方应用仍可能联网登录、发送设备遥测或工作区路径；这不是完全离线模式。请先保存工作并退出已运行的 Accio。继续启动？",
+      ))
+    ) {
+      throw new Error("已取消启动 Accio Work");
+    }
     if (app === "claude-desktop") await ensureClaudeWorkspaceReady();
     return invoke(
       "launch_tool",

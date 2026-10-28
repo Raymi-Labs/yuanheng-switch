@@ -1,3 +1,4 @@
+mod accio_work;
 mod app_config;
 mod app_store;
 mod auto_launch;
@@ -43,6 +44,7 @@ mod services;
 mod session_manager;
 mod settings;
 mod store;
+mod trae;
 
 mod route_selection;
 mod tray;

@@ -664,6 +664,7 @@ mod tests {
             app_handle: None,
             core_control: None,
             auth_managers: None,
+            accio_runtime: Arc::new(crate::accio_work::Runtime::default()),
             failover_manager: Arc::new(FailoverSwitchManager::new(db)),
         }
     }

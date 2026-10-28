@@ -29,18 +29,34 @@ export function ToolActivationProgress({
   const routeDone = Boolean(
     configDone && (!activation?.routeRequired || activation.routeReady),
   );
+  const accio = activation?.app === "accio-work";
   const requestObservable = Boolean(activation?.routeRequired);
-  const requestDone = Boolean(activation?.requestReceived);
-  const successDone = Boolean(activation?.requestSucceeded);
-  const requestFailed = requestDone && !successDone;
+  const requestDone = Boolean(
+    activation?.requestReceived && (!accio || routeDone),
+  );
+  const successDone = Boolean(
+    activation?.requestSucceeded && (!accio || routeDone),
+  );
+  const unconfirmedOutput =
+    accio &&
+    requestDone &&
+    !successDone &&
+    activation?.lastStatusCode != null &&
+    activation.lastStatusCode >= 200 &&
+    activation.lastStatusCode < 300;
+  const requestFailed = requestDone && !successDone && !unconfirmedOutput;
 
   const steps: Array<{ label: string; state: StepState }> = [
     {
-      label: dt("配置已写入"),
+      label: dt(accio ? "配置已保存" : "配置已写入"),
       state: configDone ? "done" : "waiting",
     },
     {
-      label: activation?.routeRequired ? dt("路由已启动") : dt("无需本地路由"),
+      label: accio
+        ? dt("Accio 已由元衡启动")
+        : activation?.routeRequired
+          ? dt("路由已启动")
+          : dt("无需本地路由"),
       state: routeDone ? "done" : "waiting",
     },
     {
@@ -64,9 +80,11 @@ export function ToolActivationProgress({
         ? dt("调用失败（HTTP {{code}}）", {
             code: activation?.lastStatusCode ?? "?",
           })
-        : successDone
-          ? dt("模型调用成功")
-          : dt("等待调用验证"),
+        : unconfirmedOutput
+          ? dt("尚未确认模型输出")
+          : successDone
+            ? dt("模型调用成功")
+            : dt("等待调用验证"),
       state: !requestObservable
         ? "unknown"
         : successDone

@@ -1,4 +1,7 @@
 import { ToolInstallProgress } from "./ToolInstallProgress";
+import { AccioConnectionNotice } from "./AccioConnectionNotice";
+import { TraeSetupGuide } from "./TraeSetupGuide";
+import { ToolActivationProgress } from "./ToolActivationProgress";
 import {
   useEffect,
   useMemo,
@@ -49,9 +52,11 @@ import {
   useRefreshYuanheng,
   useYuanhengConnection,
   useYuanhengToolStatuses,
+  useYuanhengToolActivationStatuses,
 } from "@/lib/query/yuanheng";
 import {
   DESKTOP_TOOLS,
+  canRestartDesktopApp,
   isDesktopApp,
   toolLabel,
   toolIcon,
@@ -101,12 +106,14 @@ export const TOOL_VERSION_TARGETS: Partial<Record<YuanhengToolId, string>> = {
   ...TOOL_COMMANDS,
   dsh: "dsh",
   "claude-desktop": "claude-desktop",
+  "accio-work": "accio-work",
 };
 
 export const DESKTOP_DOWNLOAD_URLS: Partial<Record<YuanhengToolId, string>> = {
   "claude-desktop": "https://claude.ai/download",
   "chatgpt-desktop": "https://openai.com/codex/",
   workbuddy: "https://www.codebuddy.cn/work/",
+  "accio-work": "https://www.accio.com/work",
 };
 
 /** Detection alone never grants installation capability. Shared by both surfaces. */
@@ -165,6 +172,7 @@ function ToolSetupGridContent({
   const installContinuation = useInstallContinuation(connection);
   const refreshConnection = useRefreshYuanheng();
   const statuses = useYuanhengToolStatuses();
+  const activationStatuses = useYuanhengToolActivationStatuses();
   const configure = useConfigureYuanhengTools();
   const codexAccountMode = useCodexAccountMode();
   const preflight = usePreflightYuanhengTool();
@@ -585,7 +593,8 @@ function ToolSetupGridContent({
         onConfigured?.();
       }
       if (!mounted.current) return;
-      const restarted = isDesktopApp(app) && (needsApply || forceRestart);
+      const restarted =
+        canRestartDesktopApp(app) && (needsApply || forceRestart);
       await yuanhengApi.launchTool(
         app,
         restarted,
@@ -593,18 +602,21 @@ function ToolSetupGridContent({
           ? launchDirectoryState.directories[app]
           : undefined,
       );
-      if (restarted) clearRestartRequired(app);
+      if (restarted || app === "accio-work") clearRestartRequired(app);
       toast.success(
-        dt("{{v0}} 已使用 {{v1}} {{v2}}", {
-          v0: toolLabel(app),
-          v1: launchedModel ?? dt("推荐模型"),
-          v2: restarted
-            ? dt("重新打开")
-            : isDesktopApp(app)
-              ? dt("打开")
-              : dt("启动"),
-        }),
+        app === "accio-work"
+          ? dt("Accio 已从元衡启动；请在输入框模型菜单选择模型并发送消息验证")
+          : dt("{{v0}} 已使用 {{v1}} {{v2}}", {
+              v0: toolLabel(app),
+              v1: launchedModel ?? dt("推荐模型"),
+              v2: restarted
+                ? dt("重新打开")
+                : isDesktopApp(app)
+                  ? dt("打开")
+                  : dt("启动"),
+            }),
       );
+      if (app === "accio-work") await activationStatuses.refetch();
     } catch (error) {
       toast.error(extractErrorMessage(error) || dt("启动失败"));
     } finally {
@@ -892,12 +904,26 @@ function ToolSetupGridContent({
                   )}
                 >
                   {configured
-                    ? dt("已配置")
+                    ? dt(app === "accio-work" ? "配置已保存" : "已配置")
                     : status?.needsUpdate
                       ? dt("需更新")
                       : dt("待配置")}
                 </span>
               </div>
+
+              {app === "accio-work" && (
+                <>
+                  <AccioConnectionNotice status={status} />
+                  <div className="mt-3">
+                    <ToolActivationProgress
+                      activation={activationStatuses.data?.find(
+                        (item) => item.app === app,
+                      )}
+                      compact
+                    />
+                  </div>
+                </>
+              )}
 
               {supportsCustomPath && (
                 <div className="mt-3 border-t border-border/60 pt-3 text-[10px]">
@@ -1048,11 +1074,13 @@ function ToolSetupGridContent({
                 </div>
               )}
 
-              {status?.runtimeWarning && !status.runtimeStatus && (
-                <div className="mt-3 rounded-lg border border-amber-500/25 bg-amber-500/[0.06] px-3 py-2 text-[10px] leading-4 text-amber-800 dark:text-amber-200">
-                  {status.runtimeWarning}
-                </div>
-              )}
+              {app !== "accio-work" &&
+                status?.runtimeWarning &&
+                !status.runtimeStatus && (
+                  <div className="mt-3 rounded-lg border border-amber-500/25 bg-amber-500/[0.06] px-3 py-2 text-[10px] leading-4 text-amber-800 dark:text-amber-200">
+                    {status.runtimeWarning}
+                  </div>
+                )}
 
               {(installed || app === "dsh") &&
               connection?.connected &&
@@ -1292,15 +1320,15 @@ function ToolSetupGridContent({
                   aria-label={dt("启动 {{v0}}", { v0: toolLabel(app) })}
                   onClick={(event) => {
                     event.stopPropagation();
-                    void launchTool(app, isDesktopApp(app));
+                    void launchTool(app, canRestartDesktopApp(app));
                   }}
                 >
                   <Play className="h-3.5 w-3.5 fill-current" />
                   {!configured || modelChanged
-                    ? isDesktopApp(app)
+                    ? canRestartDesktopApp(app)
                       ? dt("应用并刷新")
                       : dt("应用并启动")
-                    : isDesktopApp(app)
+                    : canRestartDesktopApp(app)
                       ? dt("刷新显示")
                       : dt("启动")}
                 </Button>
@@ -1309,6 +1337,7 @@ function ToolSetupGridContent({
           );
         })}
       </div>
+      <TraeSetupGuide connection={connection} />
     </div>
   );
 }

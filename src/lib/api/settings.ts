@@ -423,6 +423,11 @@ export const settingsApi = {
     return await invoke("pick_desktop_app_path", { tool });
   },
 
+  /** Opens the official app only; does not apply a YuanHeng model or key. */
+  async launchTrae(tool: "trae" | "trae-cn" = "trae"): Promise<boolean> {
+    return invoke("launch_tool", { tool, restart: false });
+  },
+
   async clearDesktopAppPath(tool: string): Promise<boolean> {
     return await invoke("set_desktop_app_path", { tool, path: null });
   },

@@ -45,6 +45,15 @@ impl Database {
         )
         .map_err(|e| AppError::Database(e.to_string()))?;
 
+        // Device-local runtime credentials, excluded from WebDAV/S3 sync.
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS accio_work_runtime (
+            id INTEGER PRIMARY KEY CHECK (id = 1), payload TEXT NOT NULL
+        )",
+            [],
+        )
+        .map_err(|e| AppError::Database(e.to_string()))?;
+
         // 2. Provider Endpoints 表
         conn.execute(
             "CREATE TABLE IF NOT EXISTS provider_endpoints (
@@ -544,6 +553,10 @@ impl Database {
                     20 => {
                         Self::migrate_v20_to_v21(conn)?;
                         Self::set_user_version(conn, 21)?;
+                    }
+                    21 => {
+                        Self::migrate_v21_to_v22(conn)?;
+                        Self::set_user_version(conn, 22)?;
                     }
                     _ => {
                         return Err(AppError::Database(format!(
@@ -1575,6 +1588,19 @@ impl Database {
             [],
         )
         .map_err(|e| AppError::Database(e.to_string()))?;
+        Ok(())
+    }
+
+    /// Both the released image-skill build and an unpublished Accio prototype
+    /// used v21. Repair both shapes without overwriting skills or credentials.
+    fn migrate_v21_to_v22(conn: &Connection) -> Result<(), AppError> {
+        Self::migrate_v20_to_v21(conn)?;
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS accio_work_runtime (
+                id INTEGER PRIMARY KEY CHECK (id = 1), payload TEXT NOT NULL
+            )",
+            [],
+        )?;
         Ok(())
     }
 
@@ -3080,6 +3106,109 @@ impl Database {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn migrate_v22_converges_released_and_accio_v21_without_losing_state() -> Result<(), AppError> {
+        for version in [20, 21] {
+            for skill_columns in 0..=2 {
+                for has_accio in [false, true] {
+                    let conn = Connection::open_in_memory()?;
+                    conn.execute_batch(
+                        "CREATE TABLE skills(id TEXT PRIMARY KEY, enabled_codex BOOLEAN NOT NULL DEFAULT 0);
+                        INSERT INTO skills VALUES ('enabled',1),('disabled',0);",
+                    )?;
+                    if skill_columns >= 1 {
+                        conn.execute_batch(
+                            "ALTER TABLE skills ADD COLUMN enabled_dsh BOOLEAN NOT NULL DEFAULT 0;
+                            UPDATE skills SET enabled_dsh=1 WHERE id='enabled';",
+                        )?;
+                    }
+                    if skill_columns >= 2 {
+                        conn.execute_batch("ALTER TABLE skills ADD COLUMN enabled_workbuddy BOOLEAN NOT NULL DEFAULT 0;
+                            UPDATE skills SET enabled_workbuddy=1 WHERE id='disabled';")?;
+                    }
+                    let payload = "{\"synthetic_snapshot\":\"preserve byte for byte\"}";
+                    if has_accio {
+                        conn.execute_batch("CREATE TABLE accio_work_runtime (id INTEGER PRIMARY KEY CHECK(id=1), payload TEXT NOT NULL);")?;
+                        conn.execute("INSERT INTO accio_work_runtime VALUES (1,?1)", [payload])?;
+                    }
+                    Database::set_user_version(&conn, version)?;
+                    // Real startup creates missing tables before applying migrations.
+                    // It must not be assumed to repair an already-existing skills table.
+                    Database::create_tables_on_conn(&conn)?;
+                    Database::apply_schema_migrations_on_conn(&conn)?;
+                    Database::apply_schema_migrations_on_conn(&conn)?;
+                    Database::migrate_v21_to_v22(&conn)?;
+                    let rows = conn.prepare("SELECT enabled_codex,enabled_dsh,enabled_workbuddy FROM skills ORDER BY id")?
+                        .query_map([], |row| Ok((row.get::<_,bool>(0)?,row.get::<_,bool>(1)?,row.get::<_,bool>(2)?)))?
+                        .collect::<Result<Vec<_>,_>>()?;
+                    assert_eq!(
+                        rows,
+                        vec![
+                            (false, false, skill_columns >= 2),
+                            (true, skill_columns >= 1, false)
+                        ]
+                    );
+                    assert_eq!(Database::get_user_version(&conn)?, 22);
+                    let snapshots = conn
+                        .prepare("SELECT payload FROM accio_work_runtime")?
+                        .query_map([], |row| row.get::<_, String>(0))?
+                        .collect::<Result<Vec<_>, _>>()?;
+                    assert_eq!(
+                        snapshots,
+                        if has_accio {
+                            vec![payload.to_string()]
+                        } else {
+                            vec![]
+                        }
+                    );
+                }
+            }
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn migrate_v22_failure_rolls_back_new_columns_and_version() -> Result<(), AppError> {
+        let conn = Connection::open_in_memory()?;
+        conn.execute_batch(
+            "CREATE TABLE skills(id TEXT PRIMARY KEY, enabled_codex BOOLEAN NOT NULL DEFAULT 0);
+            INSERT INTO skills VALUES ('preserve',1);
+            CREATE INDEX accio_work_runtime ON skills(id);",
+        )?;
+        Database::set_user_version(&conn, 21)?;
+        assert!(Database::apply_schema_migrations_on_conn(&conn).is_err());
+        assert_eq!(Database::get_user_version(&conn)?, 21);
+        assert!(!Database::has_column(&conn, "skills", "enabled_dsh")?);
+        assert!(!Database::has_column(&conn, "skills", "enabled_workbuddy")?);
+        assert!(conn.query_row(
+            "SELECT enabled_codex FROM skills WHERE id='preserve'",
+            [],
+            |row| row.get::<_, bool>(0)
+        )?);
+        assert_eq!(conn.query_row("SELECT count(*) FROM sqlite_master WHERE name='accio_work_runtime' AND type='index'",[],|row|row.get::<_,i64>(0))?,1);
+        Ok(())
+    }
+
+    #[test]
+    fn migrate_v22_missing_tables_and_fresh_initialization_are_consistent() -> Result<(), AppError>
+    {
+        let conn = Connection::open_in_memory()?;
+        Database::set_user_version(&conn, 21)?;
+        Database::apply_schema_migrations_on_conn(&conn)?;
+        assert!(Database::table_exists(&conn, "accio_work_runtime")?);
+        assert!(!Database::table_exists(&conn, "skills")?);
+        Database::create_tables_on_conn(&conn)?;
+        assert!(Database::has_column(&conn, "skills", "enabled_dsh")?);
+        assert!(Database::has_column(&conn, "skills", "enabled_workbuddy")?);
+        assert_eq!(Database::get_user_version(&conn)?, SCHEMA_VERSION);
+        let fresh = Database::memory()?;
+        let fresh = fresh.conn.lock().unwrap();
+        assert!(Database::table_exists(&fresh, "accio_work_runtime")?);
+        assert!(Database::has_column(&fresh, "skills", "enabled_dsh")?);
+        assert!(Database::has_column(&fresh, "skills", "enabled_workbuddy")?);
+        Ok(())
+    }
 
     #[test]
     fn migrate_v20_to_v21_allows_missing_skills_and_create_tables_supplies_current_columns(

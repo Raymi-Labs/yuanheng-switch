@@ -211,7 +211,7 @@ const VALID_TOOLS: [&str; 7] = [
     "claude", "codex", "gemini", "grok", "opencode", "openclaw", "hermes",
 ];
 
-const VALID_VERSION_TOOLS: [&str; 11] = [
+const VALID_VERSION_TOOLS: [&str; 14] = [
     "claude",
     "claude-desktop",
     "codex",
@@ -223,6 +223,9 @@ const VALID_VERSION_TOOLS: [&str; 11] = [
     "chatgpt-desktop",
     "workbuddy",
     "dsh",
+    "accio-work",
+    "trae",
+    "trae-cn",
 ];
 
 #[derive(Debug, Clone, serde::Deserialize)]
@@ -1207,7 +1210,13 @@ fn get_single_local_tool_version_impl(
 
     if matches!(
         tool,
-        "claude-desktop" | "chatgpt-desktop" | "workbuddy" | "dsh"
+        "claude-desktop"
+            | "chatgpt-desktop"
+            | "workbuddy"
+            | "dsh"
+            | "accio-work"
+            | "trae"
+            | "trae-cn"
     ) {
         if tool == "dsh" && custom_path.is_none() {
             if let Some(dir) = super::dsh_install::installed() {
@@ -1293,7 +1302,13 @@ async fn enrich_remote_tool_version(mut result: ToolVersion) -> ToolVersion {
     }
     if matches!(
         tool,
-        "claude-desktop" | "chatgpt-desktop" | "workbuddy" | "dsh"
+        "claude-desktop"
+            | "chatgpt-desktop"
+            | "workbuddy"
+            | "dsh"
+            | "accio-work"
+            | "trae"
+            | "trae-cn"
     ) {
         return result;
     }
@@ -3476,7 +3491,13 @@ fn launch_supported_desktop_app(
 fn ensure_desktop_path_tool(tool: &str) -> Result<(), String> {
     if matches!(
         tool,
-        "chatgpt-desktop" | "workbuddy" | "dsh" | "claude-desktop"
+        "chatgpt-desktop"
+            | "workbuddy"
+            | "dsh"
+            | "claude-desktop"
+            | "accio-work"
+            | "trae"
+            | "trae-cn"
     ) {
         Ok(())
     } else {
@@ -3615,6 +3636,16 @@ pub async fn launch_tool(
     restart: Option<bool>,
     cwd: Option<String>,
 ) -> Result<bool, String> {
+    if matches!(tool.as_str(), "trae" | "trae-cn") {
+        // Assisted setup is independent of managed model configuration. Never
+        // terminate a running TRAE session or pretend this applies a provider.
+        crate::trae::launch(&app, &tool, restart.unwrap_or(false), cwd.as_deref()).await?;
+        return Ok(true);
+    }
+    if tool == crate::accio_work::SCOPE {
+        crate::accio_work::launch(&app).await?;
+        return Ok(true);
+    }
     if tool == "dsh" || tool == "dsh-web" {
         let custom = crate::app_store::get_desktop_app_path_from_store(&app, "dsh");
         if custom.is_none() {

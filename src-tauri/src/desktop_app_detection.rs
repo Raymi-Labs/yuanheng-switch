@@ -47,6 +47,36 @@ pub(crate) fn is_dsh_source(path: &Path) -> bool {
 
 fn executable_names(tool: &str) -> &'static [&'static str] {
     match tool {
+        "trae-cn" => {
+            #[cfg(target_os = "macos")]
+            {
+                &["Trae CN.app"]
+            }
+            #[cfg(not(target_os = "macos"))]
+            {
+                &[]
+            }
+        }
+        "trae" => {
+            #[cfg(target_os = "macos")]
+            {
+                &["Trae.app"]
+            }
+            #[cfg(not(target_os = "macos"))]
+            {
+                &[]
+            }
+        }
+        "accio-work" => {
+            #[cfg(target_os = "macos")]
+            {
+                &["Accio.app"]
+            }
+            #[cfg(not(target_os = "macos"))]
+            {
+                &[]
+            }
+        }
         "chatgpt-desktop" => {
             #[cfg(target_os = "macos")]
             {
@@ -189,6 +219,9 @@ pub(crate) fn validate_custom_desktop_app_path(
         .ok_or_else(|| format!("所选路径中未找到 {}", executable_names(tool).join(" / ")))?;
     let canonical =
         std::fs::canonicalize(&resolved).map_err(|error| format!("解析应用路径失败: {error}"))?;
+    if matches!(tool, "trae" | "trae-cn") && !filename_matches(tool, &canonical) {
+        return Err("所选 TRAE 路径指向其他版本，请重新选择".into());
+    }
     if !direct_desktop_launch_path_allowed(&resolved)
         || !direct_desktop_launch_path_allowed(&canonical)
     {
@@ -868,6 +901,53 @@ pub(crate) fn discover_windows_store_app(tool: &str) -> Option<DesktopAppResolut
 mod tests {
     use super::*;
     use tempfile::tempdir;
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn trae_detection_is_limited_to_the_international_desktop_bundle() {
+        let dir = tempdir().unwrap();
+        for name in ["TraeWork.app", "TraeCode.app", "Trae CN.app"] {
+            std::fs::create_dir_all(dir.path().join(name)).unwrap();
+            assert!(validate_custom_desktop_app_path(
+                "trae",
+                dir.path().join(name).to_str().unwrap()
+            )
+            .is_err());
+        }
+        let app = dir.path().join("Trae.app");
+        std::fs::create_dir_all(&app).unwrap();
+        let result = custom_resolution("trae", app.to_str()).unwrap();
+        assert_eq!(
+            result.launch_target,
+            Some(DesktopLaunchTarget::Path(app.canonicalize().unwrap()))
+        );
+        assert!(result.custom_path_valid);
+        // Detection locates a candidate only; the launch verifier owns identity.
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn trae_china_paths_are_separate_from_international_paths() {
+        let dir = tempdir().unwrap();
+        for (tool, name, other_tool) in [
+            ("trae-cn", "Trae CN.app", "trae"),
+            ("trae", "Trae.app", "trae-cn"),
+        ] {
+            let app = dir.path().join(name);
+            std::fs::create_dir_all(&app).unwrap();
+            let result = custom_resolution(tool, app.to_str()).unwrap();
+            assert!(result.custom_path_valid);
+            assert_eq!(
+                result.install_path,
+                Some(app.canonicalize().unwrap().to_string_lossy().into())
+            );
+            assert!(validate_custom_desktop_app_path(other_tool, app.to_str().unwrap()).is_err());
+        }
+        let link = dir.path().join("other/Trae CN.app");
+        std::fs::create_dir_all(link.parent().unwrap()).unwrap();
+        std::os::unix::fs::symlink(dir.path().join("Trae.app"), &link).unwrap();
+        assert!(validate_custom_desktop_app_path("trae-cn", link.to_str().unwrap()).is_err());
+    }
 
     #[test]
     fn dsh_source_directory_is_discovered_without_running_code() {

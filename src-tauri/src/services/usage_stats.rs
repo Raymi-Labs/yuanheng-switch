@@ -1627,6 +1627,15 @@ impl Database {
         app_type: &str,
         start_date: i64,
     ) -> Result<Option<RequestLogDetail>, AppError> {
+        self.get_latest_proxy_request_for_app_scoped(app_type, start_date, None)
+    }
+
+    pub(crate) fn get_latest_proxy_request_for_app_scoped(
+        &self,
+        app_type: &str,
+        start_date: i64,
+        session_scope: Option<&str>,
+    ) -> Result<Option<RequestLogDetail>, AppError> {
         let conn = lock_conn!(self.conn);
         let provider_name = provider_name_coalesce("l", "p");
         let sql = format!(
@@ -1640,12 +1649,13 @@ impl Database {
              FROM proxy_request_logs l
              LEFT JOIN providers p ON l.provider_id = p.id AND l.app_type = p.app_type
              WHERE COALESCE(l.data_source, 'proxy') = 'proxy' AND l.app_type = ?1 AND l.created_at >= ?2
+               AND (?3 IS NULL OR l.session_id = ?3)
              ORDER BY l.created_at DESC, l.rowid DESC
              LIMIT 1",
         );
         let result = conn.query_row(
             &sql,
-            params![app_type, start_date],
+            params![app_type, start_date, session_scope],
             row_to_request_log_detail,
         );
         match result {

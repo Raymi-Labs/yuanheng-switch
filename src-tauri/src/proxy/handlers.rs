@@ -1024,9 +1024,24 @@ async fn handle_responses_for_app(
     let body: Value = serde_json::from_slice(&body_bytes)
         .map_err(|e| ProxyError::Internal(format!("Failed to parse request body: {e}")))?;
 
-    let mut ctx =
+    let ctx =
         RequestContext::new(&state, &body, &headers, app_type.clone(), tag, app_type_str).await?;
     let endpoint = endpoint_with_query(&uri, "/responses");
+
+    forward_responses_with_context(&state, ctx, method, endpoint, body, headers, extensions).await
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(super) async fn forward_responses_with_context(
+    state: &ProxyState,
+    mut ctx: RequestContext,
+    method: http::Method,
+    endpoint: String,
+    body: Value,
+    headers: HeaderMap,
+    extensions: http::Extensions,
+) -> Result<axum::response::Response, ProxyError> {
+    let app_type = ctx.app_type.clone();
 
     let is_stream = body
         .get("stream")
@@ -1038,7 +1053,7 @@ async fn handle_responses_for_app(
     // function-call names (see the namespace-restore dispatch below).
     let namespace_restore_map = transform_codex_responses_namespace::namespace_restore_map(&body);
 
-    let forwarder = ctx.create_forwarder(&state);
+    let forwarder = ctx.create_forwarder(state);
     let mut result = match forwarder
         .forward_with_retry(
             &app_type,
@@ -1056,7 +1071,12 @@ async fn handle_responses_for_app(
             if let Some(provider) = err.provider.take() {
                 ctx.provider = provider;
             }
-            log_forward_error(&state, &ctx, is_stream, &err.error);
+            log_forward_error(state, &ctx, is_stream, &err.error);
+            if ctx.app_type_str == crate::accio_work::SCOPE {
+                // Keep local transport failures distinct from upstream HTTP
+                // responses. Accio formats the typed error without raw text.
+                return Err(err.error);
+            }
             return build_codex_proxy_error_response(&ctx, &endpoint, &err.error);
         }
     };
@@ -1072,7 +1092,7 @@ async fn handle_responses_for_app(
         return handle_codex_anthropic_to_responses_transform(
             response,
             &ctx,
-            &state,
+            state,
             is_stream,
             connection_guard,
             codex_tool_context,
@@ -1084,7 +1104,7 @@ async fn handle_responses_for_app(
         return handle_codex_chat_to_responses_transform(
             response,
             &ctx,
-            &state,
+            state,
             is_stream,
             connection_guard,
             codex_tool_context,
@@ -1103,7 +1123,7 @@ async fn handle_responses_for_app(
         return handle_codex_responses_namespace_restore(
             response,
             &ctx,
-            &state,
+            state,
             connection_guard,
             namespace_restore_map,
         )
@@ -1113,7 +1133,7 @@ async fn handle_responses_for_app(
     process_response(
         response,
         &ctx,
-        &state,
+        state,
         &CODEX_PARSER_CONFIG,
         connection_guard,
     )

@@ -148,6 +148,12 @@ impl ProviderRouter {
         }
 
         // 3. 更新数据库健康状态（使用配置的阈值）
+        // Accio uses a device-local immutable profile, not a providers row.
+        // Its circuit and request-log namespace remains independent; writing
+        // provider_health would violate that table's provider foreign key.
+        if app_type == crate::accio_work::SCOPE {
+            return Ok(());
+        }
         self.db
             .update_provider_health_with_threshold(
                 provider_id,

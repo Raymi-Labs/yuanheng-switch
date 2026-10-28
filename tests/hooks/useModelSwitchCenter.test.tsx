@@ -12,6 +12,7 @@ import type { ToolVersionInfo } from "@/lib/api/settings";
 import { createTestQueryClient } from "../utils/testQueryClient";
 
 const invokeMock = vi.fn();
+const experimentalAccio = import.meta.env.VITE_ENABLE_ACCIO_WORK === "1";
 
 vi.mock("sonner", () => ({
   toast: {
@@ -551,7 +552,7 @@ describe("useModelSwitchCenter", () => {
 
     await waitFor(() => {
       expect(result.current.bootstrapPhase).toBe("loading");
-      expect(result.current.rows).toHaveLength(11);
+      expect(result.current.rows).toHaveLength(experimentalAccio ? 12 : 11);
       expect(result.current.runnableRows).toEqual([]);
     });
 
@@ -569,6 +570,7 @@ describe("useModelSwitchCenter", () => {
         "chatgpt-desktop",
         "workbuddy",
         "dsh",
+        ...(experimentalAccio ? ["accio-work"] : []),
         "gemini",
         "grokbuild",
         "opencode",
@@ -595,7 +597,7 @@ describe("useModelSwitchCenter", () => {
 
     await waitFor(() => {
       expect(result.current.bootstrapPhase).toBe("error");
-      expect(result.current.rows).toHaveLength(11);
+      expect(result.current.rows).toHaveLength(experimentalAccio ? 12 : 11);
       expect(result.current.runnableRows).toEqual([]);
     });
   });
@@ -629,7 +631,7 @@ describe("useModelSwitchCenter", () => {
     const { result } = renderHook(() => useModelSwitchCenter(), { wrapper });
 
     await waitFor(() => {
-      expect(result.current.rows).toHaveLength(11);
+      expect(result.current.rows).toHaveLength(experimentalAccio ? 12 : 11);
       expect(result.current.rows).toContain("workbuddy");
       expect(result.current.runnableRows).toEqual(["codex"]);
       expect(result.current.installedApps).toEqual(new Set(["codex"]));

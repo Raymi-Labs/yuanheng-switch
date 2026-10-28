@@ -53,6 +53,11 @@ jobs:
       - name: Unit tests
         run: pnpm test:unit
 
+      - name: Check experimental Agent build contract
+        run: |
+          node --test scripts/test-agent-experimental-features.mjs
+          VITE_ENABLE_ACCIO_WORK=1 pnpm exec vitest run tests/hooks/useModelSwitchCenter.test.tsx tests/components/AccioConnectionNotice.test.tsx tests/components/ToolActivationProgress.test.tsx tests/components/ToolSetupGrid.groups.test.tsx tests/hooks/useDesktopInstallFlow.test.tsx tests/lib/accioExperimental.test.ts tests/lib/traeSetup.test.ts tests/components/TraeSetupGuide.test.tsx tests/components/TraeInstallationActions.test.tsx
+
       - name: Test bundled image skill
         run: node --test scripts/test-imagegen-skill.mjs
 
@@ -124,3 +129,9 @@ jobs:
 
       - name: Run tests
         run: cargo test --manifest-path src-tauri/Cargo.toml
+
+      - name: Check Apple Silicon experimental Accio
+        if: runner.os == 'macOS'
+        run: |
+          cargo clippy --manifest-path src-tauri/Cargo.toml --features accio-work-experimental -- -D warnings
+          cargo test --manifest-path src-tauri/Cargo.toml --features accio-work-experimental --lib accio -- --test-threads=1

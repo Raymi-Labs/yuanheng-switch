@@ -1,3 +1,4 @@
+mod accio;
 mod account_http;
 #[cfg(any(target_os = "macos", test))]
 pub(crate) mod credential_session;
@@ -1156,6 +1157,9 @@ fn stored_tool_credential(
     group: &str,
     selected_model: Option<&str>,
 ) -> Result<Option<String>, String> {
+    if app_name == crate::accio_work::SCOPE {
+        return accio::credential(state, group);
+    }
     if app_name == "dsh" {
         return dsh::credential(&state.db, group);
     }
@@ -1475,6 +1479,14 @@ fn persist_connection(
     status: &YuanhengConnectionStatus,
 ) -> Result<(), String> {
     imagegen_connection::account_will_change(&state.db, user_id)?;
+    let preserve_accio = match crate::accio_work::load(&state.db) {
+        Ok(None) => true,
+        Ok(Some(profile)) => profile.owner == user_id,
+        Err(_) => false,
+    };
+    if !preserve_accio {
+        crate::accio_work::remove(&state.db)?;
+    }
     #[cfg(any(target_os = "macos", test))]
     {
         credential_session::persist(
@@ -3549,6 +3561,9 @@ fn all_tool_statuses(
     statuses.push(chatgpt_desktop_status(state, connection));
     statuses.push(workbuddy_status(state, connection));
     statuses.push(dsh::status(state, connection));
+    if crate::accio_work::EXPERIMENTAL_ENABLED {
+        statuses.push(accio::status(state, connection));
+    }
     statuses
 }
 
@@ -3588,6 +3603,18 @@ async fn yuanheng_tool_activation_statuses_inner(
         .map(|status| status.mode)
         .unwrap_or_else(|| "unknown".to_string());
     let proxy_running = state.proxy_service.is_running().await;
+    let accio_route_live = crate::accio_work::EXPERIMENTAL_ENABLED
+        && state
+            .proxy_service
+            .get_status()
+            .await
+            .ok()
+            .is_some_and(|s| {
+                s.active_targets
+                    .iter()
+                    .any(|target| target.app_type == crate::accio_work::SCOPE)
+            });
+    let accio_log_scope = accio::log_scope(state, &connection);
     let apps = [
         "claude",
         "claude-desktop",
@@ -3600,16 +3627,23 @@ async fn yuanheng_tool_activation_statuses_inner(
         "hermes",
         "workbuddy",
         "dsh",
+        "accio-work",
     ];
     let mut results = Vec::with_capacity(apps.len());
 
-    for app in apps {
+    for app in apps
+        .into_iter()
+        .filter(|app| *app != crate::accio_work::SCOPE || crate::accio_work::EXPERIMENTAL_ENABLED)
+    {
         let configured_at = read_tool_configured_at(state, app);
         let official_codex =
             matches!(app, "codex" | CHATGPT_DESKTOP_NAMESPACE) && codex_mode == "official";
         let config_written =
             official_codex || status_map.get(app).is_some_and(|status| status.configured);
-        let route_required = matches!(app, "claude-desktop" | "codex" | CHATGPT_DESKTOP_NAMESPACE);
+        let route_required = matches!(
+            app,
+            "claude-desktop" | "codex" | CHATGPT_DESKTOP_NAMESPACE | "accio-work"
+        );
         let owned_route = match app {
             "codex" if official_codex => managed_codex_routes_require_core(state.db.as_ref()),
             "codex" => {
@@ -3617,37 +3651,53 @@ async fn yuanheng_tool_activation_statuses_inner(
             }
             CHATGPT_DESKTOP_NAMESPACE => managed_chatgpt_desktop_route_active(state.db.as_ref()),
             "claude-desktop" => config_written,
+            "accio-work" => accio_route_live,
             _ => true,
         };
         let route_ready = config_written && (!route_required || (proxy_running && owned_route));
 
-        let latest_log = if route_required {
-            // 旧安装没有配置时间时也展示近期失败，但不能用旧成功证明本次生效。
-            state
-                .db
-                .get_latest_proxy_request_for_app(
-                    app,
-                    configured_at.unwrap_or_else(|| chrono::Utc::now().timestamp() - 3600),
-                )
-                .map_err(|error| error.to_string())?
-                .filter(|log| {
-                    log.provider_id
-                        == if official_codex {
-                            CODEX_OFFICIAL_PROVIDER_ID
+        let latest_log =
+            if route_required && (app != crate::accio_work::SCOPE || accio_log_scope.is_some()) {
+                // 旧安装没有配置时间时也展示近期失败，但不能用旧成功证明本次生效。
+                state
+                    .db
+                    .get_latest_proxy_request_for_app_scoped(
+                        app,
+                        configured_at.unwrap_or_else(|| chrono::Utc::now().timestamp() - 3600),
+                        if app == crate::accio_work::SCOPE {
+                            accio_log_scope.as_deref()
                         } else {
-                            MANAGED_PROVIDER_ID
-                        }
-                })
-        } else {
-            None
-        };
+                            None
+                        },
+                    )
+                    .map_err(|error| error.to_string())?
+                    .filter(|log| {
+                        log.provider_id
+                            == if official_codex {
+                                CODEX_OFFICIAL_PROVIDER_ID
+                            } else {
+                                MANAGED_PROVIDER_ID
+                            }
+                    })
+            } else {
+                None
+            };
         let request_received = latest_log.is_some();
         let request_succeeded = latest_log.as_ref().is_some_and(|log| {
             configured_at.is_some()
                 && (200..300).contains(&log.status_code)
                 && log.error_message.is_none()
+                && (app != crate::accio_work::SCOPE || (route_ready && log.output_tokens > 0))
         });
-        let message = if !config_written {
+        let message = if app == crate::accio_work::SCOPE {
+            accio::activation_message(
+                config_written,
+                route_ready,
+                request_received,
+                request_succeeded,
+                latest_log.as_ref().map(|log| log.status_code),
+            )
+        } else if !config_written {
             "尚未写入有效配置".to_string()
         } else if latest_log
             .as_ref()
@@ -4009,6 +4059,14 @@ fn restore_managed_tools_inner(state: &AppState) -> Result<YuanhengDisconnectRes
             result.warnings.push(format!("dsh: {error}"));
         }
     }
+    match crate::accio_work::remove(&state.db) {
+        Ok(true) => result.removed_tools.push(crate::accio_work::SCOPE.into()),
+        Ok(false) => {}
+        Err(error) => {
+            result.retained_tools.push(crate::accio_work::SCOPE.into());
+            result.warnings.push(error);
+        }
+    }
     match restore_workbuddy_config(state) {
         Ok(Some(true)) => result.restored_tools.push("workbuddy".to_string()),
         Ok(Some(false)) => result.removed_tools.push("workbuddy".to_string()),
@@ -4159,6 +4217,7 @@ fn preflight_target_protocol(app_name: &str) -> &'static str {
     match app_name {
         "claude" | "claude-desktop" => "anthropic_messages",
         "codex" | CHATGPT_DESKTOP_NAMESPACE | "grokbuild" => "openai_responses",
+        "accio-work" => "accio_generate_content",
         "gemini" => "gemini_native",
         "opencode" | "openclaw" | "hermes" | "workbuddy" | "dsh" => "openai_chat",
         _ => "unknown",
@@ -4217,9 +4276,12 @@ async fn preflight_yuanheng_tool_at(
     origin: &str,
 ) -> Result<YuanhengToolPreflight, String> {
     let app_name = app_name.trim();
+    if app_name == crate::accio_work::SCOPE && !crate::accio_work::EXPERIMENTAL_ENABLED {
+        return Err("Accio 主模型接入仍在实机验收，当前构建未启用".into());
+    }
     let is_workbuddy = app_name == "workbuddy";
     let app = match app_name {
-        CHATGPT_DESKTOP_NAMESPACE => AppType::Codex,
+        CHATGPT_DESKTOP_NAMESPACE | "accio-work" => AppType::Codex,
         "workbuddy" | "dsh" => AppType::OpenCode,
         _ => app_name.parse::<AppType>().map_err(|e| e.to_string())?,
     };
@@ -4556,11 +4618,19 @@ pub async fn get_yuanheng_announcements() -> Result<YuanhengAnnouncementFeed, St
 }
 
 #[tauri::command]
-pub fn get_yuanheng_tool_statuses(
+pub async fn get_yuanheng_tool_statuses(
+    app_handle: AppHandle,
     state: State<'_, AppState>,
 ) -> Result<Vec<YuanhengToolStatus>, String> {
     let connection = read_cached_status(&state)?;
-    Ok(all_tool_statuses(&state, &connection))
+    let mut statuses = all_tool_statuses(&state, &connection);
+    if let Some(status) = statuses
+        .iter_mut()
+        .find(|s| s.app == crate::accio_work::SCOPE)
+    {
+        accio::annotate_installation(&app_handle, status).await;
+    }
+    Ok(statuses)
 }
 
 #[tauri::command]
@@ -4572,12 +4642,16 @@ pub async fn get_yuanheng_tool_activation_statuses(
 
 #[tauri::command]
 pub async fn preflight_yuanheng_tool(
+    app_handle: AppHandle,
     state: State<'_, AppState>,
     app: String,
     model: String,
     group: Option<String>,
     reasoning: Option<String>,
 ) -> Result<YuanhengToolPreflight, String> {
+    if app.trim() == crate::accio_work::SCOPE {
+        crate::accio_work::installation::preflight(&app_handle).await?;
+    }
     preflight_yuanheng_tool_inner(&state, &app, &model, group.as_deref(), reasoning.as_deref())
         .await
 }
@@ -4837,7 +4911,7 @@ async fn diagnose_yuanheng_inner(state: &AppState) -> Result<YuanhengDiagnosticR
         item.configured
             && matches!(
                 item.app.as_str(),
-                "claude-desktop" | "codex" | CHATGPT_DESKTOP_NAMESPACE
+                "claude-desktop" | "codex" | CHATGPT_DESKTOP_NAMESPACE | "accio-work"
             )
     });
     if local_route_required {
@@ -5303,15 +5377,23 @@ pub async fn export_yuanheng_diagnostics(
 #[allow(non_snake_case)]
 #[tauri::command]
 pub async fn configure_yuanheng_tools(
+    app_handle: AppHandle,
     state: State<'_, AppState>,
     apps: Vec<String>,
     models: Option<HashMap<String, String>>,
     groups: Option<HashMap<String, String>>,
     reasoning: Option<HashMap<String, String>>,
 ) -> Result<Vec<YuanhengToolConfigureResult>, String> {
-    if apps.is_empty() || apps.len() > 11 {
-        return Err("请选择 1 到 11 个 AI 工具".to_string());
+    if apps.is_empty() || apps.len() > 12 {
+        return Err("请选择 1 到 12 个 AI 工具".to_string());
     }
+    // Check before fetching/creating tool credentials or changing local state.
+    // Per-tool failures must not prevent unrelated tools in a batch from working.
+    let accio_preflight = if apps.iter().any(|app| app == crate::accio_work::SCOPE) {
+        Some(crate::accio_work::installation::preflight(&app_handle).await)
+    } else {
+        None
+    };
     let _control_token = get_yuanheng_secret(&state, API_TOKEN_KEY)?
         .filter(|value| !value.is_empty())
         .ok_or_else(|| "请先连接元衡账号".to_string())?;
@@ -5340,10 +5422,32 @@ pub async fn configure_yuanheng_tools(
         if !seen.insert(app_name.clone()) {
             continue;
         }
+        if app_name == crate::accio_work::SCOPE {
+            if let Some(Err(error)) = &accio_preflight {
+                results.push(YuanhengToolConfigureResult {
+                    app: app_name,
+                    configured: false,
+                    model: None,
+                    warnings: Vec::new(),
+                    error: Some(error.clone()),
+                });
+                continue;
+            }
+        }
+        if app_name == crate::accio_work::SCOPE && !crate::accio_work::EXPERIMENTAL_ENABLED {
+            results.push(YuanhengToolConfigureResult {
+                app: app_name,
+                configured: false,
+                model: None,
+                warnings: Vec::new(),
+                error: Some("Accio 主模型接入仍在实机验收，当前构建未启用".into()),
+            });
+            continue;
+        }
         let is_workbuddy = app_name == "workbuddy";
         let is_chatgpt_desktop = app_name == CHATGPT_DESKTOP_NAMESPACE;
         let app = match app_name.as_str() {
-            CHATGPT_DESKTOP_NAMESPACE => AppType::Codex,
+            CHATGPT_DESKTOP_NAMESPACE | "accio-work" => AppType::Codex,
             "workbuddy" | "dsh" => AppType::OpenCode,
             _ => match app_name.parse::<AppType>() {
                 Ok(app) => app,
@@ -5510,6 +5614,24 @@ pub async fn configure_yuanheng_tools(
                 continue;
             }
         }
+        if app_name == crate::accio_work::SCOPE {
+            let rechecked = crate::accio_work::installation::preflight(&app_handle).await;
+            let error = match (&accio_preflight, rechecked) {
+                (Some(Ok(expected)), Ok(current)) if expected == &current => None,
+                (_, Err(error)) => Some(error),
+                _ => Some("Accio 应用路径在配置期间变化，请重新选择；原配置未更改".into()),
+            };
+            if let Some(error) = error {
+                results.push(YuanhengToolConfigureResult {
+                    app: app_name,
+                    configured: false,
+                    model: Some(model),
+                    warnings: Vec::new(),
+                    error: Some(error),
+                });
+                continue;
+            }
+        }
         if get_yuanheng_secret(&state, USER_ID_KEY)?.as_deref() != Some(user_id.as_str())
             || get_yuanheng_secret(&state, SESSION_COOKIE_KEY)?.as_deref()
                 != Some(session_cookie.as_str())
@@ -5523,7 +5645,9 @@ pub async fn configure_yuanheng_tools(
             });
             break;
         }
-        let configured = if app_name == "dsh" {
+        let configured = if app_name == crate::accio_work::SCOPE {
+            accio::configure(&state, &token, &model, &group_models, &group, &reasoning)
+        } else if app_name == "dsh" {
             dsh::configure(&state, &token, &model, &group_models, &group)
         } else if is_workbuddy {
             configure_workbuddy(&state, &token, &model, &group_models, &group)
@@ -6844,6 +6968,210 @@ mod tests {
             false
         );
         state.proxy_service.stop().await.unwrap();
+    }
+
+    #[cfg(all(feature = "accio-work-experimental", target_os = "macos"))]
+    #[test]
+    #[serial]
+    fn accio_configuration_uses_group_catalog_and_revokes_on_account_switch() {
+        let (_home, state) = isolated_state();
+        let codex_dir = crate::config::get_home_dir().join(".codex");
+        std::fs::create_dir_all(&codex_dir).unwrap();
+        let original_config = "# unrelated Codex configuration\nmodel = \"keep-me\"\n";
+        std::fs::write(codex_dir.join("config.toml"), original_config).unwrap();
+        let models = vec!["gpt-test".to_string(), "deepseek-test".to_string()];
+        let connection = YuanhengConnectionStatus {
+            connected: true,
+            user_id: Some("synthetic-owner-a".into()),
+            models: models.clone(),
+            terminal_models: models.clone(),
+            model_groups: models
+                .iter()
+                .map(|model| (model.clone(), vec!["synthetic-group".into()]))
+                .collect(),
+            ..Default::default()
+        };
+        persist_connection(
+            &state,
+            "synthetic-session-a",
+            "synthetic-owner-a",
+            "synthetic-control-a",
+            1,
+            &connection,
+        )
+        .unwrap();
+        let configured = accio::configure(
+            &state,
+            "synthetic-tool-a",
+            &models[0],
+            &models,
+            "synthetic-group",
+            "low",
+        )
+        .unwrap();
+        assert!(configured.configured);
+        assert!(accio::status(&state, &connection).configured);
+        assert!(crate::accio_work::load_active(&state.db).is_err());
+        let active = crate::accio_work::activate(&state.db).unwrap();
+        // A normal GUI model change retains the running app's capability and
+        // uses the same verified mixed-protocol catalog without writing Codex.
+        accio::configure(
+            &state,
+            "synthetic-tool-b",
+            &models[1],
+            &models,
+            "synthetic-group",
+            "auto",
+        )
+        .unwrap();
+        let updated = crate::accio_work::load_active(&state.db).unwrap();
+        assert_eq!(updated.capability, active.capability);
+        assert_eq!(updated.model, "deepseek-test");
+        assert_eq!(updated.models.len(), 2);
+        assert_eq!(
+            accio::credential(&state, "synthetic-group")
+                .unwrap()
+                .as_deref(),
+            Some("synthetic-tool-b")
+        );
+        assert!(accio::credential(&state, "different-group")
+            .unwrap()
+            .is_none());
+        assert_eq!(
+            std::fs::read_to_string(codex_dir.join("config.toml")).unwrap(),
+            original_config
+        );
+        assert!(state.db.get_all_providers("codex").unwrap().is_empty());
+        assert!(state
+            .db
+            .get_all_providers("chatgpt-desktop")
+            .unwrap()
+            .is_empty());
+
+        let other = YuanhengConnectionStatus {
+            user_id: Some("synthetic-owner-b".into()),
+            ..connection
+        };
+        persist_connection(
+            &state,
+            "synthetic-session-b",
+            "synthetic-owner-b",
+            "synthetic-control-b",
+            2,
+            &other,
+        )
+        .unwrap();
+        assert!(crate::accio_work::load(&state.db).unwrap().is_none());
+        assert!(!accio::status(&state, &other).configured);
+        assert!(accio::credential(&state, "synthetic-group")
+            .unwrap()
+            .is_none());
+    }
+
+    #[test]
+    #[serial]
+    fn account_refresh_switch_and_disconnect_preserve_both_image_and_accio_boundaries() {
+        let (_home, state) = isolated_state();
+        let first = YuanhengConnectionStatus {
+            connected: true,
+            user_id: Some("synthetic-owner".into()),
+            ..Default::default()
+        };
+        persist_connection(
+            &state,
+            "synthetic-cookie",
+            "synthetic-owner",
+            "synthetic-control",
+            1,
+            &first,
+        )
+        .unwrap();
+        let skill = serde_json::from_value(json!({"id":"builtin:meta-api-imagegen","name":"synthetic-image","directory":"meta-api-imagegen","apps":{"dsh":true,"workbuddy":true},"installedAt":0})).unwrap();
+        state.db.save_skill(&skill).unwrap();
+        imagegen_connection::test_support::install(
+            &state.db,
+            "dsh",
+            "synthetic-images",
+            "synthetic-image-dsh",
+        );
+        imagegen_connection::test_support::install(
+            &state.db,
+            "workbuddy",
+            "synthetic-images",
+            "synthetic-image-workbuddy",
+        );
+        let snapshot = imagegen_connection::credential_snapshot(&state.db).unwrap();
+        assert_eq!(snapshot.len(), 2);
+        crate::imagegen_core::replace(&state.db, &snapshot).unwrap();
+        let image_refs = imagegen_connection::credential_refs(&state.db).unwrap();
+        crate::accio_work::save(&state.db, &crate::accio_work::synthetic_profile()).unwrap();
+        let active = crate::accio_work::activate(&state.db).unwrap();
+        persist_connection(
+            &state,
+            "synthetic-refresh",
+            "synthetic-owner",
+            "synthetic-control-new",
+            2,
+            &first,
+        )
+        .unwrap();
+        assert_eq!(
+            crate::accio_work::load_active(&state.db)
+                .unwrap()
+                .capability,
+            active.capability
+        );
+        assert_eq!(
+            imagegen_connection::credential_refs(&state.db).unwrap(),
+            image_refs
+        );
+        assert!(imagegen_connection::core_provider(&state.db, "dsh")
+            .unwrap()
+            .is_some());
+
+        let other = YuanhengConnectionStatus {
+            user_id: Some("synthetic-other".into()),
+            ..first
+        };
+        persist_connection(
+            &state,
+            "synthetic-other-cookie",
+            "synthetic-other",
+            "synthetic-other-control",
+            3,
+            &other,
+        )
+        .unwrap();
+        assert!(crate::accio_work::load(&state.db).unwrap().is_none());
+        assert!(imagegen_connection::credential_refs(&state.db)
+            .unwrap()
+            .is_empty());
+        assert!(imagegen_connection::core_provider(&state.db, "dsh")
+            .unwrap()
+            .is_none());
+        assert!(crate::imagegen_core::replace(&state.db, &snapshot).is_err());
+
+        imagegen_connection::test_support::install(
+            &state.db,
+            "dsh",
+            "synthetic-other-images",
+            "synthetic-other-image-key",
+        );
+        let other_snapshot = imagegen_connection::credential_snapshot(&state.db).unwrap();
+        crate::imagegen_core::replace(&state.db, &other_snapshot).unwrap();
+        let mut profile = crate::accio_work::synthetic_profile();
+        profile.owner = "synthetic-other".into();
+        crate::accio_work::save(&state.db, &profile).unwrap();
+        assert!(disconnect_yuanheng_inner(&state).unwrap().disconnected);
+        assert!(crate::accio_work::load(&state.db).unwrap().is_none());
+        assert!(imagegen_connection::credential_refs(&state.db)
+            .unwrap()
+            .is_empty());
+        assert!(crate::imagegen_core::replace(&state.db, &other_snapshot).is_err());
+        assert!(imagegen_connection::core_provider(&state.db, "dsh")
+            .unwrap()
+            .is_none());
+        crate::imagegen_core::replace(&state.db, &[]).unwrap();
     }
 
     #[test]

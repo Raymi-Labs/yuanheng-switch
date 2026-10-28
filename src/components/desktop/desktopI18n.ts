@@ -6,6 +6,97 @@ import { DESKTOP_ZH_TW } from "./desktopI18n.zhTW";
 type Values = Record<string, string | number | null | undefined>;
 
 export const DESKTOP_EN: Record<string, string> = {
+  "如果报错提示不支持思考强度 none，请检查 TRAE 模型的高级配置 → 模型系列、思考模式，以及对话中的思考强度。按服务商支持的值调整后再测试；保存成功不代表请求兼容。":
+    "If an error says reasoning effort none is unsupported, check the model family and thinking mode in TRAE's advanced model settings, as well as the conversation's reasoning effort. Use values supported by your provider and test again; saving a model does not confirm request compatibility.",
+  "连接检查出现 Empty response data 时，先核对完整地址与请求日志，避免反复重试。直接保存只保留配置，仍需用实际任务验证。":
+    "If the connection check reports Empty response data, check the full URL and request logs before retrying. Saving directly only retains the configuration; verify it with an actual task.",
+  国内版: "China edition",
+  国际版: "International edition",
+  "TRAE 版本": "TRAE edition",
+  "当前版本：{{edition}}": "Selected edition: {{edition}}",
+  "国内版与国际版分别配置，账号和模型不会自动迁移。请先用小任务验证当前版本。":
+    "Configure the China and international editions separately. Accounts and models are not migrated automatically. Verify the selected version with a small task first.",
+  "测试文件功能时，请选择一个专用工作文件夹。若操作被审批拒绝，先查看拒绝原因，不要关闭安全审批。":
+    "Choose a dedicated workspace folder for file tests. If an action is denied, check the reason rather than disabling safety approval.",
+  实验接入: "Experimental integration",
+  "生成官方自定义模型的填写说明；请在 TRAE 内保存并选择模型。复制参数不代表已接通。":
+    "Prepare the official custom model fields, then save and select the model in TRAE. Copying fields does not confirm connectivity.",
+  "依据国际版 TRAE 3.6.4 核对。不同版本和系统可能存在差异，请先用小任务确认可用。":
+    "Checked against international TRAE 3.6.4. Other versions and systems may differ; verify with a small task first.",
+  "需要切换其他模型时，用对应 Model ID 再添加一条自定义模型，然后在 TRAE 输入框的模型菜单切换。":
+    "To switch models, add another custom model with its Model ID, then select it from the model menu in the TRAE composer.",
+  "请先验证停止生成是否及时生效；界面停止不一定代表上游请求已结束，费用以平台记录为准。":
+    "Verify that stopping generation ends the request promptly. A stopped UI does not necessarily mean the upstream request has ended; platform records determine usage.",
+  "实验功能：目前支持本地模型与文件任务，官方电商云端工具执行尚未支持；仅限已验证的 Apple Silicon Mac 和 Accio 版本。":
+    "Experimental: local model and file tasks are supported; official commerce cloud tool execution is not yet supported. Limited to verified Apple Silicon Macs and Accio versions.",
+  "此系统请手动安装并打开 TRAE；自动启动仍待验证。":
+    "Install and open TRAE manually on this system. Automatic launch is not yet verified.",
+  "TRAE 操作未完成，请确认官方安装与应用路径后重试。":
+    "TRAE operation did not complete. Check the official installation and app path, then retry.",
+  "暂未检测到 TRAE，请安装后重新检测或选择路径。":
+    "TRAE was not detected. Finish installation, then check again or select its path.",
+  "已检测到 TRAE，请打开后登录官方账号并完成模型配置。":
+    "TRAE detected. Open it, sign in to TRAE and complete model setup.",
+  "TRAE 安装与启动": "TRAE installation and launch",
+  "TRAE 检测失败，请重新检测。": "TRAE detection failed. Check again.",
+  "TRAE 自选路径已失效，请重新选择或清除后检测。":
+    "The selected TRAE path is no longer valid. Select it again, or clear it and check again.",
+  "已检测到 TRAE，启动时核验官方签名；不代表模型已配置。":
+    "TRAE detected. Its official signature is checked at launch. This does not confirm model setup.",
+  "尚未检测到 TRAE，请安装后重新检测。":
+    "TRAE has not been detected. Install it, then check again.",
+  "重新检测 TRAE": "Check for TRAE again",
+  "选择 TRAE 路径": "Select TRAE path",
+  "清除 TRAE 自选路径": "Clear selected TRAE path",
+  "已请求打开 TRAE，请在官方应用中登录并配置模型。":
+    "TRAE launch requested. Sign in and configure your model in the official app.",
+  "打开 TRAE": "Open TRAE",
+  "下载并检测 TRAE": "Download and detect TRAE",
+  "停止 TRAE 安装检测": "Stop checking TRAE installation",
+  "关闭此向导会停止安装检测；不会关闭 TRAE，也不会写入或修改它的模型配置。":
+    "Closing this guide stops installation checks. It does not close TRAE or change its model configuration.",
+  "请先在 TRAE 登录官方账号。未登录时，Models 页面只显示登录入口，无法添加自定义模型。":
+    "Sign in to your official TRAE account first. Without sign-in, the Models page only shows a login button and custom models cannot be added.",
+  "TRAE 辅助配置": "TRAE assisted setup",
+  "配置 TRAE": "Set up TRAE",
+  "TRAE 自定义模型配置": "TRAE custom model setup",
+  "生成官方自定义模型的填写说明；需在 TRAE 内完成配置，尚未验证接通。":
+    "Prepare the official custom model fields. Complete setup in TRAE; connectivity has not been verified.",
+  "依据国际版 TRAE 3.6.4 核对；国内版、其他版本和原生请求效果仍需验证。":
+    "Checked against international TRAE 3.6.4. The China edition, other versions and native requests still need validation.",
+  "TRAE 官方下载": "Official TRAE download",
+  "TRAE 官方说明": "Official TRAE instructions",
+  "API 格式": "API format",
+  "TRAE API 格式": "TRAE API format",
+  "请选择渠道实际支持的格式；元衡不会在此向导中自动转换协议或测试模型。":
+    "Choose a format supported by your channel. This guide does not convert protocols or test models.",
+  "请先连接元衡账号，再选择分组和模型。":
+    "Connect your YuanHeng account before choosing a group and model.",
+  "当前连接地址不受此向导支持，未生成请求地址。":
+    "This guide does not support the current connection address. No request URL was generated.",
+  "请选择 TRAE 要使用的分组和模型。":
+    "Choose the group and model to use in TRAE.",
+  "该分组与模型组合已不可用，请刷新目录或重新选择。":
+    "This group and model pair is no longer available. Refresh the catalog or select another pair.",
+  "请选择支持的 API 格式。": "Choose a supported API format.",
+  "所选分组：{{group}}": "Selected group: {{group}}",
+  "打开 TRAE 设置 → Models（模型）→ Add Model（添加模型）→ Custom Model（自定义模型）。":
+    "Open TRAE Settings → Models → Add Model → Custom Model.",
+  "API Format 选择 {{format}}，打开 Full URL（完整地址）开关。":
+    "Set API Format to {{format}} and turn on Full URL.",
+  "在元衡令牌管理中选择或创建同一分组的专用 API Key，再粘贴到 TRAE 的 API Key 栏。不要使用登录密码或 PROXY_MANAGED。":
+    "Select or create a dedicated API key in the same group in YuanHeng token management, then paste it into TRAE's API Key field. Do not use your login password or PROXY_MANAGED.",
+  打开元衡令牌管理: "Open YuanHeng token management",
+  "在 TRAE 内保存，并在输入框的模型菜单选择刚添加的模型。发送测试消息后，到元衡请求日志核对模型和分组；测试会产生用量。":
+    "Save in TRAE and select the added model in the input box's model menu. Send a test message and check the model and group in YuanHeng request logs. Testing incurs usage.",
+  "这里选择分组只生成说明，不会修改 API Key 的分组、权限或 TRAE 配置；实际路由和计费以所填令牌为准。":
+    "Choosing a group here only prepares instructions. It does not change your API key's group, permissions or TRAE configuration. The supplied token determines routing and billing.",
+  "TRAE 的保存流程使用官方账号服务，请先确认其凭据处理规则。此向导不读取或提交密钥，也不替代 TRAE 官方登录。":
+    "TRAE's save flow uses its official account service. Review its credential handling before proceeding. This guide neither reads nor submits keys and does not replace TRAE sign-in.",
+  "复制 {{field}}": "Copy {{field}}",
+  "复制失败，请手动选中复制。":
+    "Copy failed. Select and copy the text manually.",
+  "打开失败，请重试。": "Could not open the page. Try again.",
   图片分组: "Image group",
   "{{tool}} 图片分组": "{{tool}} image group",
   使用聊天连接: "Use chat connection",

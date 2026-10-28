@@ -2,14 +2,14 @@
   "schemaVersion": 1,
   "releases": [
     {
+      "version": "0.1.114",
+      "publishedAt": "2026-10-28T00:00:00.000Z",
+      "content": "【元衡客户端更新公告｜v0.1.114】\n\n• 新增 TRAE 实验辅助配置入口，可选择国内版或国际版，查看对应协议、地址和模型参数；仍需在 TRAE 内登录、保存并验证。Mac 分别检测两版路径并校验官方签名。\n• 补充思考参数、空响应及文件审批问题的排查说明。模型保存不代表接通，请先用小任务验证。\n• Apple 芯片 Mac 新增 Accio 实验入口，仅面向已验证的官方版本；官方电商云端工具执行尚未支持。\n\n提供 Windows x64、Apple 芯片 Mac 和 Intel Mac 安装包；macOS 继续使用 Apple Developer ID 签名和 Apple 公证。"
+    },
+    {
       "version": "0.1.113",
       "publishedAt": "2026-10-27T08:58:45.225Z",
       "content": "【元衡客户端更新公告｜v0.1.113】\n\n• 项目与版本发布迁入 Raymi Labs，应用内项目主页、下载页和 GitHub 更新备用地址同步更新。\n• 保留旧版本更新清单与历史下载地址兼容，原有自动更新、直连和 R2 下载继续可用。\n• 无需重新登录或迁移本地配置，已有应用数据与更新签名保持兼容。\n\n提供 Windows x64、Apple 芯片 Mac 和 Intel Mac 安装包；macOS 继续使用 Apple Developer ID 签名和 Apple 公证。"
-    },
-    {
-      "version": "0.1.112",
-      "publishedAt": "2026-10-26T07:57:22.181Z",
-      "content": "【元衡客户端更新公告｜v0.1.112】\n\n• 修复本地 Core 状态检查暂时失败时，自动恢复可能终止正在工作的服务、造成短暂停服和 503 的问题。进程或端口仍在运行时保留原服务。\n• macOS 后台恢复不再先卸载已有服务；连续检查失败后逐步延长重试间隔，恢复正常后自动重置，减少反复重启对使用的影响。\n• 保留健康检查的失败阶段、耗时和错误类别，便于区分本地服务、代理连接与上游故障；升级失败时同样保护仍在运行的 Core。\n\n提供 Windows x64、Apple 芯片 Mac 和 Intel Mac 安装包；macOS 继续使用 Apple Developer ID 签名和 Apple 公证。"
     }
   ]
 }

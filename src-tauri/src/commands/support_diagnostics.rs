@@ -25,13 +25,14 @@ impl DiagnosticSnapshot {
 }
 
 pub const SNAPSHOT_TTL_SECS: u64 = 15 * 60;
-const TOOLS: [&str; 11] = [
+const TOOLS: [&str; 12] = [
     "claude",
     "claude-desktop",
     "codex",
     "chatgpt-desktop",
     "workbuddy",
     "dsh",
+    "accio-work",
     "gemini",
     "grokbuild",
     "opencode",
