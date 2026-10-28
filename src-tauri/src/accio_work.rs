@@ -42,6 +42,7 @@ impl Profile {
         }
         format!("accio-{:x}", hash.finalize())
     }
+    #[cfg(any(target_os = "macos", test))]
     pub(crate) fn revision(&self) -> Result<String, String> {
         use sha2::{Digest, Sha256};
         let value = serde_json::to_value(self).map_err(|_| "无法确认 Accio 配置版本")?;
@@ -228,6 +229,7 @@ pub fn activate(db: &Database) -> Result<Profile, String> {
     activate_revision(db, &revision)
 }
 
+#[cfg(any(target_os = "macos", test))]
 fn activate_revision(db: &Database, expected_revision: &str) -> Result<Profile, String> {
     let conn = db.conn.lock().map_err(|_| "Accio 数据库繁忙")?;
     let raw: String = conn
@@ -317,6 +319,7 @@ pub fn new_capability() -> String {
     )
 }
 
+#[cfg(any(target_os = "macos", test))]
 fn gateway_origin(port: u16, capability: &str) -> String {
     // GATEWAY_BASE_URL is the gateway root. The official desktop factory adds
     // /api/llm/config/v2 and /api/adk/llm itself, unlike the lower-level SDK.

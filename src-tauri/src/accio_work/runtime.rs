@@ -1,5 +1,7 @@
 //! Core-owned process identity; persisted `active` is never sufficient to authorize.
-use super::{activate_revision, load, load_active, revoke, Database, Profile};
+#[cfg(any(target_os = "macos", all(test, unix)))]
+use super::{activate_revision, load};
+use super::{load_active, revoke, Database, Profile};
 use serde::{Deserialize, Serialize};
 use std::{
     path::PathBuf,
@@ -8,7 +10,9 @@ use std::{
         Mutex,
     },
 };
-use tokio::process::{Child, Command};
+use tokio::process::Child;
+#[cfg(any(target_os = "macos", all(test, unix)))]
+use tokio::process::Command;
 
 #[derive(Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -60,6 +64,7 @@ impl Drop for Native035Probe {
 
 #[derive(Default)]
 pub(crate) struct Runtime {
+    #[cfg(target_os = "macos")]
     launch_gate: tokio::sync::Mutex<()>,
     owned: Mutex<Option<OwnedProcess>>,
     stopped: AtomicBool,
@@ -115,6 +120,7 @@ impl Runtime {
 
     /// No await between activation, spawn and ownership publication. The calling
     /// Core task is detached from the HTTP request's lifetime, including errors.
+    #[cfg(any(target_os = "macos", all(test, unix)))]
     fn spawn_owned(
         &self,
         db: &Database,

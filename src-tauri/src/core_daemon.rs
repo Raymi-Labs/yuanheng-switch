@@ -408,6 +408,7 @@ impl CoreSupervisor {
         .await
     }
 
+    #[cfg(target_os = "macos")]
     pub(crate) async fn launch_accio(&self, db: &Database, path: PathBuf) -> Result<(), String> {
         // Resolve one authenticated Core first; never retry the launch mutation.
         let info = self.status(db).await?;

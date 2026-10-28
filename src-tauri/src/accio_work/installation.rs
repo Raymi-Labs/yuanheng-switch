@@ -1,8 +1,12 @@
 //! One compatibility rule for configuration, discovery hints and Core launch.
-use std::path::{Path, PathBuf};
+#[cfg(any(target_os = "macos", test))]
+use std::path::Path;
+use std::path::PathBuf;
 
+#[cfg(any(target_os = "macos", test))]
 pub(crate) const SUPPORTED_VERSIONS: &[&str] = &["0.34.5", "0.35.3"];
 
+#[cfg(any(target_os = "macos", test))]
 pub(crate) fn require_supported_version(version: &str) -> Result<(), String> {
     if SUPPORTED_VERSIONS.contains(&version) {
         Ok(())
@@ -14,6 +18,7 @@ pub(crate) fn require_supported_version(version: &str) -> Result<(), String> {
     }
 }
 
+#[cfg(any(target_os = "macos", test))]
 pub(crate) fn validate_path(path: &Path) -> Result<(), String> {
     let value = path.to_str().ok_or("Accio 应用路径无效")?;
     if !path.is_absolute()
@@ -132,13 +137,15 @@ mod tests {
 
     #[test]
     fn application_path_cannot_be_a_relative_path_or_command() {
-        assert!(validate_path(Path::new("/Applications/Accio.app")).is_ok());
+        let root = tempfile::tempdir().unwrap();
+        let app = root.path().join("Accio.app");
+        assert!(validate_path(&app).is_ok());
         for path in [
-            "Accio.app",
-            "/Applications/Accio.app/Contents/MacOS/Accio",
-            "/Applications/Accio.app\n",
+            PathBuf::from("Accio.app"),
+            app.join("Contents/MacOS/Accio"),
+            root.path().join("Accio.app\n"),
         ] {
-            assert!(validate_path(Path::new(path)).is_err());
+            assert!(validate_path(&path).is_err());
         }
     }
 
