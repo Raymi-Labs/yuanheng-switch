@@ -43,6 +43,7 @@ jobs:
           pnpm typecheck
           pnpm test:unit
           node --test scripts/test-imagegen-skill.mjs
+          node --test scripts/test-agent-experimental-features.mjs
           python3 scripts/test_apple_release_tools.py
           python3 scripts/test_verify_macos_release.py
           python3 scripts/test_sync_desktop_r2.py
@@ -63,12 +64,18 @@ jobs:
           - platform: macos-15
             target: aarch64-apple-darwin
             bundles: app,dmg
+            accio_enabled: "1"
+            feature_args: "--features accio-work-experimental"
           - platform: macos-15-intel
             target: x86_64-apple-darwin
             bundles: app,dmg
+            accio_enabled: "0"
+            feature_args: ""
           - platform: windows-2022
             target: x86_64-pc-windows-msvc
             bundles: nsis
+            accio_enabled: "0"
+            feature_args: ""
 
     runs-on: ${{ matrix.platform }}
     env:
@@ -77,6 +84,7 @@ jobs:
       TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
       TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
       YUANHENG_BUILD_TARGET: ${{ matrix.target }}
+      VITE_ENABLE_ACCIO_WORK: ${{ matrix.accio_enabled }}
 
     steps:
       - name: Checkout
@@ -179,7 +187,7 @@ jobs:
         uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # v1
         with:
           uploadUpdaterJson: false
-          args: --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}
+          args: --target ${{ matrix.target }} --bundles ${{ matrix.bundles }} ${{ matrix.feature_args }}
 
       - name: Report and enforce Apple tool results
         if: always() && runner.os == 'macOS' && steps.tauri.outcome != 'skipped'

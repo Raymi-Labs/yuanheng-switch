@@ -1322,6 +1322,7 @@ mod tests {
 
     fn build_state(db: Arc<Database>) -> ProxyState {
         ProxyState {
+            accio_runtime: Arc::new(crate::accio_work::Runtime::default()),
             db: db.clone(),
             config: Arc::new(RwLock::new(ProxyConfig::default())),
             status: Arc::new(RwLock::new(ProxyStatus::default())),

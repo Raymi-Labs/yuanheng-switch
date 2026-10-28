@@ -117,6 +117,7 @@ impl Drop for ActiveConnectionGuard {
 }
 
 pub struct RequestForwarder {
+    provider_namespace: Option<&'static str>,
     route: Option<crate::route_selection::RequestRoute>,
     /// 共享的 ProviderRouter（持有熔断器状态）
     router: Arc<ProviderRouter>,
@@ -321,6 +322,7 @@ impl RequestForwarder {
         // saturating_add 防止 u32::MAX + 1 溢出。
         let max_attempts = (max_retries as usize).saturating_add(1);
         Self {
+            provider_namespace: None,
             route: None,
             router,
             status,
@@ -349,6 +351,11 @@ impl RequestForwarder {
         route: Option<crate::route_selection::RequestRoute>,
     ) -> Self {
         self.route = route;
+        self
+    }
+
+    pub(super) fn with_provider_namespace(mut self, namespace: Option<&'static str>) -> Self {
+        self.provider_namespace = namespace;
         self
     }
 
@@ -531,7 +538,7 @@ impl RequestForwarder {
     ) -> Result<ForwardResult, ForwardError> {
         // 获取适配器
         let adapter = get_adapter(app_type);
-        let app_type_str = app_type.as_str();
+        let app_type_str = self.provider_namespace.unwrap_or_else(|| app_type.as_str());
 
         if providers.is_empty() {
             return Err(ForwardError {
@@ -3809,6 +3816,7 @@ mod tests {
         let db = Arc::new(Database::memory().expect("memory db"));
 
         RequestForwarder {
+            provider_namespace: None,
             route: None,
             router: Arc::new(ProviderRouter::new(db.clone())),
             status: Arc::new(RwLock::new(ProxyStatus::default())),

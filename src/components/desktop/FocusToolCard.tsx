@@ -31,6 +31,7 @@ import {
 import { dt } from "./desktopI18n";
 import { launchDirectoryLabel } from "./useToolLaunchDirectories";
 import { ToolActivationProgress } from "./ToolActivationProgress";
+import { AccioConnectionNotice } from "./AccioConnectionNotice";
 import { ToolInstallCancel } from "./ToolInstallCancel";
 import { toolInstallLabel } from "./toolInstallFeedback";
 import { useToolLifecycleState } from "@/lib/toolLifecycleState";
@@ -510,6 +511,7 @@ export function FocusToolCard({
       )}
 
       <div className="relative mt-3">
+        <AccioConnectionNotice status={status} dark />
         <ToolActivationProgress
           activation={activationMap.get(app)}
           preflight={preflightResults[app]}

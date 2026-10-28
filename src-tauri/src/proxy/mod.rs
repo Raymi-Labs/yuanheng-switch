@@ -2,6 +2,11 @@
 //!
 //! 提供本地HTTP代理服务，支持多Provider故障转移和请求透传
 
+mod accio;
+mod accio_auth;
+mod accio_cloud;
+mod accio_compat;
+mod accio_diagnostics;
 pub mod body_filter;
 pub mod cache_injector;
 pub mod circuit_breaker;

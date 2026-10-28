@@ -7,6 +7,7 @@ import {
 import {
   DESKTOP_TOOLS,
   isDesktopApp,
+  isCoreApp,
 } from "@/components/desktop/ToolSetupGrid";
 
 describe("Yuanheng CLI launch directory support", () => {
@@ -29,6 +30,7 @@ describe("Yuanheng CLI launch directory support", () => {
       "claude-desktop",
       "chatgpt-desktop",
       "workbuddy",
+      "accio-work",
     ] satisfies YuanhengToolId[]) {
       expect(isYuanhengCliTool(app)).toBe(false);
     }
@@ -36,5 +38,7 @@ describe("Yuanheng CLI launch directory support", () => {
     expect(DESKTOP_TOOLS.filter((app) => !isDesktopApp(app))).toEqual([
       ...YUANHENG_CLI_TOOLS,
     ]);
+    expect(isCoreApp("accio-work")).toBe(false);
+    expect(isDesktopApp("accio-work")).toBe(true);
   });
 });

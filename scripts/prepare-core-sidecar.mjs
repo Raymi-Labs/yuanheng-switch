@@ -8,6 +8,7 @@ import {
 } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { agentExperimentalFeatures } from "./agent-experimental-features.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const cargoDir = join(root, "src-tauri");
@@ -20,6 +21,11 @@ const target = requestedTarget || hostTarget;
 if (!target) {
   throw new Error("无法从 rustc -vV 获取目标三元组");
 }
+const experimentalFeatures = agentExperimentalFeatures(
+  process.env,
+  target,
+  profile,
+);
 
 const isWindowsTarget = target.includes("windows");
 const executable = isWindowsTarget ? "yuanheng-core.exe" : "yuanheng-core";
@@ -40,6 +46,9 @@ if (!existsSync(destination)) {
 }
 
 const cargoArgs = ["build", "--bin", "yuanheng-core"];
+if (experimentalFeatures.length) {
+  cargoArgs.push("--features", experimentalFeatures.join(","));
+}
 if (profile === "release") {
   cargoArgs.push("--release");
 }

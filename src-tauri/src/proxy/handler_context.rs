@@ -33,6 +33,8 @@ pub struct StreamingTimeoutConfig {
 /// - 日志标签
 /// - Session ID（用于日志关联）
 pub struct RequestContext {
+    /// A fixed provider snapshot without generic app configuration side effects.
+    isolated_provider: bool,
     /// 请求开始时间
     pub start_time: Instant,
     /// 应用级代理配置（per-app，包含重试次数和超时配置）
@@ -105,6 +107,41 @@ impl RequestContext {
         tag: &'static str,
         app_type_str: &'static str,
     ) -> Result<Self, ProxyError> {
+        Self::new_inner(state, body, headers, app_type, tag, app_type_str, None).await
+    }
+
+    pub(super) async fn for_accio(
+        state: &ProxyState,
+        body: &serde_json::Value,
+        provider: Provider,
+        log_scope: String,
+    ) -> Result<Self, ProxyError> {
+        let mut context = Self::new_inner(
+            state,
+            body,
+            &HeaderMap::new(),
+            AppType::Codex,
+            "Accio Work",
+            crate::accio_work::SCOPE,
+            Some(provider),
+        )
+        .await?;
+        context.session_id = log_scope;
+        context.session_client_provided = false;
+        Ok(context)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn new_inner(
+        state: &ProxyState,
+        body: &serde_json::Value,
+        headers: &HeaderMap,
+        app_type: AppType,
+        tag: &'static str,
+        app_type_str: &'static str,
+        snapshot: Option<Provider>,
+    ) -> Result<Self, ProxyError> {
+        let isolated_provider = snapshot.is_some();
         let start_time = Instant::now();
 
         // 从数据库读取应用级代理配置（per-app）
@@ -115,12 +152,16 @@ impl RequestContext {
             .map_err(|e| ProxyError::DatabaseError(e.to_string()))?;
 
         // 从数据库读取整流器配置
-        let rectifier_config = state.db.get_rectifier_config().unwrap_or_default();
+        let mut rectifier_config = state.db.get_rectifier_config().unwrap_or_default();
+        if isolated_provider {
+            rectifier_config.enabled = false;
+        }
         let optimizer_config = state.db.get_optimizer_config().unwrap_or_default();
         let copilot_optimizer_config = state.db.get_copilot_optimizer_config().unwrap_or_default();
 
-        let current_provider_id =
-            crate::settings::get_current_provider(&app_type).unwrap_or_default();
+        let current_provider_id = snapshot.as_ref().map(|p| p.id.clone()).unwrap_or_else(|| {
+            crate::settings::get_current_provider(&app_type).unwrap_or_default()
+        });
 
         // 从请求体提取模型名称
         let request_model = body
@@ -143,17 +184,23 @@ impl RequestContext {
 
         // 使用共享的 ProviderRouter 选择 Provider（熔断器状态跨请求保持）
         // 注意：只在这里调用一次，结果传递给 forwarder，避免重复消耗 HalfOpen 名额
-        let providers = state
-            .provider_router
-            .select_providers(app_type_str)
-            .await
-            .map_err(|e| match e {
-                crate::error::AppError::AllProvidersCircuitOpen => {
-                    ProxyError::AllProvidersCircuitOpen
-                }
-                crate::error::AppError::NoProvidersConfigured => ProxyError::NoProvidersConfigured,
-                _ => ProxyError::DatabaseError(e.to_string()),
-            })?;
+        let providers = if let Some(snapshot) = snapshot {
+            vec![snapshot]
+        } else {
+            state
+                .provider_router
+                .select_providers(app_type_str)
+                .await
+                .map_err(|e| match e {
+                    crate::error::AppError::AllProvidersCircuitOpen => {
+                        ProxyError::AllProvidersCircuitOpen
+                    }
+                    crate::error::AppError::NoProvidersConfigured => {
+                        ProxyError::NoProvidersConfigured
+                    }
+                    _ => ProxyError::DatabaseError(e.to_string()),
+                })?
+        };
 
         let provider = providers
             .first()
@@ -170,6 +217,7 @@ impl RequestContext {
         );
 
         Ok(Self {
+            isolated_provider,
             start_time,
             app_config,
             provider,
@@ -216,7 +264,7 @@ impl RequestContext {
     /// - 故障转移关闭：超时配置不生效（全部传入 0）
     pub fn create_forwarder(&self, state: &ProxyState) -> RequestForwarder {
         let (non_streaming_timeout, first_byte_timeout, idle_timeout) =
-            if self.app_config.auto_failover_enabled {
+            if self.app_config.auto_failover_enabled || self.isolated_provider {
                 // 故障转移开启：使用配置的值（0 = 禁用超时）
                 (
                     self.app_config.non_streaming_timeout as u64,
@@ -233,7 +281,7 @@ impl RequestContext {
             };
 
         // 故障转移关闭时强制 max_retries=0（仅尝试 1 个 provider），与「不超时 + 不切换」语义一致。
-        let max_retries = if self.app_config.auto_failover_enabled {
+        let max_retries = if self.app_config.auto_failover_enabled && !self.isolated_provider {
             self.app_config.max_retries
         } else {
             0
@@ -260,6 +308,7 @@ impl RequestContext {
             max_retries,
         )
         .with_route(state.core_control.as_ref().map(|c| c.routes.snapshot()))
+        .with_provider_namespace(self.isolated_provider.then_some(self.app_type_str))
     }
 
     /// 获取 Provider 列表（用于故障转移）
@@ -282,7 +331,7 @@ impl RequestContext {
     /// - 故障转移关闭：返回 0（禁用超时检查）
     #[inline]
     pub fn streaming_timeout_config(&self) -> StreamingTimeoutConfig {
-        if self.app_config.auto_failover_enabled {
+        if self.app_config.auto_failover_enabled || self.isolated_provider {
             // 故障转移开启：使用配置的值（0 = 禁用超时）
             StreamingTimeoutConfig {
                 first_byte_timeout: self.app_config.streaming_first_byte_timeout as u64,

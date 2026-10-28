@@ -11,6 +11,7 @@
 //! - `models`: API 数据模型
 //! - `transform`: 格式转换
 
+pub mod accio;
 mod adapter;
 mod auth;
 mod claude;

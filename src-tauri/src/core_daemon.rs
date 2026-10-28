@@ -408,6 +408,50 @@ impl CoreSupervisor {
         .await
     }
 
+    #[cfg(target_os = "macos")]
+    pub(crate) async fn launch_accio(&self, db: &Database, path: PathBuf) -> Result<(), String> {
+        // Resolve one authenticated Core first; never retry the launch mutation.
+        let info = self.status(db).await?;
+        if !info.status.running || info.status.port == 0 {
+            return Err("元衡 Core 尚未就绪".into());
+        }
+        let profile = crate::accio_work::load(db)?.ok_or("请先配置 Accio")?;
+        let request = crate::accio_work::LaunchRequest {
+            path,
+            revision: profile.revision()?,
+        };
+        request.validate()?;
+        let token = read_admin_token(&self.config_dir)?;
+        let client = reqwest::Client::builder()
+            .no_proxy()
+            .redirect(reqwest::redirect::Policy::none())
+            .timeout(Duration::from_secs(70))
+            .build()
+            .map_err(|_| "无法连接本机 Core")?;
+        let url = format!(
+            "{}{CORE_ADMIN_PREFIX}/accio/launch",
+            proxy_origin(&info.status.address, info.status.port)
+        );
+        let response = client
+            .post(url)
+            .bearer_auth(token)
+            .json(&request)
+            .send()
+            .await
+            .map_err(|_| "Accio 启动结果未确认，请先检查是否已打开；未自动重试")?;
+        if response.status().is_success() {
+            return Ok(());
+        }
+        if response.status() == reqwest::StatusCode::NOT_FOUND {
+            return Err("当前 Core 尚不支持受控启动 Accio，请更新或重启元衡".into());
+        }
+        let value: serde_json::Value = response.json().await.unwrap_or_default();
+        Err(value["error"]
+            .as_str()
+            .unwrap_or("Accio 启动未完成，请检查本机状态")
+            .to_string())
+    }
+
     pub(crate) async fn route_request(
         &self,
         db: &Database,
@@ -693,6 +737,12 @@ pub fn run_core_cli() -> Result<(), String> {
 }
 
 async fn run_core(config_dir: PathBuf) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    let _accio_instance_lock = if crate::accio_work::EXPERIMENTAL_ENABLED {
+        Some(lock_accio_core_instance(&config_dir)?)
+    } else {
+        None
+    };
     init_core_logger();
     crate::core_diagnostics::init(&config_dir);
     app_store::set_app_config_dir_override_for_process(Some(config_dir.clone()));
@@ -746,6 +796,7 @@ async fn run_core(config_dir: PathBuf) -> Result<(), String> {
         tokio::select! {
             _ = reload_interval.tick() => {
                 routes.tick();
+                server.reap_accio();
                 if let Err(error) = reload_core_state(&server, &db, &auth_managers).await {
                     log::warn!("[Core] 周期热加载失败: {error}");
                 }
@@ -798,6 +849,29 @@ async fn run_core(config_dir: PathBuf) -> Result<(), String> {
     remove_runtime_record_if_owned(&config_dir, std::process::id());
     log::info!("[Core] YuanHeng Core 已停止");
     Ok(())
+}
+
+#[cfg(target_os = "macos")]
+fn lock_accio_core_instance(config_dir: &Path) -> Result<fs::File, String> {
+    use std::os::{fd::AsRawFd, unix::fs::OpenOptionsExt};
+    let directory = config_dir.join("core");
+    fs::create_dir_all(&directory).map_err(|_| "无法准备 Accio Core 运行锁")?;
+    // Never remove the lock file: unlinking a locked inode could allow another
+    // process to lock a replacement file. The OS releases it even on SIGKILL.
+    let file = fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .read(true)
+        .write(true)
+        .mode(0o600)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC)
+        .open(directory.join("accio-runtime.lock"))
+        .map_err(|_| "无法读取 Accio Core 运行锁")?;
+    // SAFETY: the descriptor is owned by `file` and remains open for this call.
+    if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } != 0 {
+        return Err("此配置目录已有 Accio Core 运行，未修改现有连接".into());
+    }
+    Ok(file)
 }
 
 #[cfg(unix)]
@@ -1718,6 +1792,16 @@ mod tests {
         assert_eq!(calls.load(Ordering::SeqCst), 1);
         assert_eq!(fallback_calls.load(Ordering::SeqCst), 0);
         assert!(!result.unwrap_err().contains("synthetic"));
+    }
+
+    #[test]
+    #[cfg(target_os = "macos")]
+    fn accio_core_instance_lock_rejects_duplicates_and_releases_on_close() {
+        let dir = tempfile::tempdir().unwrap();
+        let first = super::lock_accio_core_instance(dir.path()).unwrap();
+        assert!(super::lock_accio_core_instance(dir.path()).is_err());
+        drop(first);
+        assert!(super::lock_accio_core_instance(dir.path()).is_ok());
     }
 
     #[test]

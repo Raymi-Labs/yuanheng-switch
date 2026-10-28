@@ -31,6 +31,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock("@/lib/query/yuanheng", () => ({
   useYuanhengConnection: () => ({ data: mocks.connection }),
   useYuanhengToolStatuses: () => ({ data: mocks.statuses, refetch: vi.fn() }),
+  useYuanhengToolActivationStatuses: () => ({ data: [], refetch: vi.fn() }),
   useConfigureYuanhengTools: () => ({
     mutateAsync: mocks.configure,
     isPending: false,
@@ -149,6 +150,22 @@ const chooseGroup = async (
 };
 
 describe("tool group restoration", () => {
+  it("TRAE uses the shared picker without entering managed batch configuration", async () => {
+    mocks.connection = {
+      ...mocks.connection!,
+      baseUrl: "https://meta-api.vip",
+    };
+    render(<ToolSetupGrid />);
+    fireEvent.click(screen.getByRole("button", { name: "配置 TRAE" }));
+    await chooseGroup("TRAE", "premium", "model-a");
+    expect(
+      screen.getByText("https://meta-api.vip/v1/chat/completions"),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/所选分组：premium/)).toBeInTheDocument();
+    expect(mocks.configure).not.toHaveBeenCalled();
+    expect(mocks.preflight).not.toHaveBeenCalled();
+    expect(mocks.launch).not.toHaveBeenCalled();
+  });
   it("restores independent saved groups and launch does not overwrite them", async () => {
     render(<ToolSetupGrid />);
     expect(screen.getByLabelText("Claude 分组与模型")).toHaveTextContent(

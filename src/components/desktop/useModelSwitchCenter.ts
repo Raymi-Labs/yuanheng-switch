@@ -29,6 +29,7 @@ import {
   useSwitchCodexAccountMode,
 } from "@/lib/query/yuanheng";
 import { extractErrorMessage } from "@/utils/errorUtils";
+import { canRestartDesktopApp } from "@/config/desktopTools";
 import {
   DESKTOP_TOOLS,
   DESKTOP_DOWNLOAD_URLS,
@@ -592,7 +593,11 @@ export function useModelSwitchCenter() {
         toast.success(
           app === "chatgpt-desktop"
             ? dt("配置已保存；重启 Codex App 后加载新的模型与推理档位")
-            : successMessage(model, group),
+            : app === "accio-work"
+              ? dt(
+                  "Accio 默认模型和分组已保存；请从元衡启动，在 Accio 输入框模型菜单切换。Auto 使用客户端默认模型。",
+                )
+              : successMessage(model, group),
         );
       }
       await queryClient.invalidateQueries({ queryKey: ["yuanheng"] });
@@ -760,7 +765,8 @@ export function useModelSwitchCenter() {
         }
       }
       if (!isCurrentOperation(app, operationId) || !canContinue()) return;
-      const shouldRestart = isDesktopApp(app) && (needsApply || restartPending);
+      const shouldRestart =
+        canRestartDesktopApp(app) && (needsApply || restartPending);
       await yuanhengApi.launchTool(
         app,
         shouldRestart,
@@ -768,7 +774,7 @@ export function useModelSwitchCenter() {
           ? launchDirectoryState.directories[app]
           : undefined,
       );
-      if (shouldRestart) clearRestartRequired(app);
+      if (shouldRestart || app === "accio-work") clearRestartRequired(app);
       if (!isCurrentOperation(app, operationId)) return;
       if (app === "codex") await codexBridge.refetch();
       if (!isCurrentOperation(app, operationId)) return;

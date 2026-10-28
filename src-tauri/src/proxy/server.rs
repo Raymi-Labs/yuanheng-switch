@@ -53,6 +53,8 @@ pub struct ProxyState {
     pub auth_managers: Option<ProxyAuthManagers>,
     /// 故障转移切换管理器
     pub failover_manager: Arc<FailoverSwitchManager>,
+    /// Only this Core's directly owned Accio process can authorize its route.
+    pub accio_runtime: Arc<crate::accio_work::Runtime>,
 }
 
 impl ProxyState {
@@ -71,6 +73,19 @@ impl ProxyState {
                 provider_name: provider_name.clone(),
             })
             .collect();
+        // Never expose a persisted or stale periodic target as a live route.
+        status
+            .active_targets
+            .retain(|target| target.app_type != crate::accio_work::SCOPE);
+        if crate::accio_work::EXPERIMENTAL_ENABLED {
+            if let Ok(profile) = self.accio_runtime.authorized_profile(&self.db) {
+                status.active_targets.push(ActiveTarget {
+                    app_type: crate::accio_work::SCOPE.into(),
+                    provider_id: profile.provider.id,
+                    provider_name: profile.provider.name,
+                });
+            }
+        }
         status
     }
 }
@@ -127,6 +142,7 @@ impl ProxyServer {
             core_control,
             auth_managers,
             failover_manager,
+            accio_runtime: Arc::new(crate::accio_work::Runtime::default()),
         };
 
         Self {
@@ -163,6 +179,15 @@ impl ProxyServer {
             .map_err(|e| ProxyError::BindFailed(e.to_string()))?;
         let actual_port = local_addr.port();
 
+        // A duplicate Core that cannot bind must never revoke the live Core's
+        // profile. Reset only after binding and before any HTTP is accepted.
+        if crate::accio_work::EXPERIMENTAL_ENABLED
+            && self.state.core_control.is_some()
+            && crate::accio_work::reset_for_core_start(&self.state.db).is_err()
+        {
+            log::warn!("旧 Accio 配置无法清理；Core 将拒绝未受控启动的连接");
+        }
+
         log::info!("[{}] 代理服务器启动于 {local_addr}", log_srv::STARTED);
 
         // 更新全局代理端口，用于系统代理检测
@@ -189,7 +214,7 @@ impl ProxyServer {
             loop {
                 tokio::select! {
                     result = listener.accept() => {
-                        let (stream, _remote_addr) = match result {
+                        let (stream, remote_addr) = match result {
                             Ok(v) => v,
                             Err(e) => {
                                 log::error!("[{SRV}] accept 失败: {e}", SRV = log_srv::ACCEPT_ERR);
@@ -221,7 +246,8 @@ impl ProxyServer {
                             };
 
                             // service_fn 将 axum Router（tower::Service）桥接到 hyper
-                            let service = hyper::service::service_fn(move |req: hyper::Request<hyper::body::Incoming>| {
+                            let service = hyper::service::service_fn(move |mut req: hyper::Request<hyper::body::Incoming>| {
+                                req.extensions_mut().insert(remote_addr);
                                 let mut router = app.clone();
                                 let cases = original_cases.clone();
                                 async move {
@@ -269,6 +295,8 @@ impl ProxyServer {
     }
 
     pub async fn stop(&self) -> Result<(), ProxyError> {
+        // Revoke routing without killing an official app that may contain work.
+        let _ = self.state.accio_runtime.invalidate(&self.state.db);
         // 1. 发送关闭信号
         if let Some(tx) = self.shutdown_tx.write().await.take() {
             let _ = tx.send(());
@@ -302,6 +330,12 @@ impl ProxyServer {
 
     pub async fn get_status(&self) -> ProxyStatus {
         self.state.snapshot_status().await
+    }
+
+    pub(crate) fn reap_accio(&self) {
+        if self.state.accio_runtime.reap(&self.state.db).is_err() {
+            log::warn!("Accio 退出状态清理失败，已拒绝旧连接");
+        }
     }
 
     /// 更新某个应用类型当前“目标供应商”（用于 UI 展示 active_targets）
@@ -386,6 +420,7 @@ impl ProxyServer {
             .route("/chatgpt-desktop/v1/models", get(handlers::handle_models))
             // Images must bypass chat model mapping, conversion and failover.
             .merge(super::images::routes())
+            .merge(super::accio::routes())
             // OpenAI Responses API (Codex CLI，支持带前缀和不带前缀)
             .route("/responses", post(handlers::handle_responses))
             .route("/v1/responses", post(handlers::handle_responses))
@@ -483,6 +518,956 @@ mod image_route_tests {
         body::Body,
         http::{Request, StatusCode},
     };
+
+    #[cfg(all(feature = "accio-work-experimental", target_os = "macos"))]
+    mod native_probe_reports {
+        use serde::{Deserialize, Deserializer, Serialize};
+        use std::{io::Write, path::PathBuf, time::Duration};
+
+        pub(super) struct DurationSeconds(pub(super) u64);
+
+        impl Default for DurationSeconds {
+            fn default() -> Self {
+                Self(300)
+            }
+        }
+
+        impl<'de> Deserialize<'de> for DurationSeconds {
+            fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+                let value = u64::deserialize(deserializer)?;
+                if !(30..=900).contains(&value) {
+                    return Err(serde::de::Error::custom(
+                        "native probe durationSeconds must be between 30 and 900",
+                    ));
+                }
+                Ok(Self(value))
+            }
+        }
+
+        #[derive(Serialize)]
+        #[serde(rename_all = "camelCase")]
+        pub(super) struct ModelResult {
+            pub(super) model: String,
+            pub(super) status: u16,
+            pub(super) input_tokens: u64,
+            pub(super) output_tokens: u64,
+        }
+
+        pub(super) struct ProgressWriter {
+            directory: PathBuf,
+            last_write: Option<Duration>,
+            last_content: Vec<u8>,
+        }
+
+        impl ProgressWriter {
+            pub(super) fn new(directory: PathBuf) -> Self {
+                Self {
+                    directory,
+                    last_write: None,
+                    last_content: Vec::new(),
+                }
+            }
+
+            pub(super) fn update(
+                &mut self,
+                elapsed: Duration,
+                models: &[ModelResult],
+            ) -> Result<bool, String> {
+                if self
+                    .last_write
+                    .is_some_and(|last| elapsed.saturating_sub(last) < Duration::from_secs(2))
+                {
+                    return Ok(false);
+                }
+                // This explicit projection cannot expose the fixture, prompts,
+                // credentials, identity, raw errors or local capability URL.
+                let content = serde_json::to_vec(&serde_json::json!({
+                    "elapsedSeconds": elapsed.as_secs(),
+                    "models": models,
+                }))
+                .map_err(|_| "Native probe progress serialization failed")?;
+                if content == self.last_content {
+                    return Ok(false);
+                }
+                // A same-directory rename replaces the old report atomically.
+                // NamedTempFile uses mode 0600; failed writes remove its temp.
+                let mut temporary = tempfile::Builder::new()
+                    .prefix(".native-progress-")
+                    .tempfile_in(&self.directory)
+                    .map_err(|_| "Native probe progress temporary file unavailable")?;
+                temporary
+                    .write_all(&content)
+                    .and_then(|_| temporary.flush())
+                    .map_err(|_| "Native probe progress write failed")?;
+                temporary
+                    .persist(self.directory.join("progress.json"))
+                    .map_err(|_| "Native probe progress replacement failed")?;
+                self.last_write = Some(elapsed);
+                self.last_content = content;
+                Ok(true)
+            }
+        }
+
+        #[test]
+        fn native035probe_duration_is_bounded_before_launch() {
+            #[derive(Deserialize)]
+            struct DurationFixture {
+                #[serde(default, rename = "durationSeconds")]
+                duration_seconds: DurationSeconds,
+            }
+            let omitted: DurationFixture = serde_json::from_str("{}").unwrap();
+            assert_eq!(omitted.duration_seconds.0, 300);
+            for seconds in [30, 300, 900] {
+                let fixture: DurationFixture =
+                    serde_json::from_value(serde_json::json!({"durationSeconds": seconds}))
+                        .unwrap();
+                assert_eq!(fixture.duration_seconds.0, seconds);
+            }
+            for value in [
+                serde_json::json!(0),
+                serde_json::json!(29),
+                serde_json::json!(901),
+                serde_json::json!(-1),
+                serde_json::json!(30.5),
+                serde_json::json!("300"),
+                serde_json::json!(null),
+                serde_json::json!(u64::MAX),
+            ] {
+                assert!(serde_json::from_value::<DurationFixture>(
+                    serde_json::json!({"durationSeconds": value}),
+                )
+                .is_err());
+            }
+        }
+
+        #[test]
+        fn native035probe_progress_is_private_atomic_and_throttled() {
+            use std::{fs, os::unix::fs::MetadataExt};
+            let directory = tempfile::tempdir().unwrap();
+            let mut writer = ProgressWriter::new(directory.path().into());
+            let path = directory.path().join("progress.json");
+            assert!(writer.update(Duration::ZERO, &[]).unwrap());
+            let initial = fs::metadata(&path).unwrap();
+            assert_eq!(initial.mode() & 0o077, 0);
+            let rows = [ModelResult {
+                model: "synthetic-model".into(),
+                status: 200,
+                input_tokens: 17,
+                output_tokens: 3,
+            }];
+            assert!(!writer.update(Duration::from_millis(1999), &rows).unwrap());
+            assert_eq!(fs::metadata(&path).unwrap().ino(), initial.ino());
+            assert!(writer.update(Duration::from_secs(2), &rows).unwrap());
+            let replaced = fs::metadata(&path).unwrap();
+            assert_ne!(replaced.ino(), initial.ino());
+            assert_eq!(replaced.mode() & 0o077, 0);
+            assert!(!writer.update(Duration::from_secs(2), &rows).unwrap());
+            let report: serde_json::Value =
+                serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+            assert_eq!(
+                report,
+                serde_json::json!({
+                    "elapsedSeconds": 2,
+                    "models": [{"model":"synthetic-model", "status":200, "inputTokens":17, "outputTokens":3}],
+                })
+            );
+            assert_eq!(fs::read_dir(directory.path()).unwrap().count(), 1);
+        }
+    }
+
+    /// Manual, paid native acceptance only. The parent harness owns the private
+    /// profile, official login, app-data isolation and UI actions. This test does
+    /// not create/copy credentials or change the production version allowlist.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    #[ignore = "requires a private fixture and explicit native Accio 0.35.2 acceptance"]
+    #[cfg(all(feature = "accio-work-experimental", target_os = "macos"))]
+    async fn native035probe() -> Result<(), String> {
+        use native_probe_reports::{DurationSeconds, ModelResult, ProgressWriter};
+        use std::{
+            io::{Read, Write},
+            os::unix::fs::{MetadataExt, OpenOptionsExt},
+            path::{Path, PathBuf},
+            time::{Duration, Instant, SystemTime, UNIX_EPOCH},
+        };
+
+        #[derive(serde::Deserialize)]
+        #[serde(rename_all = "camelCase", deny_unknown_fields)]
+        struct Fixture {
+            profile: crate::accio_work::Profile,
+            app_path: PathBuf,
+            report_dir: PathBuf,
+            #[serde(default)]
+            duration_seconds: DurationSeconds,
+        }
+
+        fn private_path(path: &Path, directory: bool) -> Result<(), String> {
+            let metadata = std::fs::symlink_metadata(path)
+                .map_err(|_| "Native probe private path is unavailable")?;
+            if !path.is_absolute()
+                || metadata.file_type().is_symlink()
+                || metadata.is_dir() != directory
+                || (!directory && !metadata.is_file())
+                || metadata.mode() & 0o077 != 0
+                || metadata.uid() != unsafe { libc::getuid() }
+            {
+                return Err("Native probe fixture/report path must be private and owned".into());
+            }
+            Ok(())
+        }
+
+        fn write_report(path: &Path, report: &serde_json::Value) -> Result<(), String> {
+            let mut output = std::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .mode(0o600)
+                .open(path)
+                .map_err(|_| "Native probe report already exists or is unavailable")?;
+            let content = serde_json::to_vec(report)
+                .map_err(|_| "Native probe report serialization failed")?;
+            output
+                .write_all(&content)
+                .map_err(|_| "Native probe report write failed".into())
+        }
+
+        fn model_results(db: &Database) -> Result<Vec<ModelResult>, String> {
+            let conn = db
+                .conn
+                .lock()
+                .map_err(|_| "Native probe database unavailable")?;
+            let mut statement = conn
+                .prepare(
+                    "SELECT model, status_code, input_tokens, output_tokens
+                     FROM proxy_request_logs WHERE app_type = 'accio-work'
+                     ORDER BY rowid LIMIT 100",
+                )
+                .map_err(|_| "Native probe usage summary unavailable")?;
+            let results = statement
+                .query_map([], |row| {
+                    Ok(ModelResult {
+                        model: row.get(0)?,
+                        status: row.get(1)?,
+                        input_tokens: row.get(2)?,
+                        output_tokens: row.get(3)?,
+                    })
+                })
+                .map_err(|_| "Native probe usage query failed")?
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(|_| "Native probe usage row is invalid".into());
+            results
+        }
+
+        let fixture_path = std::env::var_os("YUANHENG_ACCIO_NATIVE_FIXTURE")
+            .map(PathBuf::from)
+            .ok_or("Native probe requires YUANHENG_ACCIO_NATIVE_FIXTURE")?;
+        private_path(&fixture_path, false)?;
+        let test_home = std::env::var_os("YUANHENG_SWITCH_TEST_HOME")
+            .map(PathBuf::from)
+            .ok_or("Native probe requires an isolated YUANHENG_SWITCH_TEST_HOME")?;
+        private_path(&test_home, true)?;
+        if std::env::var_os("HOME").map(PathBuf::from).as_ref() == Some(&test_home) {
+            return Err("Native probe cannot use the user's real home as its test home".into());
+        }
+        let mut bytes = Vec::new();
+        std::fs::File::open(&fixture_path)
+            .map_err(|_| "Native probe fixture cannot be opened")?
+            .take(2 * 1024 * 1024 + 1)
+            .read_to_end(&mut bytes)
+            .map_err(|_| "Native probe fixture cannot be read")?;
+        if bytes.len() > 2 * 1024 * 1024 {
+            return Err("Native probe fixture exceeds its size bound".into());
+        }
+        let mut fixture: Fixture =
+            serde_json::from_slice(&bytes).map_err(|_| "Native probe fixture schema is invalid")?;
+        bytes.fill(0);
+        private_path(&fixture.report_dir, true)?;
+        if fixture.report_dir.join("stop").exists() {
+            return Err("Native probe stop marker already exists".into());
+        }
+        fixture.profile.active = false;
+        fixture.profile.validate()?;
+        let db = Arc::new(Database::memory().map_err(|_| "Native probe database init failed")?);
+        crate::accio_work::save(&db, &fixture.profile)?;
+        let server = ProxyServer::new(
+            ProxyConfig {
+                listen_address: "127.0.0.1".into(),
+                listen_port: 0,
+                enable_logging: true,
+                ..ProxyConfig::default()
+            },
+            db.clone(),
+            None,
+        );
+        let info = server
+            .start()
+            .await
+            .map_err(|_| "Native probe server start failed")?;
+        let mut probe = match server
+            .state
+            .accio_runtime
+            .native035probe_launch(&db, fixture.app_path, info.port)
+            .await
+        {
+            Ok(probe) => probe,
+            Err(error) => {
+                let _ = server.stop().await;
+                return Err(error);
+            }
+        };
+        // From this point every normal return runs explicit app/helper cleanup.
+        // The process-group guard also handles test assertion unwinding.
+        let result = async {
+            let started_at = Instant::now();
+            let duration = Duration::from_secs(fixture.duration_seconds.0);
+            let deadline = started_at + duration;
+            let hard_deadline_unix_seconds = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .map_err(|_| "Native probe system clock is invalid")?
+                .as_secs()
+                + fixture.duration_seconds.0;
+            let mut progress = ProgressWriter::new(fixture.report_dir.clone());
+            progress.update(Duration::ZERO, &[])?;
+            write_report(
+                &fixture.report_dir.join("ready.json"),
+                &serde_json::json!({
+                    "port": info.port,
+                    "pid": probe.pid,
+                    "models": fixture.profile.models,
+                    "durationSeconds": fixture.duration_seconds.0,
+                    "hardDeadlineUnixSeconds": hard_deadline_unix_seconds,
+                }),
+            )?;
+            let reason = loop {
+                if fixture.report_dir.join("stop").exists() {
+                    break "stop_marker";
+                }
+                if Instant::now() >= deadline {
+                    break "time_limit";
+                }
+                let rows = model_results(&db)?;
+                progress.update(started_at.elapsed(), &rows)?;
+                if rows.len() >= 10 {
+                    break "model_record_limit";
+                }
+                if server.state.accio_runtime.authorized_profile(&db).is_err() {
+                    break "app_exited";
+                }
+                tokio::time::sleep(Duration::from_millis(200)).await;
+            };
+            Ok::<_, String>(reason)
+        }
+        .await;
+        let cleanup = server
+            .state
+            .accio_runtime
+            .native035probe_stop(&db, &mut probe)
+            .await;
+        let shutdown = server
+            .stop()
+            .await
+            .map_err(|_| "Native probe server shutdown failed");
+        let rows = model_results(&db)?;
+        // Only model/status/token summaries leave the in-memory database. No
+        // provider, account, token, capability URL, prompt or raw error is saved.
+        for row in &rows {
+            println!(
+                "{}",
+                serde_json::to_string(row).map_err(|_| "Native probe summary failed")?
+            );
+        }
+        write_report(
+            &fixture.report_dir.join("summary.json"),
+            &serde_json::json!({
+                "endedBy": result.as_ref().ok(),
+                "models": rows,
+                "processGroupClean": cleanup.is_ok(),
+                "listenerStopped": shutdown.is_ok(),
+                "productionVersionGateChanged": false,
+            }),
+        )?;
+        result?;
+        cleanup?;
+        shutdown?;
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[cfg(all(feature = "accio-work-experimental", unix))]
+    async fn accio_capability_catalog_scope_and_disconnect_fail_closed() {
+        use http_body_util::BodyExt;
+        let db = Arc::new(Database::memory().unwrap());
+        let profile = crate::accio_work::synthetic_profile();
+        crate::accio_work::save(&db, &profile).unwrap();
+        let server = ProxyServer::new(ProxyConfig::default(), db.clone(), None);
+        let orphan = Request::builder()
+            .method("POST")
+            .uri(format!(
+                "/accio-work/{}/api/llm/config/v2",
+                profile.capability
+            ))
+            .header("host", "127.0.0.1:15721")
+            .header("content-type", "application/json")
+            .extension("127.0.0.1:30000".parse::<std::net::SocketAddr>().unwrap())
+            .body(Body::from("{}"))
+            .unwrap();
+        let denied = tower::Service::call(&mut server.build_router(), orphan)
+            .await
+            .unwrap();
+        assert_eq!(denied.status(), StatusCode::UNAUTHORIZED);
+        assert!(server.get_status().await.active_targets.is_empty());
+        server.state.accio_runtime.synthetic_child(&db);
+        let profile = server.state.accio_runtime.authorized_profile(&db).unwrap();
+        for (token, path, body, expected) in [
+            ("wrong", "llm/config/v2", "{}", 401),
+            ("wrong", "oauth/token", "{}", 401),
+            (profile.capability.as_str(), "llm/config/v2", "{}", 200),
+            (profile.capability.as_str(), "image/generate", "{}", 501),
+            (
+                profile.capability.as_str(),
+                "auth/userinfo?redirect=elsewhere",
+                "{}",
+                400,
+            ),
+            (
+                profile.capability.as_str(),
+                "adk/llm/generateContent",
+                r#"{"model":"outside-group","contents":[]}"#,
+                200,
+            ),
+        ] {
+            let request = Request::builder()
+                .method("POST")
+                .uri(format!("/accio-work/{token}/api/{path}"))
+                .header("host", "127.0.0.1:15721")
+                .header("content-type", "application/json")
+                .extension("127.0.0.1:30000".parse::<std::net::SocketAddr>().unwrap())
+                .body(Body::from(body))
+                .unwrap();
+            let response = tower::Service::call(&mut server.build_router(), request)
+                .await
+                .unwrap();
+            assert_eq!(response.status().as_u16(), expected);
+            let bytes = response.into_body().collect().await.unwrap().to_bytes();
+            let text = String::from_utf8_lossy(&bytes);
+            assert!(!text.contains(&profile.capability));
+            assert!(!text.contains("synthetic-accio-key"));
+            if path == "adk/llm/generateContent" {
+                assert!(text.contains("errorCode"));
+            }
+        }
+        assert_eq!(server.state.status.read().await.total_requests, 0);
+        crate::accio_work::remove(&db).unwrap();
+        assert!(crate::accio_work::load_active(&db).is_err());
+        server.state.accio_runtime.stop_synthetic_child(&db).await;
+    }
+
+    #[tokio::test]
+    #[cfg(feature = "accio-work-experimental")]
+    async fn accio_management_requires_local_authenticated_bounded_requests() {
+        let db = Arc::new(Database::memory().unwrap());
+        let mut server = ProxyServer::new(ProxyConfig::default(), db.clone(), None);
+        let (command_tx, _command_rx) = tokio::sync::mpsc::unbounded_channel();
+        server.state.core_control = Some(crate::core_daemon::CoreControl {
+            token: Arc::from("synthetic-admin"),
+            command_tx,
+            binary_id: Arc::from("synthetic-build"),
+            config_dir: Arc::new(std::path::PathBuf::from("/synthetic")),
+            routes: crate::route_selection::Selector::new(db.clone()),
+        });
+        let body = serde_json::to_string(&serde_json::json!({
+            "path":"/synthetic/Accio.app", "revision":"0".repeat(64),
+        }))
+        .unwrap();
+        for (peer, host, origin, token, payload, expected) in [
+            (
+                "192.0.2.1:9000",
+                "127.0.0.1",
+                None,
+                "synthetic-admin",
+                body.as_str(),
+                403,
+            ),
+            (
+                "127.0.0.1:9000",
+                "example.invalid",
+                None,
+                "synthetic-admin",
+                body.as_str(),
+                403,
+            ),
+            (
+                "127.0.0.1:9000",
+                "127.0.0.1",
+                Some("https://example.invalid"),
+                "synthetic-admin",
+                body.as_str(),
+                403,
+            ),
+            (
+                "127.0.0.1:9000",
+                "127.0.0.1",
+                None,
+                "wrong",
+                body.as_str(),
+                401,
+            ),
+            (
+                "127.0.0.1:9000",
+                "127.0.0.1",
+                None,
+                "synthetic-admin",
+                "{\"path\":\"relative\",\"revision\":\"x\"}",
+                400,
+            ),
+            (
+                "127.0.0.1:9000",
+                "127.0.0.1",
+                None,
+                "synthetic-admin",
+                "{\"unknown\":true}",
+                400,
+            ),
+            // No configuration exists. The authenticated handler must stop
+            // before verifying or running any application.
+            (
+                "127.0.0.1:9000",
+                "127.0.0.1",
+                None,
+                "synthetic-admin",
+                body.as_str(),
+                409,
+            ),
+        ] {
+            let mut request = Request::builder()
+                .method("POST")
+                .uri("/__yuanheng/core/accio/launch")
+                .header("host", host)
+                .header("content-type", "application/json")
+                .header("authorization", format!("Bearer {token}"))
+                .extension(peer.parse::<std::net::SocketAddr>().unwrap());
+            if let Some(origin) = origin {
+                request = request.header("origin", origin);
+            }
+            let response = tower::Service::call(
+                &mut server.build_router(),
+                request.body(Body::from(payload.to_owned())).unwrap(),
+            )
+            .await
+            .unwrap();
+            assert_eq!(response.status().as_u16(), expected);
+        }
+        let oversized = Request::builder()
+            .method("POST")
+            .uri("/__yuanheng/core/accio/launch")
+            .header("host", "127.0.0.1")
+            .header("content-type", "application/json")
+            .header("authorization", "Bearer synthetic-admin")
+            .extension("127.0.0.1:9000".parse::<std::net::SocketAddr>().unwrap())
+            .body(Body::from("x".repeat(16 * 1024 + 1)))
+            .unwrap();
+        let response = tower::Service::call(&mut server.build_router(), oversized)
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::PAYLOAD_TOO_LARGE);
+        assert!(server.state.accio_runtime.authorized_profile(&db).is_err());
+    }
+
+    #[tokio::test]
+    #[cfg(all(feature = "accio-work-experimental", unix))]
+    async fn accio_body_wait_cannot_keep_revoked_authority() {
+        for (path, text) in [
+            ("llm/config/v2", "{}"),
+            ("channel/query", r#"{"accessToken":"official-synthetic"}"#),
+            (
+                "adk/llm/generateContent",
+                r#"{"model":"outside-group","contents":[]}"#,
+            ),
+        ] {
+            let db = Arc::new(Database::memory().unwrap());
+            crate::accio_work::save(&db, &crate::accio_work::synthetic_profile()).unwrap();
+            let server = ProxyServer::new(ProxyConfig::default(), db.clone(), None);
+            server.state.accio_runtime.synthetic_child(&db);
+            let active = server.state.accio_runtime.authorized_profile(&db).unwrap();
+            let (reading_tx, reading_rx) = tokio::sync::oneshot::channel();
+            let (finish_tx, finish_rx) = tokio::sync::oneshot::channel();
+            let body = Body::from_stream(futures::stream::once(async move {
+                reading_tx.send(()).unwrap();
+                finish_rx.await.unwrap();
+                Ok::<_, std::io::Error>(bytes::Bytes::from_static(text.as_bytes()))
+            }));
+            let request = Request::builder()
+                .method("POST")
+                .uri(format!("/accio-work/{}/api/{path}", active.capability))
+                .header("host", "127.0.0.1")
+                .header("content-type", "application/json")
+                .extension("127.0.0.1:9000".parse::<std::net::SocketAddr>().unwrap())
+                .body(body)
+                .unwrap();
+            let mut router = server.build_router();
+            let reply =
+                tokio::spawn(
+                    async move { tower::Service::call(&mut router, request).await.unwrap() },
+                );
+            tokio::time::timeout(std::time::Duration::from_secs(2), reading_rx)
+                .await
+                .unwrap()
+                .unwrap();
+            crate::accio_work::remove(&db).unwrap();
+            finish_tx.send(()).unwrap();
+            assert_eq!(reply.await.unwrap().status(), StatusCode::UNAUTHORIZED);
+            assert_eq!(server.get_status().await.total_requests, 0);
+            server.state.accio_runtime.stop_synthetic_child(&db).await;
+        }
+    }
+
+    #[tokio::test]
+    #[cfg(all(feature = "accio-work-experimental", unix))]
+    async fn accio_connector_http_denials_are_paced_without_delaying_catalog() {
+        let db = Arc::new(Database::memory().unwrap());
+        crate::accio_work::save(&db, &crate::accio_work::synthetic_profile()).unwrap();
+        let config = ProxyConfig {
+            listen_port: 0,
+            listen_address: "127.0.0.1".into(),
+            ..Default::default()
+        };
+        let server = ProxyServer::new(config, db.clone(), None);
+        server.state.accio_runtime.synthetic_child(&db);
+        let active = server.state.accio_runtime.authorized_profile(&db).unwrap();
+        let info = server.start().await.unwrap();
+        let origin = format!("http://127.0.0.1:{}/accio-work", info.port);
+        let client = reqwest::Client::builder()
+            .no_proxy()
+            .timeout(std::time::Duration::from_secs(8))
+            .build()
+            .unwrap();
+        let start = std::time::Instant::now();
+        let mut tasks = tokio::task::JoinSet::new();
+        for (capability, expected) in [(active.capability.clone(), 400), ("0".repeat(64), 401)] {
+            let client = client.clone();
+            let url = format!("{origin}/{capability}/api/channel/authorization/status");
+            tasks.spawn(async move {
+                let response = client
+                    .post(url)
+                    .json(&serde_json::json!({"token":"synthetic-identity-never-forwarded"}))
+                    .send()
+                    .await
+                    .unwrap();
+                assert_eq!(response.status().as_u16(), expected);
+                assert_eq!(response.headers()["retry-after"], "5");
+                assert!(!response
+                    .text()
+                    .await
+                    .unwrap()
+                    .contains("synthetic-identity"));
+                assert!(start.elapsed() >= std::time::Duration::from_secs(5));
+            });
+        }
+        let catalog = client
+            .post(format!("{origin}/{}/api/llm/config/v2", active.capability))
+            .json(&serde_json::json!({}))
+            .send();
+        assert_eq!(
+            tokio::time::timeout(std::time::Duration::from_secs(2), catalog)
+                .await
+                .unwrap()
+                .unwrap()
+                .status(),
+            reqwest::StatusCode::OK
+        );
+        // These requests must fail locally. No official credential is used.
+        for (suffix, method, expected) in [
+            (
+                "plugin%2Flist?accessToken=synthetic",
+                reqwest::Method::GET,
+                400,
+            ),
+            (
+                "plugin/list?accessToken=a&accessToken=b",
+                reqwest::Method::GET,
+                400,
+            ),
+            ("plugin/list", reqwest::Method::POST, 400),
+            ("plugin/download-ticket", reqwest::Method::POST, 501),
+            ("mcp/proxy", reqwest::Method::POST, 501),
+        ] {
+            let response = client
+                .request(
+                    method,
+                    format!("{origin}/{}/api/{suffix}", active.capability),
+                )
+                .send()
+                .await
+                .unwrap();
+            assert_eq!(response.status().as_u16(), expected, "{suffix}");
+        }
+        for token in [&active.capability, "synthetic-accio-key"] {
+            let response = client
+                .get(format!("{origin}/{}/api/plugin/list", active.capability))
+                .query(&[("accessToken", token)])
+                .send()
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+            assert!(!response.text().await.unwrap().contains(token));
+        }
+        while let Some(result) = tasks.join_next().await {
+            result.unwrap();
+        }
+        assert_eq!(server.get_status().await.total_requests, 0);
+        server.state.accio_runtime.stop_synthetic_child(&db).await;
+        server.stop().await.unwrap();
+    }
+
+    #[tokio::test]
+    #[cfg(all(feature = "accio-work-experimental", unix))]
+    async fn accio_failed_duplicate_bind_cannot_revoke_running_core() {
+        let db = Arc::new(Database::memory().unwrap());
+        crate::accio_work::save(&db, &crate::accio_work::synthetic_profile()).unwrap();
+        let first = ProxyServer::new(
+            ProxyConfig {
+                listen_port: 0,
+                ..Default::default()
+            },
+            db.clone(),
+            None,
+        );
+        first.state.accio_runtime.synthetic_child(&db);
+        let info = first.start().await.unwrap();
+        let active = first.state.accio_runtime.authorized_profile(&db).unwrap();
+        let mut second = ProxyServer::new(
+            ProxyConfig {
+                listen_address: info.address.clone(),
+                listen_port: info.port,
+                ..Default::default()
+            },
+            db.clone(),
+            None,
+        );
+        let (command_tx, _rx) = tokio::sync::mpsc::unbounded_channel();
+        second.state.core_control = Some(crate::core_daemon::CoreControl {
+            token: Arc::from("synthetic-admin"),
+            command_tx,
+            binary_id: Arc::from("synthetic"),
+            config_dir: Arc::new(std::path::PathBuf::from("/synthetic")),
+            routes: crate::route_selection::Selector::new(db.clone()),
+        });
+        assert!(second.start().await.is_err());
+        assert_eq!(
+            first
+                .state
+                .accio_runtime
+                .authorized_profile(&db)
+                .unwrap()
+                .capability,
+            active.capability
+        );
+        assert_eq!(first.get_status().await.active_targets.len(), 1);
+        first.state.accio_runtime.stop_synthetic_child(&db).await;
+        first.stop().await.unwrap();
+    }
+
+    #[tokio::test]
+    #[serial_test::serial]
+    async fn accio_forward_error_keeps_upstream_http_provenance() {
+        use crate::proxy::handler_context::RequestContext;
+        use serde_json::json;
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let calls = Arc::new(AtomicUsize::new(0));
+        let counter = calls.clone();
+        let app = Router::new().route("/v1/responses", post(move || {
+            let counter = counter.clone();
+            async move {
+                counter.fetch_add(1, Ordering::SeqCst);
+                (StatusCode::SERVICE_UNAVAILABLE, axum::Json(json!({"error":{"code":"server_error","message":"overloaded synthetic-secret"}})))
+            }
+        }));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let origin = format!("http://{}/v1", listener.local_addr().unwrap());
+        let mock = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let server = ProxyServer::new(
+            ProxyConfig::default(),
+            Arc::new(Database::memory().unwrap()),
+            None,
+        );
+        let mut provider = crate::provider::Provider::with_id(
+            "synthetic-local-failure".into(),
+            "Synthetic".into(),
+            json!({"auth":{"OPENAI_API_KEY":"synthetic-not-real"}, "config":format!("model_provider = \"custom\"\nmodel = \"synthetic-model\"\n[model_providers.custom]\nbase_url = \"{origin}\"\nwire_api = \"responses\"\n")}),
+            None,
+        );
+        provider.meta = Some(crate::provider::ProviderMeta {
+            api_format: Some("openai_responses".into()),
+            ..Default::default()
+        });
+        let body = json!({"model":"synthetic-model","input":"synthetic","stream":true});
+        let ctx = RequestContext::for_accio(
+            &server.state,
+            &body,
+            provider,
+            "synthetic-failure-scope".into(),
+        )
+        .await
+        .unwrap();
+        let result = tokio::time::timeout(
+            std::time::Duration::from_secs(5),
+            super::handlers::forward_responses_with_context(
+                &server.state,
+                ctx,
+                http::Method::POST,
+                "/responses".into(),
+                body,
+                http::HeaderMap::new(),
+                http::Extensions::new(),
+            ),
+        )
+        .await;
+        mock.abort();
+        let _ = mock.await;
+        let result = result.unwrap();
+        let error = result.expect_err("Accio must retain the original forwarding error type");
+        assert!(
+            matches!(error, super::ProxyError::UpstreamError { status: 503, .. }),
+            "unexpected synthetic error: {error:?}"
+        );
+        let message = super::super::accio_diagnostics::proxy_message(&error);
+        assert!(message.contains("HTTP 503"));
+        assert!(message.contains("服务过载"));
+        assert!(!message.contains("本地 HTTP"));
+        assert!(!message.contains("synthetic-not-real"));
+        assert!(!message.contains("synthetic-secret"));
+        assert!(!message.contains(&origin));
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+        assert_eq!(server.get_status().await.active_connections, 0);
+    }
+
+    #[tokio::test]
+    #[serial_test::serial]
+    async fn accio_round_trip_reuses_three_protocols_without_touching_codex_scope() {
+        use crate::proxy::{handler_context::RequestContext, providers::accio::accio_to_responses};
+        use axum::{extract::Json, http::HeaderMap, response::IntoResponse};
+        use serde_json::{json, Value};
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let calls = Arc::new(AtomicUsize::new(0));
+        let observed = calls.clone();
+        let app = Router::new().route("/v1/*endpoint",post(move |axum::extract::Path(endpoint): axum::extract::Path<String>, headers:HeaderMap, Json(body):Json<Value>| {
+            let observed = observed.clone();
+            async move {
+                observed.fetch_add(1,Ordering::SeqCst);
+                assert_eq!(headers["authorization"],"Bearer synthetic-upstream");
+                assert!(headers.get("utdid").is_none());
+                assert!(body.get("token").is_none());
+                let model = body["model"].as_str().unwrap();
+                let text = "synthetic OK";
+                let events = match endpoint.as_str() {
+                    "chat/completions" => {
+                        assert_eq!(model,"chat-model");
+                        vec![
+                            json!({"id":"chat-synthetic","model":model,"choices":[{"index":0,"delta":{"role":"assistant","content":text},"finish_reason":null}]}),
+                            json!({"id":"chat-synthetic","model":model,"choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":2,"total_tokens":3}}),
+                        ]
+                    },
+                    "responses" => {
+                        assert_eq!(model,"native-model");
+                        vec![
+                            json!({"type":"response.output_text.delta","item_id":"msg-native","content_index":0,"delta":text}),
+                            json!({"type":"response.completed","response":{"id":"resp-native","status":"completed","model":model,"output":[{"id":"msg-native","type":"message","role":"assistant","content":[{"type":"output_text","text":text}]}],"usage":{"input_tokens":1,"output_tokens":2,"total_tokens":3}}}),
+                        ]
+                    },
+                    "messages" => {
+                        assert_eq!(model,"claude-model");
+                        vec![
+                            json!({"type":"message_start","message":{"id":"msg-claude","role":"assistant","model":model,"content":[],"usage":{"input_tokens":1,"output_tokens":0}}}),
+                            json!({"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}),
+                            json!({"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":text}}),
+                            json!({"type":"content_block_stop","index":0}),
+                            json!({"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":2}}),
+                            json!({"type":"message_stop"}),
+                        ]
+                    },
+                    _ => panic!("unexpected upstream endpoint"),
+                };
+                let text = events.iter().map(|event|format!("data: {event}\n\n")).collect::<String>();
+                ([ ("content-type","text/event-stream") ],text+"data: [DONE]\n\n").into_response()
+            }
+        }));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let upstream_url = format!("http://{}/v1", listener.local_addr().unwrap());
+        let mock = tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+        let server = ProxyServer::new(
+            ProxyConfig::default(),
+            Arc::new(Database::memory().unwrap()),
+            None,
+        );
+        let mut provider = crate::provider::Provider::with_id(
+            "synthetic".into(),
+            "Synthetic".into(),
+            json!({
+                "auth":{"OPENAI_API_KEY":"synthetic-upstream"},
+                "config":format!("model_provider = \"custom\"\nmodel = \"wrong-default\"\n[model_providers.custom]\nbase_url = \"{upstream_url}\"\nwire_api = \"responses\"\n"),
+                "modelCatalog":{"models":[
+                    {"model":"chat-model","apiFormat":"openai_chat"},
+                    {"model":"native-model","apiFormat":"openai_responses"},
+                    {"model":"claude-model","apiFormat":"anthropic"}
+                ]}
+            }),
+            None,
+        );
+        provider.meta = Some(crate::provider::ProviderMeta {
+            api_format: Some("openai_responses".into()),
+            ..Default::default()
+        });
+        for model in ["chat-model", "native-model", "claude-model"] {
+            let body = accio_to_responses(&json!({"model":model,"token":"synthetic-official-token","contents":[{"role":"user","parts":[{"text":"synthetic test"}]}]})).unwrap();
+            let ctx = RequestContext::for_accio(
+                &server.state,
+                &body,
+                provider.clone(),
+                "synthetic-accio-scope".into(),
+            )
+            .await
+            .unwrap();
+            let response = tokio::time::timeout(
+                std::time::Duration::from_secs(10),
+                super::super::handlers::forward_responses_with_context(
+                    &server.state,
+                    ctx,
+                    http::Method::POST,
+                    "/responses".into(),
+                    body,
+                    HeaderMap::new(),
+                    http::Extensions::new(),
+                ),
+            )
+            .await
+            .unwrap()
+            .unwrap();
+            assert!(response.status().is_success());
+            let slots = Arc::new(tokio::sync::Semaphore::new(1));
+            let body = Body::from_stream(super::super::accio::convert_stream(
+                response.into_body(),
+                slots.clone().acquire_owned().await.unwrap(),
+            ));
+            let bytes = tokio::time::timeout(
+                std::time::Duration::from_secs(10),
+                axum::body::to_bytes(body, 1024 * 1024),
+            )
+            .await
+            .unwrap()
+            .unwrap();
+            let text = String::from_utf8_lossy(&bytes);
+            assert!(text.contains("synthetic OK"), "{model}: {text}");
+            assert!(!text.contains("errorCode"), "{model}: {text}");
+            assert!(text.contains("\"turnComplete\":true"));
+            assert_eq!(slots.available_permits(), 1);
+        }
+        assert_eq!(calls.load(Ordering::SeqCst), 3);
+        let targets = server.state.current_providers.read().await;
+        assert!(targets.contains_key("accio-work"));
+        assert!(!targets.contains_key("codex"));
+        mock.abort();
+        let _ = mock.await;
+    }
 
     #[tokio::test]
     #[serial_test::serial]

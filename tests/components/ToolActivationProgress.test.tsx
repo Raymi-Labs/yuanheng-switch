@@ -3,6 +3,51 @@ import { describe, expect, it } from "vitest";
 import { ToolActivationProgress } from "@/components/desktop/ToolActivationProgress";
 
 describe("ToolActivationProgress", () => {
+  it("does not treat previous Accio replies as a currently connected app", () => {
+    render(
+      <ToolActivationProgress
+        activation={{
+          app: "accio-work",
+          configuredAt: 1,
+          configWritten: true,
+          routeRequired: true,
+          routeReady: false,
+          requestReceived: true,
+          requestSucceeded: true,
+          lastStatusCode: 200,
+          lastRequestAt: 1,
+          lastModel: "sol",
+          message: "请从元衡启动",
+        }}
+      />,
+    );
+    expect(screen.getByText("配置已保存")).toBeInTheDocument();
+    expect(screen.queryByText("模型调用成功")).not.toBeInTheDocument();
+    expect(screen.queryByText("客户端已就绪")).not.toBeInTheDocument();
+  });
+
+  it("reports unknown Accio output instead of claiming HTTP 200 means success", () => {
+    render(
+      <ToolActivationProgress
+        activation={{
+          app: "accio-work",
+          configuredAt: 1,
+          configWritten: true,
+          routeRequired: true,
+          routeReady: true,
+          requestReceived: true,
+          requestSucceeded: false,
+          lastStatusCode: 200,
+          lastRequestAt: 1,
+          lastModel: "sol",
+          message: "尚未确认",
+        }}
+      />,
+    );
+    expect(screen.getByText("尚未确认模型输出")).toBeInTheDocument();
+    expect(screen.queryByText("调用失败（HTTP 200）")).not.toBeInTheDocument();
+    expect(screen.queryByText("模型调用成功")).not.toBeInTheDocument();
+  });
   it("shows the verified activation chain while waiting for the first request", () => {
     render(
       <ToolActivationProgress

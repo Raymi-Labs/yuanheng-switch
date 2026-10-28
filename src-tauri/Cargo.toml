@@ -1,6 +1,6 @@
 [package]
 name = "yuanheng-switch"
-version = "0.1.114"
+version = "0.1.115"
 description = "YuanHeng API desktop companion for local AI coding tools"
 authors = ["nanashiwang"]
 license = "MIT"
@@ -27,6 +27,7 @@ path = "src/bin/yuanheng-core.rs"
 [features]
 default = []
 test-hooks = []
+accio-work-experimental = []
 
 [build-dependencies]
 tauri-build = { version = "2.4.0", features = [] }
