@@ -3613,10 +3613,10 @@ pub async fn launch_tool(
                 return Ok(true);
             }
         }
-        let source = custom
-            .as_ref()
-            .map(std::path::PathBuf::from)
-            .filter(|p| crate::desktop_app_detection::is_dsh_source(p));
+        let source = custom.as_ref().map(std::path::PathBuf::from).filter(|p| {
+            crate::desktop_app_detection::is_dsh_source(p)
+                && (tool == "dsh-web" || p.join("apps/desktop/package.json").is_file())
+        });
         if let Some(source) = source {
             if !source.join("node_modules").is_dir() {
                 return Err(
@@ -3626,11 +3626,6 @@ pub async fn launch_tool(
             }
             let pnpm = resolve_path_launch_command("pnpm")
                 .ok_or("所选 DSH 源码需要 pnpm；可清除自选路径后下载安装官方桌面端")?;
-            if tool == "dsh" && !source.join("apps/desktop/package.json").is_file() {
-                return Err(
-                    "所选源码仅支持 Web；请安装并选择 DSH 官方桌面应用，或使用启动 DSH Web".into(),
-                );
-            }
             let command = if tool == "dsh" {
                 "pnpm run start:desktop".to_string()
             } else {
