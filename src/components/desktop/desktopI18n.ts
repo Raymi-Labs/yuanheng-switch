@@ -6,6 +6,11 @@ import { DESKTOP_ZH_TW } from "./desktopI18n.zhTW";
 type Values = Record<string, string | number | null | undefined>;
 
 export const DESKTOP_EN: Record<string, string> = {
+  "gpt-6-astra 已在 TRAE 国内版 3.4.9 的 Responses 格式完成文件任务验证。建议新增独立模型条目，API 格式选 OpenAI Responses API，模型系列与思考模式保持默认；保留原条目以便对照。":
+    "gpt-6-astra has passed a file task using Responses in TRAE China 3.4.9. Add a separate model entry with OpenAI Responses API and leave the model family and thinking mode at their defaults. Keep the original entry for comparison.",
+  "使用 Responses 配置": "Use Responses configuration",
+  "保存后请重新打开模型设置核对参数，并在新任务里确认选中正确条目。若参数回到原值，不要反复重试；连接检查成功不代表实际任务使用了新参数。旧版看不到 Responses 时请先更新 TRAE。":
+    "Reopen the model settings after saving to verify the values, then select the correct entry in a new task. If values revert, do not keep retrying: a successful connection check does not prove tasks use the new settings. Update TRAE if an older version does not offer Responses.",
   "如果报错提示不支持思考强度 none，请检查 TRAE 模型的高级配置 → 模型系列、思考模式，以及对话中的思考强度。按服务商支持的值调整后再测试；保存成功不代表请求兼容。":
     "If an error says reasoning effort none is unsupported, check the model family and thinking mode in TRAE's advanced model settings, as well as the conversation's reasoning effort. Use values supported by your provider and test again; saving a model does not confirm request compatibility.",
   "连接检查出现 Empty response data 时，先核对完整地址与请求日志，避免反复重试。直接保存只保留配置，仍需用实际任务验证。":

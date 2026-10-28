@@ -146,7 +146,6 @@ function TraeSetupGuideContent({
               onChange={(value) => {
                 if (value === "china" || value === "international") {
                   setEdition(value);
-                  setProtocol("openai-chat");
                 }
               }}
             />
@@ -215,6 +214,25 @@ function TraeSetupGuideContent({
             )}
             {preview.ready && (
               <>
+                {edition === "china" && preview.model === "gpt-6-astra" && (
+                  <div className="space-y-2 rounded-lg border border-sky-500/30 bg-sky-500/5 p-3 text-xs">
+                    <p>
+                      {dt(
+                        "gpt-6-astra 已在 TRAE 国内版 3.4.9 的 Responses 格式完成文件任务验证。建议新增独立模型条目，API 格式选 OpenAI Responses API，模型系列与思考模式保持默认；保留原条目以便对照。",
+                      )}
+                    </p>
+                    {protocol !== "openai-responses" && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={pending}
+                        onClick={() => setProtocol("openai-responses")}
+                      >
+                        {dt("使用 Responses 配置")}
+                      </Button>
+                    )}
+                  </div>
+                )}
                 <p>{dt("所选分组：{{group}}", { group: preview.group })}</p>
                 <ol className="list-decimal space-y-3 pl-5">
                   <li>
@@ -289,6 +307,11 @@ function TraeSetupGuideContent({
               <p>
                 {dt(
                   "连接检查出现 Empty response data 时，先核对完整地址与请求日志，避免反复重试。直接保存只保留配置，仍需用实际任务验证。",
+                )}
+              </p>
+              <p>
+                {dt(
+                  "保存后请重新打开模型设置核对参数，并在新任务里确认选中正确条目。若参数回到原值，不要反复重试；连接检查成功不代表实际任务使用了新参数。旧版看不到 Responses 时请先更新 TRAE。",
                 )}
               </p>
               <p>

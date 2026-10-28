@@ -26,9 +26,10 @@ export const traeTestConnection = (): YuanhengConnectionStatus => ({
 const selection = { model: "astra", group: "premium" };
 
 describe("TRAE official Full URL setup preview", () => {
-  it("limits China protocols without moving the token to a different host", () => {
+  it("offers the verified China protocols without moving the token to a different host", () => {
     expect(traeApiFormats("china").map((entry) => entry.value)).toEqual([
       "openai-chat",
+      "openai-responses",
       "anthropic-messages",
     ]);
     expect(
@@ -38,7 +39,10 @@ describe("TRAE official Full URL setup preview", () => {
         "openai-responses",
         "china",
       ),
-    ).toEqual({ ready: false, reason: "protocol" });
+    ).toMatchObject({
+      ready: true,
+      requestUrl: "https://meta-api.vip/v1/responses",
+    });
     for (const format of traeApiFormats("china")) {
       expect(
         buildTraeSetupPreview(

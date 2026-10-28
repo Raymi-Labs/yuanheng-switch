@@ -1,5 +1,10 @@
 // Generated from the desktop Simplified Chinese source strings, then normalized for Taiwan terminology.
 export const DESKTOP_ZH_TW: Record<string, string> = {
+  "gpt-6-astra 已在 TRAE 国内版 3.4.9 的 Responses 格式完成文件任务验证。建议新增独立模型条目，API 格式选 OpenAI Responses API，模型系列与思考模式保持默认；保留原条目以便对照。":
+    "gpt-6-astra 已在 TRAE 中國版 3.4.9 的 Responses 格式完成檔案任務驗證。建議新增獨立模型項目，API 格式選 OpenAI Responses API，模型系列與思考模式保持預設；保留原項目以便對照。",
+  "使用 Responses 配置": "使用 Responses 設定",
+  "保存后请重新打开模型设置核对参数，并在新任务里确认选中正确条目。若参数回到原值，不要反复重试；连接检查成功不代表实际任务使用了新参数。旧版看不到 Responses 时请先更新 TRAE。":
+    "儲存後請重新開啟模型設定核對參數，並在新任務裡確認選中正確項目。若參數回到原值，不要反覆重試；連線檢查成功不代表實際任務使用了新參數。舊版看不到 Responses 時請先更新 TRAE。",
   "如果报错提示不支持思考强度 none，请检查 TRAE 模型的高级配置 → 模型系列、思考模式，以及对话中的思考强度。按服务商支持的值调整后再测试；保存成功不代表请求兼容。":
     "若錯誤提示不支援思考強度 none，請檢查 TRAE 模型的進階設定 → 模型系列、思考模式，以及對話中的思考強度。按服務商支援的值調整後再測試；儲存成功不代表請求相容。",
   "连接检查出现 Empty response data 时，先核对完整地址与请求日志，避免反复重试。直接保存只保留配置，仍需用实际任务验证。":

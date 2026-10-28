@@ -38,13 +38,15 @@ vi.mock("@/components/desktop/ToolModelPicker", () => ({
   ToolModelPicker: ({
     onChange,
     disabled,
+    models,
   }: {
     onChange: (pair: { model: string; group: string }) => void;
     disabled: boolean;
+    models: string[];
   }) => (
     <button
       disabled={disabled}
-      onClick={() => onChange({ model: "astra", group: "premium" })}
+      onClick={() => onChange({ model: models[0], group: "premium" })}
     >
       选择测试模型
     </button>
@@ -76,7 +78,7 @@ beforeEach(() => {
 });
 
 describe("TRAE assisted setup", () => {
-  it("switches edition sources and clears an international-only protocol", async () => {
+  it("switches edition sources while preserving a protocol both editions support", async () => {
     render(<TraeSetupGuide connection={connection()} />);
     open();
     choose();
@@ -100,15 +102,12 @@ describe("TRAE assisted setup", () => {
     );
     pick("TRAE 版本", "国内版");
     expect(
-      screen.queryByText("https://meta-api.vip/v1/responses"),
-    ).not.toBeInTheDocument();
-    expect(
-      screen.getByText("https://meta-api.vip/v1/chat/completions"),
+      screen.getByText("https://meta-api.vip/v1/responses"),
     ).toBeInTheDocument();
     fireEvent.click(screen.getByRole("combobox", { name: "TRAE API 格式" }));
     expect(
       screen.queryByRole("option", { name: "OpenAI Responses API" }),
-    ).not.toBeInTheDocument();
+    ).toBeInTheDocument();
     fireEvent.click(
       screen.getByRole("option", {
         name: "OpenAI Chat Completions",
@@ -162,6 +161,50 @@ describe("TRAE assisted setup", () => {
     expect(
       screen.getByText(/按服务商支持的值调整后再测试/),
     ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "使用 Responses 配置" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("offers the verified Astra route on explicit selection without writing configuration", () => {
+    const value = {
+      ...connection(),
+      models: ["gpt-6-astra"],
+      terminalModels: ["gpt-6-astra"],
+      modelGroups: { "gpt-6-astra": ["premium"] },
+    };
+    const view = render(<TraeSetupGuide connection={value} />);
+    open();
+    expect(
+      screen.queryByText(/已在 TRAE 国内版 3.4.9/),
+    ).not.toBeInTheDocument();
+    choose();
+    expect(screen.getByText(/保留原条目以便对照/)).toBeInTheDocument();
+    expect(
+      screen.getByText("https://meta-api.vip/v1/chat/completions"),
+    ).toBeInTheDocument();
+    fireEvent.click(
+      screen.getByRole("button", { name: "使用 Responses 配置" }),
+    );
+    expect(
+      screen.getByText("https://meta-api.vip/v1/responses"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/连接检查成功不代表实际任务使用了新参数/),
+    ).toBeInTheDocument();
+    expect(mocks.open).not.toHaveBeenCalled();
+    expect(mocks.copy).not.toHaveBeenCalled();
+    view.rerender(
+      <TraeSetupGuide
+        connection={{ ...value, modelGroups: { "gpt-6-astra": [] } }}
+      />,
+    );
+    expect(
+      screen.queryByText(/已在 TRAE 国内版 3.4.9/),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "复制 Model ID" }),
+    ).not.toBeInTheDocument();
   });
 
   it("opens only explicit official pages and the current origin token page on click", async () => {

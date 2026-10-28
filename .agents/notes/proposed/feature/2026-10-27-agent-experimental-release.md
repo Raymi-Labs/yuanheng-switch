@@ -8,7 +8,7 @@ Status: proposed
 
 ## Proposal
 
-用户最新授权在修好后推送GitHub、合并main和发布安装包。工作基线已合入伙伴v0.1.113的公司仓库迁移，主仓库为Raymi-Labs/yuanheng-switch，候选版本0.1.114。[国内版辅助入口](../../implemented/feature/2026-10-27-trae-china-edition.md)已完成源码及隔离回归；原生参数兼容、文件任务和取消仍需验收。可以先推送草稿PR跑CI，未满足验收前不合并或创建稳定标签。
+用户最新授权在修好后推送GitHub、合并main和发布安装包。工作基线已合入伙伴v0.1.113的公司仓库迁移，主仓库为Raymi-Labs/yuanheng-switch，候选版本0.1.114。[国内版辅助入口](../../implemented/feature/2026-10-27-trae-china-edition.md)已完成源码及隔离回归；2026-10-28[原生Responses路径](../../implemented/bug-fix/2026-10-28-trae-native-responses.md)完成Astra文件任务、重开后调用和原生停止，不能替代供应商侧停止计费/其他平台/自动导入证据。可以先推送草稿PR跑CI，最终Accio Core原生与共同回归等门槛未满足前不合并或创建稳定标签。
 
 保留伙伴v0.1.112的账号传输、错误反馈及Core存活保护。先保存本地完整可恢复快照再快进同步；合并冲突同时保留账号传输模块和Accio模块，不覆盖新Core监督实现。
 
@@ -41,6 +41,8 @@ TRAE真实原生请求与填写参数一致，不能用自动化失败或模型�
 实验功能仍受官方版本变化影响；升级无法识别时明确拒绝，不误接官方计费路径。TRAE原生配置服务的密钥处理需用户明确同意，不能暗中从日志提取官方登录token或把真实元衡Key提交第三方。署名、版权和既有配置保持。
 
 ## Local verification so far
+
+最新进展：国内版Responses原生通过范围及旧配置问题见[协议验证](../../implemented/bug-fix/2026-10-28-trae-native-responses.md)，元衡向导补全国内版协议并给Astra明确迁移说明。未删除旧条目、未改官方程序/生产渠道；后续保留自动导入、跨模型/其他平台及最终Accio Core缺口。下列旧时间点的失败不再代表新Responses路径状态。
 
 2026-10-28草稿PR的Linux/Windows检查暴露相同的10个编译告警：仅供macOS启动Accio的函数、导入和锁被无条件编入其他平台。修复按真实调用方设置平台条件，保留所有平台的配置/撤销/认证逻辑以及Unix合成子进程测试；不关闭Clippy告警。安装路径测试改用本平台临时绝对路径，避免Windows把Unix示例误判为相对路径。本地默认及实验lib Clippy、Rust格式和57项Accio回归通过。修复提交8947c0bc已推送同一草稿PR #71，CI 40631829836的前端、macOS、Linux、Windows全部成功，笔记校验成功；这不代替下面仍未完成的原生验收。
 

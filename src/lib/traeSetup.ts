@@ -23,13 +23,12 @@ export const TRAE_EDITIONS = {
 export type TraeEdition = keyof typeof TRAE_EDITIONS;
 
 export function traeApiFormats(edition: TraeEdition) {
-  return TRAE_API_FORMATS.filter(
-    (format) =>
-      edition === "international" || format.value !== "openai-responses",
-  );
+  return Object.prototype.hasOwnProperty.call(TRAE_EDITIONS, edition)
+    ? [...TRAE_API_FORMATS]
+    : [];
 }
 
-// Verified against the signed international TRAE 3.6.4 model dialog. Always
+// Verified in international TRAE 3.6.4 and China 3.4.9/build2.3.97430. Always
 // use Full URL: its base-URL suffixes differ between OpenAI and Anthropic.
 export const TRAE_API_FORMATS = [
   {
