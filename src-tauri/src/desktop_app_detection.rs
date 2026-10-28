@@ -239,6 +239,14 @@ fn custom_resolution(tool: &str, custom_path: Option<&str>) -> Option<DesktopApp
         return None;
     }
     let canonical = validate_custom_desktop_app_path(tool, raw).ok()?;
+    // A selected Web-only source remains usable by the explicit Web command,
+    // but cannot complete desktop installation detection or mask a native app.
+    if tool == "dsh"
+        && is_dsh_source(&canonical)
+        && !canonical.join("apps/desktop/package.json").is_file()
+    {
+        return None;
+    }
     let display = canonical.to_string_lossy().to_string();
     Some(DesktopAppResolution {
         install_path: Some(display.clone()),
@@ -983,6 +991,10 @@ mod tests {
         .unwrap();
         assert!(is_dsh_source(dir.path()));
         assert!(validate_custom_desktop_app_path("dsh", dir.path().to_str().unwrap()).is_ok());
+        let desktop = discover_desktop_app("dsh", dir.path().to_str());
+        assert!(!desktop.custom_path_valid);
+        assert_ne!(desktop.install_path.as_deref(), dir.path().to_str());
+        assert!(dir.path().join("apps/cli/src/bin.ts").exists());
         std::fs::write(dir.path().join("package.json"), r#"{"name":"unrelated"}"#).unwrap();
         assert!(!is_dsh_source(dir.path()));
     }

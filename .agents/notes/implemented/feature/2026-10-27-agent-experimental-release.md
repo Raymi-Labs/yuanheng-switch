@@ -8,7 +8,7 @@ Status: implemented
 
 ## Decision
 
-用户授权修好后推送GitHub、合并main和发布安装包。工作基线合入伙伴v0.1.113的公司仓库迁移，主仓库为Raymi-Labs/yuanheng-switch，版本0.1.114。[国内版辅助入口](2026-10-27-trae-china-edition.md)与[原生Responses路径](../bug-fix/2026-10-28-trae-native-responses.md)完成Astra文件任务、重开后调用和原生停止。最终Accio Core也完成原生文件往返；按下述明确实验范围交付，安装包签名、公证、完整性与分发另由发布工作流验证，不以本笔记代替发布成功。
+用户授权修好后推送GitHub、合并main和发布安装包。工作基线合入伙伴v0.1.113的公司仓库迁移及v0.1.114的DSH官方桌面安装，主仓库为Raymi-Labs/yuanheng-switch，本次版本顺延0.1.115。[国内版辅助入口](2026-10-27-trae-china-edition.md)与[原生Responses路径](../bug-fix/2026-10-28-trae-native-responses.md)完成Astra文件任务、重开后调用和原生停止。最终Accio Core也完成原生文件往返；按下述明确实验范围交付，安装包签名、公证、完整性与分发另由发布工作流验证，不以本笔记代替发布成功。
 
 保留伙伴v0.1.112的账号传输、错误反馈及Core存活保护。先保存本地完整可恢复快照再快进同步；合并冲突同时保留账号传输模块和Accio模块，不覆盖新Core监督实现。
 
@@ -33,6 +33,8 @@ Accio只在Apple Silicon Mac的实验构建中启用，前端、GUI和Core的fea
 - 明确实验范围和平台，完整回归后发布：保留已验证能力、控制缺口影响，采用。
 
 ## Verification
+
+提交前main新增13e8d48d的DSH官方桌面安装路线，原0.1.114候选顺延0.1.115。冲突按能力分别合并：桌面下载表保留Accio及DSH，安装观察保留TRAE扩展类型/Accio设备信息告知与DSH芯片选择，语言表及测试同时保留双方。伙伴DSH行为优先，未改Accio协议、Core运行时或认证代码；合并后全量前端162文件1127项、实验共享入口77项、实验feature Rust2583项通过/4项既有忽略，类型、Clippy及生产renderer构建通过。公告保留伙伴0.1.114为上一版，不覆盖其发布标签。
 
 提交8e5f00f4的前端及Windows/Linux/macOS CI全部通过；前端161文件1125项、类型与生产renderer构建通过；默认Rust单元分别2527/2536/2573项通过并含集成测试，macOS实验Accio57项通过。此前实验feature全量2581项通过/4项既有忽略。构建契约3项覆盖错误架构拒绝及前端/GUI/Core开关一致性。
 

@@ -1,5 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 
+import { useDshDesktopDownload } from "./useDshDesktopDownload";
+import { toast } from "@/lib/toast";
+import { dt } from "./desktopI18n";
+
 import { settingsApi } from "@/lib/api";
 import type { ToolVersionInfo } from "@/lib/api/settings";
 import type { YuanhengToolId } from "@/lib/api/yuanheng";
@@ -7,6 +11,8 @@ import { ensureClaudeWorkspaceReady } from "@/lib/claudeWorkspaceSetup";
 
 const OFFICIAL_DOWNLOAD_HOSTS = new Set([
   "claude.ai",
+  "www.deepseek.com",
+  "download.deepseek.com",
   "openai.com",
   "www.openai.com",
   "codebuddy.cn",
@@ -80,6 +86,7 @@ function pause(signal: AbortSignal): Promise<void> {
 
 /** Opening a web page is not a download task. Observe local installation only. */
 export function useDesktopInstallFlow() {
+  const dshDownload = useDshDesktopDownload();
   const [monitoringApps, setMonitoringApps] = useState<Set<DesktopInstallTool>>(
     () => new Set(),
   );
@@ -137,6 +144,12 @@ export function useDesktopInstallFlow() {
         );
         if (!accepted || controller.signal.aborted) return stopped();
       }
+      if (app === "dsh") {
+        const selected = await dshDownload.choose(controller.signal);
+        if (!selected || controller.signal.aborted) return stopped();
+        downloadUrl = selected;
+        assertOfficialDownloadUrl(downloadUrl);
+      }
       if (app === "claude-desktop") {
         await observe(ensureClaudeWorkspaceReady(), controller.signal);
         if (controller.signal.aborted) return stopped();
@@ -148,6 +161,11 @@ export function useDesktopInstallFlow() {
         controller.abort();
       }, INSTALL_MONITOR_TIMEOUT_MS);
       await observe(settingsApi.openExternal(downloadUrl), controller.signal);
+      if (app === "dsh" && !controller.signal.aborted) {
+        toast.info(
+          dt("已打开 DSH 官方安装包，完成安装后将自动检测、配置并启动桌面端。"),
+        );
+      }
       while (!controller.signal.aborted) {
         const tools = await observe(
           settingsApi.getInstalledToolVersions([versionTarget]),
@@ -172,5 +190,11 @@ export function useDesktopInstallFlow() {
       }
     }
   };
-  return { monitoringApps, openAndMonitor, stop, stopAll };
+  return {
+    monitoringApps,
+    openAndMonitor,
+    stop,
+    stopAll,
+    downloadDialog: dshDownload.dialog,
+  };
 }

@@ -6,6 +6,8 @@ Status: implemented
 
 工作台误将 TOOL_VERSION_TARGETS 当安装能力，DSH 请求在后台白名单变空；工具管理没有同一错误按钮。已有适配要求 apps/desktop，实际用户源码只有 CLI/Web。用户需要从元衡完成安装、配置和启动，不能以安装命令退出代替可用。
 
+默认安装、检测和启动已由[官方桌面端迁移](../feature/2026-10-28-dsh-official-desktop.md)部分取代；本篇的私有运行时只保留给已有 Web 路径，不再作为桌面安装/更新入口。
+
 ## Decision
 
 两个入口共用显式安装能力。DSH 使用官方 npm 包固定版本 0.2.0-rc.2 和独立 Node 24.14.0，Node 归档按官方公布的 SHA256 固定校验。安装在元衡 tools 目录的临时目录运行，复用现有任务锁、取消和进程组监督；成功验证版本后原子发布路径标记，失败不替换已有安装。npm 禁止 lifecycle scripts、audit/fund，不修改全局 PATH 或 Node。安装后自动选择托管路径，再复用现有事务配置，然后请求启动 Web；配置失败不得启动或声称全部就绪。

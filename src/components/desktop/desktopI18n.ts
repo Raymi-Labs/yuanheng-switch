@@ -102,6 +102,21 @@ export const DESKTOP_EN: Record<string, string> = {
   "复制失败，请手动选中复制。":
     "Copy failed. Select and copy the text manually.",
   "打开失败，请重试。": "Could not open the page. Try again.",
+  "DSH 官方桌面安装包目前支持 Windows 和 macOS。":
+    "Official DSH desktop installers currently support Windows and macOS.",
+  "选择 DSH 的 Mac 版本": "Choose DSH for your Mac",
+  "点击左上角苹果菜单 → 关于本机，查看芯片或处理器。":
+    "Open the Apple menu → About This Mac to check your chip or processor.",
+  "Apple 芯片版（M 系列）": "Apple silicon (M series)",
+  "Intel 芯片版": "Intel version",
+  "下载后打开 DMG，将 DSH 拖入“应用程序”；元衡会自动检测。":
+    "Open the downloaded DMG and drag DSH into Applications. YuanHeng will detect it automatically.",
+  "已打开 DSH 官方安装包，完成安装后将自动检测、配置并启动桌面端。":
+    "Opened the official DSH installer download. After installation, YuanHeng will detect, configure and launch the desktop app.",
+  "DSH 已配置，正在打开桌面端": "DSH is configured. Opening the desktop app.",
+  "请在 DSH 桌面端菜单中检查更新。":
+    "Check for updates in the DSH desktop app menu.",
+
   图片分组: "Image group",
   "{{tool}} 图片分组": "{{tool}} image group",
   使用聊天连接: "Use chat connection",

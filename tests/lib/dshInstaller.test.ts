@@ -3,12 +3,14 @@ import { readFileSync } from "node:fs";
 import {
   canInstallTool,
   TOOL_COMMANDS,
+  DESKTOP_DOWNLOAD_URLS,
   TOOL_VERSION_TARGETS,
 } from "@/components/desktop/ToolSetupGrid";
 
 describe("DSH install contract", () => {
   it("exposes a real installer in both desktop surfaces", () => {
-    expect(TOOL_COMMANDS.dsh).toBe("dsh");
+    expect(TOOL_COMMANDS.dsh).toBeUndefined();
+    expect(DESKTOP_DOWNLOAD_URLS.dsh).toBe("https://www.deepseek.com/harness/");
     expect(TOOL_VERSION_TARGETS.dsh).toBe("dsh");
     expect(canInstallTool("dsh")).toBe(true);
     expect(canInstallTool("claude-desktop")).toBe(true);

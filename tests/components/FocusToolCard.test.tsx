@@ -38,6 +38,7 @@ function createSwitcher(
     rows: [],
     runnableRows: [],
     installedApps: new Set(),
+    downloadDialog: <></>,
     models: {},
     groups: {},
     reasoning: {},
@@ -133,7 +134,9 @@ describe("FocusToolCard", () => {
           onOpenTools={onOpenTools}
         />,
       );
-      fireEvent.click(screen.getByText("安装与配置"));
+      fireEvent.click(
+        screen.getByText(app === "dsh" ? "官方下载" : "安装与配置"),
+      );
       expect(switcher.install).toHaveBeenCalledWith(app);
       expect(onOpenTools).not.toHaveBeenCalled();
     },
@@ -223,7 +226,9 @@ describe("FocusToolCard", () => {
       verify();
       await job;
     });
-    fireEvent.click(screen.getByRole("button", { name: "一键安装 DSH" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "打开 DSH 官方下载页" }),
+    );
     expect(switcher.install).toHaveBeenCalledOnce();
   });
 
