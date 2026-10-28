@@ -474,7 +474,9 @@ function ToolSetupGridContent({
           const configured = await configureApps([app], canContinue);
           if (!canContinue()) return;
           if (configured && app === "dsh") {
-            await yuanhengApi.launchTool(app);
+            // The official installer may already have opened DSH before we wrote its profile.
+            await yuanhengApi.launchTool(app, true);
+            clearRestartRequired(app);
             toast.success(dt("DSH 已配置，正在打开桌面端"));
           }
           if (!configured) {

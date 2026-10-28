@@ -1175,6 +1175,7 @@ describe("App integration with MSW", { timeout: 15_000 }, () => {
           expect(getConfiguredToolCalls()).toContainEqual(["dsh"]),
         );
         await waitFor(() => expect(getLaunchedToolCalls()).toContain("dsh"));
+        expect(getRestartedToolCalls()).toContain("dsh");
         expect(toastErrorMock).not.toHaveBeenCalled();
       } finally {
         userAgent.mockRestore();
