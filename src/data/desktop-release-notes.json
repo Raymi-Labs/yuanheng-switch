@@ -4,7 +4,7 @@
     {
       "version": "0.1.114",
       "publishedAt": "2026-10-28T00:00:00.000Z",
-      "content": "【元衡客户端更新公告｜v0.1.114】\n\n• 新增 TRAE 实验辅助配置入口，可选择国内版或国际版，查看对应协议、地址和模型参数；仍需在 TRAE 内登录、保存并验证。Mac 分别检测两版路径并校验官方签名。\n• 补充思考参数、空响应及文件审批问题的排查说明。模型保存不代表接通，请先用小任务验证。\n• Apple 芯片 Mac 新增 Accio 实验入口，仅面向已验证的官方版本；官方电商云端工具执行尚未支持。\n\n提供 Windows x64、Apple 芯片 Mac 和 Intel Mac 安装包；macOS 继续使用 Apple Developer ID 签名和 Apple 公证。"
+      "content": "【元衡客户端更新公告｜v0.1.114】\n\n• 新增 TRAE 实验辅助配置，国内版与国际版均可选择 Responses 等协议；仍需在官方 TRAE 登录并保存模型。Mac 分别检测两版路径并校验官方签名。\n• 修正国内版缺少 Responses 选项的问题，新增 Astra 配置指引，已验证文件读写、修改和重开后使用，避免反复调整不生效的旧配置。\n• Apple 芯片 Mac 新增 Accio 实验入口，支持已验证版本的元衡模型与本地文件任务；官方电商云端工具执行尚未支持。\n• 补充配置核对、空响应及文件审批排查说明，保持现有 Agent 配置兼容。\n\n提供 Windows x64、Apple 芯片 Mac 和 Intel Mac 安装包；macOS 继续使用 Apple Developer ID 签名和 Apple 公证。新用户请前往元衡中转首页下载，已安装用户可在客户端检查更新。"
     },
     {
       "version": "0.1.113",

@@ -184,7 +184,9 @@ Claude diagnostic persistence uses a bounded background writer, not disk I/O on 
 
 [Skill](../src-tauri/src/resources/builtin_skills/meta-api-imagegen/SKILL.md) 允许隐式调用，按宿主支持的图片/结果预览展示后继续任务；实际选择由宿主 Agent 决定。纯文本模型不强制视觉检查。OpenCode 发现其他应用同名副本时，宿主标记检查会拒绝使用该绑定，需选择自己的安装路径。Codex 仅在接口明确不支持时最多一次兼容回退，网络/业务/保存失败不重复生成，最终图片与 partial 区分。Node 模拟 HTTP、Rust 安装/路由和界面回归不代表原生 WorkBuddy 办公导入或真实付费生成验收。原始取舍见[自动图像技能](../.agents/notes/implemented/feature/2026-10-23-automatic-image-skill.md)，多应用扩展见[决策笔记](../.agents/notes/implemented/feature/2026-10-23-multi-app-image-skill.md)，独立图片分组及实际权限检查见[修复笔记](../.agents/notes/implemented/bug-fix/2026-10-23-independent-image-group.md)。
 
-## Accio Work 主模型原型（2026-10-18，默认关闭）
+## Accio Work 实验接入（Apple Silicon Mac）
+
+v0.1.114按[实验交付范围](../.agents/notes/implemented/feature/2026-10-27-agent-experimental-release.md)仅对Apple Silicon发布构建启用，普通开发构建仍默认关闭。最终候选Core配合官方0.35.3、鹈鹕王Astra完成原生read/write/read/edit/read：随机标记一致、total=123、verified=true、input/guard不变，6次模型请求全部200且正输出，退出授权撤销与零遗留通过。TRAE原生表单、Accio官方电商云端执行、其他系统和跨模型仍按各自限制说明。下文早期原型与失败记录保留历史边界。
 
 2026-10-26本地集成以伙伴v0.1.107为基准：保留正式20→21技能迁移，使用21→22同时补齐图像技能列及Accio设备表，兼容曾使用实验21数据库的设备。账号持久化同时执行图片连接与Accio账号边界，Core保留两套独立管理入口；同账号刷新不撤销，换号/主动断开后旧连接不能恢复。迁移失败事务回滚、历史结构收敛和账号组合回归见[兼容迁移决定](../.agents/notes/implemented/bug-fix/2026-10-26-accio-upstream-schema-compatibility.md)。只修改源码，未运行候选GUI/Core或迁移用户数据库。
 

@@ -16,7 +16,7 @@ Status: implemented
 
 - [国内版入口](../feature/2026-10-27-trae-china-edition.md)：替代国内版拒绝Responses的限制，保留签名、域名、密钥和版本边界。
 - [原生集成](../../proposed/feature/2026-10-26-trae-native-integration.md)：部分重叠；本篇仅处理参数兼容，不能宣告自动配置/所有平台完成。
-- [实验发布](../../proposed/feature/2026-10-27-agent-experimental-release.md)：仍负责最终Core/原生/发布验收门槛。
+- [实验发布](../../implemented/feature/2026-10-27-agent-experimental-release.md)：仍负责最终Core/原生/发布验收门槛。
 
 ## Alternatives considered
 

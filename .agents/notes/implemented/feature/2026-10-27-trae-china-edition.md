@@ -16,7 +16,7 @@ Status: implemented
 
 - [原辅助入口](../../implemented/feature/2026-10-26-trae-official-custom-models.md)：扩展发行版范围，原国际版的身份和路径隔离仍保留。本篇替代“仅国际版”限制，不替代人工配置的边界。
 - [完整接入提案](../../proposed/feature/2026-10-26-trae-native-integration.md)：仍有自动化和取消验收缺口；国内版可安装不能证明这些能力。
-- [实验发布](../../proposed/feature/2026-10-27-agent-experimental-release.md)：本轮只做本地修改，发布门槛仍由该篇保留。
+- [实验发布](../../implemented/feature/2026-10-27-agent-experimental-release.md)：本轮只做本地修改，发布门槛仍由该篇保留。
 
 ## Alternatives considered
 

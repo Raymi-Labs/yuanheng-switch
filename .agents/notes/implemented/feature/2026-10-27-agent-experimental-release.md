@@ -1,27 +1,27 @@
 # Agent Note: TRAE 与 Accio 首版实验接入发布范围
 
-Status: proposed
+Status: implemented
 
 ## Problem
 
 用户要求TRAE跑通后，将TRAE与Accio一起推送、合并并发布安装包，接受两项新能力先试用，但既有Agent不能因此退化。此前全面自动接入提案范围更大，不能因为使用人数少而忽略共享Core、数据库迁移和凭据边界。发布前主仓库已从本地基线v0.1.107更新到v0.1.112。
 
-## Proposal
+## Decision
 
-用户最新授权在修好后推送GitHub、合并main和发布安装包。工作基线已合入伙伴v0.1.113的公司仓库迁移，主仓库为Raymi-Labs/yuanheng-switch，候选版本0.1.114。[国内版辅助入口](../../implemented/feature/2026-10-27-trae-china-edition.md)已完成源码及隔离回归；2026-10-28[原生Responses路径](../../implemented/bug-fix/2026-10-28-trae-native-responses.md)完成Astra文件任务、重开后调用和原生停止，不能替代供应商侧停止计费/其他平台/自动导入证据。可以先推送草稿PR跑CI，最终Accio Core原生与共同回归等门槛未满足前不合并或创建稳定标签。
+用户授权修好后推送GitHub、合并main和发布安装包。工作基线合入伙伴v0.1.113的公司仓库迁移，主仓库为Raymi-Labs/yuanheng-switch，版本0.1.114。[国内版辅助入口](2026-10-27-trae-china-edition.md)与[原生Responses路径](../bug-fix/2026-10-28-trae-native-responses.md)完成Astra文件任务、重开后调用和原生停止。最终Accio Core也完成原生文件往返；按下述明确实验范围交付，安装包签名、公证、完整性与分发另由发布工作流验证，不以本笔记代替发布成功。
 
 保留伙伴v0.1.112的账号传输、错误反馈及Core存活保护。先保存本地完整可恢复快照再快进同步；合并冲突同时保留账号传输模块和Accio模块，不覆盖新Core监督实现。
 
-首版TRAE复用已完成官方自定义模型辅助入口，标为实验接入，明确仍需在TRAE原生保存、实际分组由Key决定；不冒充自动导入成功。发布前仍需完成与真实填写说明一致的原生请求路径验证。原本的临时loopback已验证文件任务，但不能替代HTTPS直连证据，也不能把本机路径取消失败说成所有TRAE请求都失败。
+首版TRAE复用已完成官方自定义模型辅助入口，标为实验接入，明确仍需在TRAE原生保存、实际分组由Key决定；不冒充自动导入成功。国内版正式HTTPS Responses已与向导说明一致完成原生验证。旧loopback证据保留独立边界，不把其取消失败说成所有TRAE请求都失败。
 
 Accio只在Apple Silicon Mac的实验构建中启用，前端、GUI和Core的feature一致；Windows/Intel保留原Agent入口，不开放未验收Accio。保留精确官方签名、已支持版本及正常退出后再受控启动的限制。显著说明本地模型/文件功能可试用、官方电商云端工具执行尚未支持。只有用户主动选择/配置Accio才连接，不自动迁移其他Agent配置。
 
-不把用户日常VM设置、登录资料、临时测试脚本与个人记录加入发布包或Git提交。真实测试使用合成内容，发布版本以最终共同代码的回归和原生证据为准。推送和发布已授权，但TRAE尚未跑通不能先发稳定标签。
+不把用户日常VM设置、登录资料、临时测试脚本与个人记录加入发布包或Git提交。真实测试使用合成内容，以最终共同代码的回归和原生证据限定通过范围。
 
 ## Existing note review
 
 - [TRAE辅助入口](../../implemented/feature/2026-10-26-trae-official-custom-models.md)复用，不翻转为未经验证的自动写入。
-- [TRAE完整接入](2026-10-26-trae-native-integration.md)保留未完成自动化与取消缺口；本篇决定实验交付范围，不提前宣告原提案完成。
+- [TRAE完整接入](../../proposed/feature/2026-10-26-trae-native-integration.md)保留自动化、跨模型及供应商侧取消验证缺口；本篇决定实验交付范围，不提前宣告原提案完成。
 - [Accio受控入口](../../implemented/feature/2026-10-21-accio-verified-desktop-entry.md)复用，其禁止正式包开放的旧边界由本篇在验收后仅对已验证平台替代。
 - [v21数据库兼容](../../implemented/bug-fix/2026-10-26-accio-upstream-schema-compatibility.md)继续保留schema22及两种旧库迁移测试；不对生产数据库直接操作。
 
@@ -32,15 +32,27 @@ Accio只在Apple Silicon Mac的实验构建中启用，前端、GUI和Core的fea
 - 只提交源码、正式包仍隐藏两项：最保守，却不能满足用户要求的可用试用入口，不以此报发布完成。
 - 明确实验范围和平台，完整回归后发布：保留已验证能力、控制缺口影响，采用。
 
-## Acceptance criteria
+## Verification
 
-TRAE真实原生请求与填写参数一致，不能用自动化失败或模型自述代替。Accio在最终Core下完成基础原生请求；共享账号、Core恢复、数据库/备份、转发、现有Agent前后端回归通过。构建feature一致且错误平台拒绝。中文提交、主仓库PR、main合并、三平台签名包/更新清单及分发成功分别核验。测试结束临时进程为零，用户日常实例保持。
+提交8e5f00f4的前端及Windows/Linux/macOS CI全部通过；前端161文件1125项、类型与生产renderer构建通过；默认Rust单元分别2527/2536/2573项通过并含集成测试，macOS实验Accio57项通过。此前实验feature全量2581项通过/4项既有忽略。构建契约3项覆盖错误架构拒绝及前端/GUI/Core开关一致性。
 
-## Risks
+2026-10-28最终Core SHA256 `631aa1893988dcfa8a564f2f61d1569be4cf225f73c06b6f30b48058bfceba5f`在独立QA VM经产品start和认证launch接口运行官方Accio0.35.3。原生选择gpt-6-astra与合成工作目录后一次任务完成read/write/read/edit/read；随机marker一致、total=123、verified=true，input/guard哈希不变。当前启动范围内6条请求全部Astra、HTTP200、正输出tokens，结束active=0。旧GUI因schema22拒绝降级属于预期保护；本次证明最终Core原生路径，未冒充全新GUI首次登录验收。
 
-实验功能仍受官方版本变化影响；升级无法识别时明确拒绝，不误接官方计费路径。TRAE原生配置服务的密钥处理需用户明确同意，不能暗中从日志提取官方登录token或把真实元衡Key提交第三方。署名、版权和既有配置保持。
+退出后旧能力401、active撤销、Accio/helper/测试Core和监听为零；QA VM正常关机，日常VM保持。中文提交、主仓库PR、main合并、签名安装包/更新清单及分发成功各自核验。历史失败与修正保留在下节，不代替最终成功证据。
 
-## Local verification so far
+## Consequences
+
+用户可以先使用已验证的TRAE正式Responses路径与Accio本地模型/文件能力；代价是TRAE仍需原生表单保存，Accio只开放Apple Silicon及精确版本，官方电商云端工具执行暂不支持。跨模型/所有平台/供应商侧取消计费未完整验证，不宣传全功能。未知官方版本明确拒绝，不误接官方计费路径。TRAE原生配置服务的密钥处理需用户明确同意，不能暗中从日志提取官方登录token。署名、版权和既有配置保持。
+
+## Earlier verification attempts
+
+以下为最终原生成功前的失败和环境恢复记录；当前结论以上文Verification为准。
+
+2026-10-28最后Core复验：提交8e5f00f4的三平台CI、前端及笔记检查全部成功。重新从该提交构建实验Core，SHA256 `631aa1893988dcfa8a564f2f61d1569be4cf225f73c06b6f30b48058bfceba5f`。独立Accio QA虚拟机的旧挂起状态两种启动方式都报VZErrorDomain12 invalid argument；完整保留磁盘/NVRAM/配置/挂起内存的APFS克隆并备份原挂起文件后正常启动，原登录与Astra/鹈鹕王配置保留。用户日常虚拟机未停止、未重启、未用于本次验收。
+
+只在独立QA VM通过产品Core stop/start安装候选并核对运行哈希、health及原配置。当前Core认证管理入口启动官方Accio0.35.3返回200，进程父子关系为候选Core→Accio，模型目录8项与保存配置一致。图形控制Tart反复screen capture failed，宿主TRAE对照可读取；改用系统屏幕共享连接QA时工具明确返回Mac locked、自动解锁失败。未绕过锁屏、未发送原生文件任务，不把受控启动成功视为最终推理通过。
+
+收尾确认活跃请求0，退出准确Core拥有的Accio，旧能力地址401、active撤销；Accio及helper为0，候选Core已停止。原生日志查询确认本轮新Accio模型记录0，合成输入/guard哈希不变、result不存在。首次汇总SQL语法错误已修正重查；Ruby Socket探测与实际监听不一致，不将其视为通过，最终lsof无监听、curl连接拒绝共同验证15721退出。独立QA VM正常关机，候选Core与数据库/旧二进制备份留在该环境便于续验。待用户解锁后恢复原生文件任务，仍未合并或发稳定标签。
 
 最新进展：国内版Responses原生通过范围及旧配置问题见[协议验证](../../implemented/bug-fix/2026-10-28-trae-native-responses.md)，元衡向导补全国内版协议并给Astra明确迁移说明。未删除旧条目、未改官方程序/生产渠道；后续保留自动导入、跨模型/其他平台及最终Accio Core缺口。下列旧时间点的失败不再代表新Responses路径状态。
 
