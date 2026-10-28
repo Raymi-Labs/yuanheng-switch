@@ -1,5 +1,21 @@
 // Japanese translations for the desktop Simplified Chinese source strings.
 export const DESKTOP_JA: Record<string, string> = {
+  "DSH 官方桌面安装包目前支持 Windows 和 macOS。":
+    "DSH の公式デスクトップ版は現在 Windows と macOS に対応しています。",
+  "选择 DSH 的 Mac 版本": "DSH の Mac 版を選択",
+  "点击左上角苹果菜单 → 关于本机，查看芯片或处理器。":
+    "Apple メニュー → この Mac についてでチップまたはプロセッサを確認してください。",
+  "Apple 芯片版（M 系列）": "Apple シリコン版（M シリーズ）",
+  "Intel 芯片版": "Intel 版",
+  "下载后打开 DMG，将 DSH 拖入“应用程序”；元衡会自动检测。":
+    "DMG を開いて DSH を「アプリケーション」にドラッグすると、元衡が自動検出します。",
+  "已打开 DSH 官方安装包，完成安装后将自动检测、配置并启动桌面端。":
+    "DSH の公式インストーラーを開きました。インストール後に自動検出、設定、起動します。",
+  "DSH 已配置，正在打开桌面端":
+    "DSH を設定しました。デスクトップアプリを開いています",
+  "请在 DSH 桌面端菜单中检查更新。":
+    "DSH デスクトップアプリのメニューから更新を確認してください。",
+
   图片分组: "画像グループ",
   "{{tool}} 图片分组": "{{tool}} の画像グループ",
   使用聊天连接: "チャット接続を使用",

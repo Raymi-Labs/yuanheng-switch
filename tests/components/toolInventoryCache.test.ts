@@ -29,6 +29,18 @@ describe("toolInventoryCache", () => {
     vi.restoreAllMocks();
   });
 
+  it("does not reuse a pre-desktop DSH inventory after upgrade", () => {
+    window.localStorage.setItem(
+      "yuanheng.desktop.tool-inventory.v1",
+      JSON.stringify({
+        savedAt: Date.now(),
+        targets: ["dsh"],
+        data: [{ ...inventory[0], name: "dsh", detection_source: "managed" }],
+      }),
+    );
+    expect(readToolInventoryCache(["dsh"])).toBeUndefined();
+  });
+
   it("reuses a fresh cache only for the same target set", () => {
     writeToolInventoryCache(["codex"], inventory);
 

@@ -1,7 +1,7 @@
 import type { ToolVersionInfo } from "@/lib/api/settings";
 import { invalidateToolDetection } from "@/lib/toolDetectionEpoch";
 
-const CACHE_KEY = "yuanheng.desktop.tool-inventory.v1";
+const CACHE_KEY = "yuanheng.desktop.tool-inventory.v2";
 export const TOOL_INVENTORY_CACHE_TTL_MS = 5 * 60_000;
 const CACHE_MAX_AGE_MS = 7 * 24 * 60 * 60_000;
 

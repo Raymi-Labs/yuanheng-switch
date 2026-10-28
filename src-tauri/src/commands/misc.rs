@@ -360,6 +360,9 @@ pub async fn run_tool_lifecycle_action(
     progress.stage("preparing");
     let action = ToolLifecycleAction::from_str(&action)?;
     if tools.iter().any(|tool| tool == "dsh") {
+        if matches!(action, ToolLifecycleAction::Install) {
+            return Err("请在工具管理中下载并安装 DSH 官方桌面端".into());
+        }
         if tools != ["dsh"] {
             return Err("DSH 请单独安装或更新".into());
         }
@@ -458,8 +461,8 @@ fn native_install_supported(_tool: &str) -> bool {
 
 #[tauri::command]
 pub fn native_tool_install_supported(tools: Vec<String>) -> bool {
-    if tools == ["dsh"] {
-        return true;
+    if tools.iter().any(|tool| tool == "dsh") {
+        return false;
     }
     let requested = normalize_requested_tools(&tools);
     !requested.is_empty()
@@ -1209,24 +1212,6 @@ fn get_single_local_tool_version_impl(
         tool,
         "claude-desktop" | "chatgpt-desktop" | "workbuddy" | "dsh"
     ) {
-        if tool == "dsh" && custom_path.is_none() {
-            if let Some(dir) = super::dsh_install::installed() {
-                let mut result = desktop_app_version(tool, None);
-                let runnable = super::dsh_install::verify(&dir);
-                result.version = runnable
-                    .then(|| super::dsh_install::version_at(&dir))
-                    .flatten();
-                result.install_path = Some(dir.to_string_lossy().into_owned());
-                result.detection_source = Some("managed".into());
-                result.error = (!runnable).then(|| "DSH 独立运行环境已损坏，请重新安装".into());
-                result.installed_but_broken = !runnable;
-                return result;
-            }
-            if resolve_path_launch_command("dsh").is_some() {
-                // A CLI installation is not a desktop bundle; use the ordinary CLI probe.
-                return cli_local_tool_version(tool, wsl_shell, wsl_shell_flag);
-            }
-        }
         return desktop_app_version(tool, custom_path);
     }
     cli_local_tool_version(tool, wsl_shell, wsl_shell_flag)
@@ -1284,13 +1269,6 @@ fn cli_local_tool_version(
 async fn enrich_remote_tool_version(mut result: ToolVersion) -> ToolVersion {
     let name = result.name.clone();
     let tool = name.as_str();
-    if tool == "dsh" {
-        match super::dsh_install::latest_version().await {
-            Ok(version) => result.latest_version = Some(version),
-            Err(error) => result.error = Some(error),
-        }
-        return result;
-    }
     if matches!(
         tool,
         "claude-desktop" | "chatgpt-desktop" | "workbuddy" | "dsh"
@@ -3617,7 +3595,7 @@ pub async fn launch_tool(
 ) -> Result<bool, String> {
     if tool == "dsh" || tool == "dsh-web" {
         let custom = crate::app_store::get_desktop_app_path_from_store(&app, "dsh");
-        if custom.is_none() {
+        if tool == "dsh-web" && custom.is_none() {
             if let Some(dir) = super::dsh_install::installed() {
                 let check_dir = dir.clone();
                 if !tokio::task::spawn_blocking(move || super::dsh_install::verify(&check_dir))
@@ -3642,19 +3620,26 @@ pub async fn launch_tool(
         if let Some(source) = source {
             if !source.join("node_modules").is_dir() {
                 return Err(
-                    "所选 DSH 源码缺少依赖。可清除自选路径后使用元衡一键安装，原源码不会删除。"
+                    "所选 DSH 源码缺少依赖。可清除自选路径后下载安装官方桌面端，原源码不会删除。"
                         .into(),
                 );
             }
             let pnpm = resolve_path_launch_command("pnpm")
-                .ok_or("所选 DSH 源码需要 pnpm；可清除自选路径后使用一键安装")?;
-            let command = if tool == "dsh" && source.join("apps/desktop/package.json").is_file() {
+                .ok_or("所选 DSH 源码需要 pnpm；可清除自选路径后下载安装官方桌面端")?;
+            if tool == "dsh" && !source.join("apps/desktop/package.json").is_file() {
+                return Err(
+                    "所选源码仅支持 Web；请安装并选择 DSH 官方桌面应用，或使用启动 DSH Web".into(),
+                );
+            }
+            let command = if tool == "dsh" {
                 "pnpm run start:desktop".to_string()
             } else {
                 if !source.join("apps/cli/lib/bin.js").is_file()
                     || !source.join("apps/web/dist/index.html").is_file()
                 {
-                    return Err("所选 DSH 源码尚未构建 Web。可清除自选路径后使用元衡一键安装，原源码不会删除。".into());
+                    return Err(
+                        "所选 DSH 源码尚未构建 Web，请先完成源码构建；也可安装官方桌面端。".into(),
+                    );
                 }
                 super::dsh_install::web_command(&pnpm, &["dsh".into()], None)
             };
@@ -3666,9 +3651,9 @@ pub async fn launch_tool(
             .map_err(|e| format!("DSH 启动失败: {e}"))??;
             return Ok(true);
         }
-        if tool == "dsh-web" || custom.is_none() {
+        if tool == "dsh-web" {
             let executable = resolve_path_launch_command("dsh");
-            if executable.is_none() && tool == "dsh-web" {
+            if executable.is_none() {
                 return Err(
                     "请先安装 DSH 命令行，或为 DSH 选择 deepseek-harness 源码目录，再启动本机 Web"
                         .into(),
@@ -5115,6 +5100,75 @@ mod tests {
         assert_eq!(extract_version("claude 1.0.20"), "1.0.20");
         assert_eq!(extract_version("v2.3.4-beta.1"), "2.3.4-beta.1");
         assert_eq!(extract_version("no version here"), "no version here");
+    }
+
+    #[test]
+    #[serial_test::serial]
+    fn dsh_desktop_detection_does_not_report_a_legacy_web_runtime() {
+        struct RestoreHome(Option<std::ffi::OsString>);
+        impl Drop for RestoreHome {
+            fn drop(&mut self) {
+                if let Some(value) = self.0.take() {
+                    std::env::set_var("YUANHENG_SWITCH_TEST_HOME", value);
+                } else {
+                    std::env::remove_var("YUANHENG_SWITCH_TEST_HOME");
+                }
+            }
+        }
+        let home = tempfile::tempdir().unwrap();
+        let _restore = RestoreHome(std::env::var_os("YUANHENG_SWITCH_TEST_HOME"));
+        std::env::set_var("YUANHENG_SWITCH_TEST_HOME", home.path());
+        let root = super::super::dsh_install::root();
+        let name = format!("install-{}", uuid::Uuid::new_v4());
+        let dir = root.join(&name);
+        let node = super::super::dsh_install::node(&dir);
+        let package = dir.join("package/node_modules/@deepseek-ai/dsh");
+        std::fs::create_dir_all(node.parent().unwrap()).unwrap();
+        std::fs::create_dir_all(package.join("lib")).unwrap();
+        std::fs::write(&node, b"not executable; detection must not run legacy Node").unwrap();
+        std::fs::write(
+            package.join("lib/bin.js"),
+            b"throw new Error('must not run')",
+        )
+        .unwrap();
+        std::fs::write(
+            package.join("package.json"),
+            r#"{"name":"@deepseek-ai/dsh","version":"0.2.0"}"#,
+        )
+        .unwrap();
+        std::fs::write(root.join("current"), &name).unwrap();
+        assert!(super::super::dsh_install::installed().is_some());
+
+        let detected = get_single_local_tool_version_impl("dsh", None, None, None);
+        assert_ne!(detected.detection_source.as_deref(), Some("managed"));
+        assert_ne!(detected.install_path.as_deref(), dir.to_str());
+        assert!(!native_tool_install_supported(vec!["dsh".into()]));
+        assert_eq!(std::fs::read_to_string(root.join("current")).unwrap(), name);
+        assert!(node.exists());
+    }
+
+    #[tokio::test]
+    async fn dsh_desktop_versions_do_not_query_the_npm_release_channel() {
+        let dir = tempfile::tempdir().unwrap();
+        let application = dir.path().join(if cfg!(target_os = "macos") {
+            "DeepSeek Harness.app"
+        } else {
+            "DeepSeek Harness.exe"
+        });
+        #[cfg(target_os = "macos")]
+        std::fs::create_dir_all(&application).unwrap();
+        #[cfg(not(target_os = "macos"))]
+        std::fs::write(&application, b"fixture").unwrap();
+        let local = get_single_local_tool_version_impl("dsh", None, None, application.to_str());
+        assert!(local.version.is_some());
+        let enriched = tokio::time::timeout(
+            std::time::Duration::from_millis(100),
+            enrich_remote_tool_version(local),
+        )
+        .await
+        .unwrap();
+        assert!(enriched.latest_version.is_none());
+        assert!(enriched.error.is_none());
     }
 
     #[test]

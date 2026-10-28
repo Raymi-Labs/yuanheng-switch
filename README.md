@@ -25,7 +25,7 @@ Providers, API keys, model access, quotas, and billing belong in the YuanHeng AP
 
 - YuanHeng project connection status and direct console access
 - Local configuration application for Claude Code, Claude Desktop, Codex, Gemini CLI, Grok Build, OpenCode, OpenClaw, and Hermes
-- DSH private runtime installation, model configuration and local Web launch ([first-run guide](docs/guides/dsh-first-run.md))
+- Official DSH desktop downloads with Mac chip selection, model configuration and desktop launch ([first-run guide](docs/guides/dsh-first-run.md))
 - Project snapshots covering provider configuration, MCP, Skills, prompts, and memory files
 - Unified local management for MCP, Skills, prompts, and sessions
 - Local routing, protocol conversion, failover, and usage records

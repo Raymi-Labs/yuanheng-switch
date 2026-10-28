@@ -28,13 +28,11 @@ pnpm remains the application package manager. Existing Tauri/Rust checks and sig
 
 [发布入口](release-announcements.md#公司仓库与旧版本兼容)使用 Raymi-Labs/yuanheng-switch；[下载器](../src-tauri/src/services/update_download.rs)识别新旧精确 GitHub 地址并优先生成新地址，[R2 分发器](../scripts/sync-desktop-r2.py)保留历史清单兼容。应用标识、公钥、文件名与分发域不变。官网桌面/Android 备用链接由 Raymi-Labs/meta-api 维护；见[迁移决定](../.agents/notes/implemented/process/2026-10-27-raymi-repository-migration.md)。
 
-## DSH 安装、更新与本机 Web（2026-10-17，本地）
+## DSH 官方桌面安装与显式 Web（2026-10-28）
 
-DSH 安装由工作台 `FocusToolCard` 和工具管理 `ToolSetupGrid` 直接触发，复用 `useModelSwitchCenter` 与共享生命周期。已安装工具仅在工具管理通过 `DshUpdateControl` 显示当前版和官方版、检查及更新入口；工作台不常驻版本面板，仅在任务进行时显示共享进度与取消按钮。`settingsApi.runToolLifecycleAction` → `misc.rs` 的 DSH 专用分支 → `dsh_install.rs`，复用任务 ID、锁、取消与进程组/Windows Job 监督。Node 24.14.0 按平台固定 SHA256，DSH 每次安装/更新先读取官方 npm latest 元数据，再以经过严格校验的精确版本安装；独立目录、不执行 npm lifecycle scripts、不改全局 Node，engine-strict 拒绝不兼容运行时。成功验证后原子发布安装标记，取消/失败不替换旧安装；安装后配置成功才请求启动。
+工作台 `FocusToolCard` 和工具管理 `ToolSetupGrid` 共用 `useDesktopInstallFlow` 与 [Mac 版本选择](../src/components/desktop/useDshDesktopDownload.tsx)。Windows 打开官方 x64 EXE；Mac 选择 Apple 芯片/Intel DMG；不支持的平台明确提示，不回退 npm。选择取消不下载；官网下载后的安装观察每三秒查询，五分钟有界，关闭页面/切换账号不继续旧配置。检测后复用预检、配置事务与默认桌面启动，失败不启动。官网安装只展示等待，不伪造下载进度。
 
-更新仅替换元衡托管安装，不降级，不修改自选目录或外部安装；实际 manifest 与运行版本一致才接受，不再锁定某一个 DSH 版本。查询失败明确提示重试；更新完成后提示用户重新打开 DSH，不自动改配置、终止旧进程或调用模型。决定见[官方 DSH 更新](../.agents/notes/implemented/feature/2026-10-17-dsh-official-updates.md)。
-
-识别及启动复用 `desktop_app_detection` 与 `launch_tool`：优先明确选择的应用/源码，否则使用托管运行时或已有 CLI。CLI/Web 源码不要求 `apps/desktop`；源码缺依赖/构建明确报错，不自动更新工作树。托管运行时检测执行有界版本检查，启动 Web 固定 loopback、随机空闲端口、明确 DSH_HOME，并关闭会话遥测。配置仍归 `yuanheng/dsh.rs` 的事务与拥有权逻辑。`useInstallContinuation` 阻止安装完成后跨页面卸载/账号切换继续应用旧意图。
+`desktop_app_detection` 与 `misc.rs` 对默认 DSH 使用桌面应用检测和启动，不以旧托管 Web 或 PATH CLI 代替；库存缓存 v2 避免重用旧判断。显式源码 Desktop 路径保留，本机 Web 仅由独立 `dsh-web` 入口调用已有运行时/CLI/源码。旧目录、配置和会话不删除。桌面版本读取已安装应用，更新由官方应用负责，不再与 npm latest 比较。历史私有 Web 更新后端保留兼容，不作为新安装入口。见[桌面端迁移决定](../.agents/notes/implemented/feature/2026-10-28-dsh-official-desktop.md)。
 
 DSH 配置兼容：`yuanheng/dsh.rs` 以凭据引用校验旧 hash，读取并写入 version 1 / refs，保留浏览器会话 records；profile 允许官方 YAML 重排、附加偏好和目录内对应路由的模型切换，继续拒绝接口、凭据、供应商及外部覆盖变化。重配/恢复保留 DSH 新增偏好。详见[运行时配置校验](../.agents/notes/implemented/bug-fix/2026-10-18-dsh-runtime-config-ownership.md)。
 

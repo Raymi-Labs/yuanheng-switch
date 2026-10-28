@@ -12,6 +12,8 @@ Status: implemented
 
 [旧 DSH 安装决定](../../implemented/bug-fix/2026-10-11-dsh-install-launch.md)的固定 DSH 版本策略由本篇替代，其私有 Node、用户目录和监督边界保留。[直接安装](../../implemented/bug-fix/2026-10-17-workspace-direct-install.md)继续负责未安装入口；[安装取消](../../implemented/bug-fix/2026-10-01-bounded-tool-installation.md)复用于 DSH 更新，不扩大其他工具的取消承诺。
 
+默认安装、检测和启动已由[官方桌面端迁移](../feature/2026-10-28-dsh-official-desktop.md)部分取代；本篇的私有运行时只保留给已有 Web 路径，不再作为桌面安装/更新入口。
+
 ## Decision
 
 安装/更新开始时从官方 npm latest 元数据解析严格版本号，固定本次目标后按精确版本安装，拒绝异常包身份或版本；查询超时明确报错，不静默退回旧固定版。latest 是官方发布渠道，不自行挑选 next/beta，也不保证 latest 一定不是预览版。已安装版本高于或等于目标时不降级。Node 继续固定并校验；npm engine-strict 与版本/Web 命令检查通过才原子发布。原目录和会话保留，失败/取消不换 current。
