@@ -12,6 +12,11 @@ import type { ToolVersionInfo } from "@/lib/api/settings";
 import { createTestQueryClient } from "../utils/testQueryClient";
 
 const invokeMock = vi.fn();
+vi.mock("@/lib/platform", () => ({
+  isMac: () => false,
+  isWindows: () => true,
+  isLinux: () => false,
+}));
 
 vi.mock("sonner", () => ({
   toast: {
@@ -349,16 +354,15 @@ describe("useModelSwitchCenter", () => {
       await install;
     });
     const calls = invokeMock.mock.calls.map(([command]) => command);
-    expect(calls.indexOf("run_tool_lifecycle_action")).toBeLessThan(
+    expect(calls.indexOf("open_external")).toBeLessThan(
       calls.indexOf("configure_yuanheng_tools"),
     );
     expect(calls.indexOf("configure_yuanheng_tools")).toBeLessThan(
       calls.indexOf("launch_tool"),
     );
-    expect(invokeMock).toHaveBeenCalledWith(
-      "run_tool_lifecycle_action",
-      expect.objectContaining({ tools: ["dsh"], action: "install" }),
-    );
+    expect(invokeMock).toHaveBeenCalledWith("open_external", {
+      url: "https://download.deepseek.com/desktop/dsh-latest-windows-x64.exe",
+    });
   });
 
   it("keeps an installed DSH available but never launches after configuration fails", async () => {
@@ -395,7 +399,7 @@ describe("useModelSwitchCenter", () => {
     let preflightAttempts = 0;
     const base = invokeMock.getMockImplementation()!;
     invokeMock.mockImplementation(async (command, payload = {}) => {
-      if (command === "run_tool_lifecycle_action") {
+      if (command === "open_external") {
         installed = true;
         return true;
       }
@@ -485,7 +489,7 @@ describe("useModelSwitchCenter", () => {
       invokeMock.mock.calls.filter(
         ([cmd]) => cmd === "run_tool_lifecycle_action",
       ),
-    ).toHaveLength(1);
+    ).toHaveLength(0);
   });
 
   it("detects an existing DSH without applying configuration or launching it", async () => {
@@ -511,11 +515,57 @@ describe("useModelSwitchCenter", () => {
     ).toHaveLength(0);
   });
 
+  it.each(["account", "unmount"])(
+    "does not continue a DSH desktop install after %s changes",
+    async (change) => {
+      statuses = [{ ...toolStatus("dsh", "model-a"), configured: false }];
+      const base = invokeMock.getMockImplementation()!;
+      let resolveDetection!: (value: unknown[]) => void;
+      invokeMock.mockImplementation((command, payload = {}) => {
+        if (
+          command === "get_installed_tool_versions" &&
+          payload.tools?.length === 1 &&
+          payload.tools[0] === "dsh"
+        ) {
+          return new Promise((resolve) => {
+            resolveDetection = resolve;
+          });
+        }
+        return base(command, payload);
+      });
+      const { wrapper, queryClient } = createWrapper();
+      const { result, unmount } = renderHook(useModelSwitchCenter, { wrapper });
+      await waitFor(() => expect(result.current.bootstrapPhase).toBe("ready"));
+      let install!: Promise<void>;
+      act(() => {
+        install = result.current.install("dsh");
+      });
+      await waitFor(() => expect(resolveDetection).toBeDefined());
+      if (change === "account") {
+        connection = { ...connection, userId: "another-account" };
+        await act(async () => {
+          await queryClient.invalidateQueries();
+        });
+        await waitFor(() =>
+          expect(result.current.connection?.userId).toBe("another-account"),
+        );
+      } else unmount();
+      await act(async () => {
+        resolveDetection([{ name: "dsh", version: "0.2.1" }]);
+        await install;
+      });
+      expect(configureResolvers.size).toBe(0);
+      expect(
+        invokeMock.mock.calls.some(([command]) => command === "launch_tool"),
+      ).toBe(false);
+    },
+  );
+
   it("does not configure or launch when the DSH installation is cancelled", async () => {
     statuses = [{ ...toolStatus("dsh", "model-a"), configured: false }];
     const base = invokeMock.getMockImplementation()!;
     invokeMock.mockImplementation((command, payload) =>
-      command === "run_tool_lifecycle_action"
+      command === "open_external"
         ? Promise.reject(
             new Error("[INSTALL_CANCELLED] synthetic cancellation"),
           )

@@ -1,4 +1,5 @@
-//! Private DSH installation following the official npm latest channel. Existing source trees and global runtimes are never changed.
+//! Legacy private DSH Web runtime, retained for explicit Web launch and existing-runtime updates.
+//! New installs use the official desktop download flow; user source trees and global runtimes are never changed.
 use std::{
     fs,
     io::Write,

@@ -26,6 +26,7 @@ export function WorkspaceDashboard({
 
   return (
     <div className="mx-auto flex h-full w-full max-w-[1120px] flex-col gap-3.5 overflow-y-auto px-7 pb-8 pt-4">
+      {switcher.downloadDialog}
       <h1 className="sr-only">{dt("工作台")}</h1>
       {onOpenRoutes && <RouteSelectionWarning onOpen={onOpenRoutes} />}
 

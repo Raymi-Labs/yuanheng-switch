@@ -94,7 +94,6 @@ export const TOOL_COMMANDS: Partial<Record<YuanhengToolId, string>> = {
   opencode: "opencode",
   openclaw: "openclaw",
   hermes: "hermes",
-  dsh: "dsh",
 };
 
 export const TOOL_VERSION_TARGETS: Partial<Record<YuanhengToolId, string>> = {
@@ -107,6 +106,7 @@ export const DESKTOP_DOWNLOAD_URLS: Partial<Record<YuanhengToolId, string>> = {
   "claude-desktop": "https://claude.ai/download",
   "chatgpt-desktop": "https://openai.com/codex/",
   workbuddy: "https://www.codebuddy.cn/work/",
+  dsh: "https://www.deepseek.com/harness/",
 };
 
 /** Detection alone never grants installation capability. Shared by both surfaces. */
@@ -431,7 +431,11 @@ function ToolSetupGridContent({
     const command = TOOL_COMMANDS[app];
     const downloadUrl = DESKTOP_DOWNLOAD_URLS[app];
     if (!command && !downloadUrl) return;
-    if (command && isToolLifecycleBusy(command)) return;
+    if (
+      desktopInstall.monitoringApps.has(app) ||
+      (command && isToolLifecycleBusy(command))
+    )
+      return;
     try {
       if (downloadUrl) {
         const versionTarget = TOOL_VERSION_TARGETS[app];
@@ -443,15 +447,16 @@ function ToolSetupGridContent({
         );
         const notifyDownload =
           app === "claude-desktop" && isWindows() ? toast.info : toast.success;
-        notifyDownload(
-          app === "claude-desktop" && isWindows()
-            ? dt(
-                "先准备 Claude 必要组件，通过后自动打开官方下载页；可能需要管理员授权及重启。",
-              )
-            : dt("已打开 {{v0}} 官方下载页，安装完成后请刷新检测", {
-                v0: toolLabel(app),
-              }),
-        );
+        if (app !== "dsh")
+          notifyDownload(
+            app === "claude-desktop" && isWindows()
+              ? dt(
+                  "先准备 Claude 必要组件，通过后自动打开官方下载页；可能需要管理员授权及重启。",
+                )
+              : dt("已打开 {{v0}} 官方下载页，安装完成后请刷新检测", {
+                  v0: toolLabel(app),
+                }),
+          );
         const result = await monitor;
         if (result.status === "cancelled") return;
         if (result.status === "timeout") {
@@ -462,9 +467,18 @@ function ToolSetupGridContent({
           );
           return;
         }
+        clearToolInventoryCache();
         await versions.refetch();
+        if (!canContinue()) return;
         if (connection?.connected) {
-          const configured = await configureApps([app]);
+          const configured = await configureApps([app], canContinue);
+          if (!canContinue()) return;
+          if (configured && app === "dsh") {
+            // The official installer may already have opened DSH before we wrote its profile.
+            await yuanhengApi.launchTool(app, true);
+            clearRestartRequired(app);
+            toast.success(dt("DSH 已配置，正在打开桌面端"));
+          }
           if (!configured) {
             toast.info(
               dt("已检测到 {{v0}}，但自动配置未完成，可点击配置重试", {
@@ -486,16 +500,6 @@ function ToolSetupGridContent({
       );
       clearToolInventoryCache();
       await versions.refetch();
-      if (app === "dsh" && connection?.connected && canContinue()) {
-        const configured = await configureApps([app], canContinue);
-        if (!configured) {
-          toast.info(dt("DSH 已安装，但配置未完成，请重试配置后启动"));
-          return;
-        }
-        if (!canContinue()) return;
-        await yuanhengApi.launchTool(app);
-        toast.success(dt("DSH 已配置，正在打开本机 Web 界面"));
-      }
     } catch (error) {
       showToolInstallError(error);
     }
@@ -671,6 +675,7 @@ function ToolSetupGridContent({
 
   return (
     <div className="space-y-4">
+      {desktopInstall.downloadDialog}
       <div className="flex flex-wrap items-center gap-3 rounded-2xl border bg-card px-4 py-3 shadow-sm">
         <div className="min-w-0 flex-1">
           <p className="text-[12px] font-semibold">
@@ -1203,7 +1208,9 @@ function ToolSetupGridContent({
                 </p>
               )}
 
-              {app === "dsh" && installed && <DshUpdateControl busy={busy} />}
+              {app === "dsh" && installed && (
+                <DshUpdateControl version={version?.version} />
+              )}
 
               {!(app === "dsh" && installed) && (
                 <ToolInstallProgress

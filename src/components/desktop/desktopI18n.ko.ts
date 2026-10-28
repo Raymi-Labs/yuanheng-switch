@@ -1,5 +1,21 @@
 // ko translations for the desktop Simplified Chinese source strings.
 export const DESKTOP_KO: Record<string, string> = {
+  "DSH 官方桌面安装包目前支持 Windows 和 macOS。":
+    "DSH 공식 데스크톱 설치 프로그램은 현재 Windows와 macOS를 지원합니다.",
+  "选择 DSH 的 Mac 版本": "DSH Mac 버전 선택",
+  "点击左上角苹果菜单 → 关于本机，查看芯片或处理器。":
+    "Apple 메뉴 → 이 Mac에 관하여에서 칩 또는 프로세서를 확인하세요.",
+  "Apple 芯片版（M 系列）": "Apple Silicon 버전(M 시리즈)",
+  "Intel 芯片版": "Intel 버전",
+  "下载后打开 DMG，将 DSH 拖入“应用程序”；元衡会自动检测。":
+    "다운로드한 DMG를 열고 DSH를 응용 프로그램으로 드래그하세요. YuanHeng이 자동으로 감지합니다.",
+  "已打开 DSH 官方安装包，完成安装后将自动检测、配置并启动桌面端。":
+    "DSH 공식 설치 프로그램 다운로드를 열었습니다. 설치 후 데스크톱 앱을 자동으로 감지하고 구성하여 실행합니다.",
+  "DSH 已配置，正在打开桌面端":
+    "DSH 구성이 완료되었습니다. 데스크톱 앱을 여는 중입니다",
+  "请在 DSH 桌面端菜单中检查更新。":
+    "DSH 데스크톱 앱 메뉴에서 업데이트를 확인하세요.",
+
   图片分组: "이미지 그룹",
   "{{tool}} 图片分组": "{{tool}} 이미지 그룹",
   使用聊天连接: "채팅 연결 사용",

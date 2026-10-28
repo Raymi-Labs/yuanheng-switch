@@ -327,7 +327,11 @@ export function useModelSwitchCenter() {
     const command = TOOL_COMMANDS[app];
     const downloadUrl = DESKTOP_DOWNLOAD_URLS[app];
     if (!command && !downloadUrl) return;
-    if (command && isToolLifecycleBusy(command)) return;
+    if (
+      desktopInstall.monitoringApps.has(app) ||
+      (command && isToolLifecycleBusy(command))
+    )
+      return;
     try {
       if (downloadUrl) {
         const versionTarget = TOOL_VERSION_TARGETS[app];
@@ -337,15 +341,16 @@ export function useModelSwitchCenter() {
           versionTarget,
           downloadUrl,
         );
-        toast.info(
-          app === "claude-desktop"
-            ? dt(
-                "先检查 Claude 必要组件，通过后打开官方下载页；安装完成后自动检测。",
-              )
-            : dt("已打开 {{v0}} 官方下载页，安装完成后请刷新检测", {
-                v0: toolLabel(app),
-              }),
-        );
+        if (app !== "dsh")
+          toast.info(
+            app === "claude-desktop"
+              ? dt(
+                  "先检查 Claude 必要组件，通过后打开官方下载页；安装完成后自动检测。",
+                )
+              : dt("已打开 {{v0}} 官方下载页，安装完成后请刷新检测", {
+                  v0: toolLabel(app),
+                }),
+          );
         const result = await monitor;
         if (result.status === "cancelled") return;
         if (result.status === "timeout") {
@@ -356,7 +361,13 @@ export function useModelSwitchCenter() {
           );
           return;
         }
+        clearToolInventoryCache();
         await inventory.refetch();
+        if (!canContinue()) return;
+        if (app === "dsh") {
+          if (connection?.connected) await launch(app, canContinue);
+          return;
+        }
         const freshStatuses = await yuanhengApi.getToolStatuses();
         const status = freshStatuses.find((item) => item.app === app);
         const selectedModel = models[app] ?? status?.recommendedModel;
@@ -376,6 +387,7 @@ export function useModelSwitchCenter() {
               ? selectedReasoning
               : "auto";
           await runPreflight(app, selectedModel, group, normalizedReasoning);
+          if (!canContinue()) return;
           const configured = await configure.mutateAsync({
             apps: [app],
             models: { [app]: selectedModel },
@@ -404,9 +416,6 @@ export function useModelSwitchCenter() {
       );
       clearToolInventoryCache();
       await inventory.refetch();
-      if (app === "dsh" && connection?.connected && canContinue()) {
-        await launch(app, canContinue);
-      }
     } catch (error) {
       showToolInstallError(error);
     }
@@ -786,6 +795,7 @@ export function useModelSwitchCenter() {
     rows,
     runnableRows,
     installedApps,
+    downloadDialog: desktopInstall.downloadDialog,
     models,
     groups,
     reasoning,
