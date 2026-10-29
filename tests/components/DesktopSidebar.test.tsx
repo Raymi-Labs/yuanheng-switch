@@ -3,7 +3,6 @@ import userEvent from "@testing-library/user-event";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { DesktopSidebar } from "@/components/desktop/DesktopSidebar";
-import { YUANHENG_WEBSITE_URL } from "@/config/yuanhengBrand";
 
 const { openExternalMock, openTopupMock } = vi.hoisted(() => ({
   openExternalMock: vi.fn(),
@@ -39,7 +38,7 @@ describe("DesktopSidebar", () => {
     fireEvent.click(screen.getByRole("button", { name: "访问元衡官网" }));
 
     await waitFor(() => {
-      expect(openExternalMock).toHaveBeenCalledWith(YUANHENG_WEBSITE_URL);
+      expect(openExternalMock).toHaveBeenCalledWith("https://meta-api.com");
     });
   });
 

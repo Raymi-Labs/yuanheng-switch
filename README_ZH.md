@@ -4,7 +4,7 @@
 
 ### 把元衡 API 项目接入 Claude Code、Codex 等本地 AI 编程工具
 
-[元衡 API](https://cn.meta-api.vip) · [English](README.md) · 中文
+[元衡 API](https://meta-api.com) · [English](README.md) · 中文
 
 </div>
 
@@ -16,7 +16,7 @@
 
 ## 使用流程
 
-1. 在[元衡控制台](https://cn.meta-api.vip/console/token)创建项目令牌并配置可用模型。
+1. 在[元衡控制台](https://meta-api.com/console/token)创建项目令牌并配置可用模型。
 2. 由控制台向桌面端下发接入配置，或首次使用时导入本机已有配置作为迁移起点。
 3. 在桌面端选择目标工具和项目，应用配置后直接使用 Claude Code、Codex 等客户端。
 4. 密钥、模型范围、额度与用量继续回到元衡控制台统一管理。

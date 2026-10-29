@@ -56,7 +56,8 @@ use crate::services::ProviderService;
 use crate::store::AppState;
 
 use crate::yuanheng_endpoints::{
-    is_managed_endpoint, API_URL as OPENAI_BASE_URL, BASE_URL, COOKIE_DOMAIN, PULSE_URL, TOPUP_URL,
+    is_managed_endpoint, API_URL as OPENAI_BASE_URL, BASE_URL, PULSE_URL, TOPUP_URL,
+    WEBSITE_COOKIE_DOMAIN, WEBSITE_URL,
 };
 const TOPUP_WINDOW_LABEL: &str = "yuanheng-topup";
 const PULSE_WINDOW_LABEL: &str = "yuanheng-pulse";
@@ -1014,7 +1015,7 @@ fn session_cookie_for_webview(raw: &str) -> Result<Cookie<'static>, String> {
     }
 
     let mut cookie = Cookie::new(name.to_string(), value.to_string());
-    cookie.set_domain(COOKIE_DOMAIN);
+    cookie.set_domain(WEBSITE_COOKIE_DOMAIN);
     cookie.set_path("/");
     cookie.set_secure(true);
     cookie.set_http_only(true);
@@ -5936,7 +5937,7 @@ async fn open_yuanheng_authenticated_webview(
     });
     let user_seed_json = serde_json::to_string(&user_seed).map_err(|e| e.to_string())?;
     let user_seed_literal = serde_json::to_string(&user_seed_json).map_err(|e| e.to_string())?;
-    let origin_literal = serde_json::to_string(BASE_URL).map_err(|e| e.to_string())?;
+    let origin_literal = serde_json::to_string(WEBSITE_URL).map_err(|e| e.to_string())?;
     let init_script = format!(
         r#"if (window.location.origin === {origin}) {{
           window.localStorage.setItem("user", {user_seed});
@@ -6638,7 +6639,7 @@ mod tests {
 
         assert_eq!(cookie.name(), "session");
         assert_eq!(cookie.value(), "abc123");
-        assert_eq!(cookie.domain(), Some("meta-api.vip"));
+        assert_eq!(cookie.domain(), Some("meta-api.com"));
         assert_eq!(cookie.path(), Some("/"));
         assert_eq!(cookie.secure(), Some(true));
         assert_eq!(cookie.http_only(), Some(true));

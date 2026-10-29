@@ -3398,7 +3398,7 @@
     "previous": "Previous results · not a current health guarantee",
     "results": "Latest check · interface response / successful samples",
     "samples": "{{count}} / {{total}} successful",
-    "autoHint": "Switches apply to new requests. Active responses keep their connection.",
+    "autoHint": "Prefer meta-api.com and fall back when unavailable. Changes apply only to new requests.",
     "fixedHint": "The selected route remains fixed, including during failures.",
     "useAuto": "Use automatic selection",
     "details": "Connection details and scope",
@@ -3407,7 +3407,7 @@
     "reason": "Selection reason",
     "streaming": "Streaming check",
     "streamProbe": "Check streaming",
-    "scope": "Applies to managed model requests through local routing. Official account mode, direct external tools, images and WebSockets retain their original routes. Login and payment addresses stay unchanged.",
+    "scope": "Applies to managed YuanHeng model requests through local routing. Official accounts, direct tools, images and WebSockets keep their routes. Account APIs are separate; website pages use meta-api.com.",
     "schedule": "Checks run in Core: startup, proxy/default local address changes, connection failures, or roughly every 10 minutes during use. No paid model calls.",
     "warning": "Connection route needs attention",
     "view": "View routes",
@@ -3429,7 +3429,8 @@
       "failover": "Previous route failed; alternative verified",
       "faster": "Repeated checks confirmed a faster route",
       "save_failed": "Could not save the new selection",
-      "cancelled": "Check cancelled"
+      "cancelled": "Check cancelled",
+      "preferred": "Primary route confirmed healthy across multiple checks"
     },
     "errors": {
       "unknown": "Could not complete the operation. Please refresh and retry.",
@@ -3450,7 +3451,9 @@
       "invalid_response": "Response validation failed",
       "interrupted": "Stream ended early",
       "buffered": "Streaming data arrived in a batch"
-    }
+    },
+    "mode_primary": "Fixed .com primary",
+    "primary": ".com primary"
   },
   "feedback": {
     "title": "Report a problem",
