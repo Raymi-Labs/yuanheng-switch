@@ -377,6 +377,20 @@ describe("single release publisher", () => {
 });
 
 describe("release recovery provenance", () => {
+  it("candidate-only dispatch gates the sole publication job and its delivery dependency", () => {
+    const workflow = readFileSync(".github/workflows/release.yml", "utf8");
+    expect(workflow).toMatch(
+      /candidate_only:[\s\S]*?type: boolean[\s\S]*?default: false/,
+    );
+    expect(workflow).toMatch(
+      /finalize-updater-manifest:\s+name:[^\n]+\s+if: github\.event_name != 'workflow_dispatch' \|\| !inputs\.candidate_only\s+needs: build/,
+    );
+    expect(workflow).toMatch(
+      /mirror-desktop-update:[\s\S]*?needs: finalize-updater-manifest\s+if: startsWith\(github\.ref, 'refs\/tags\/'\)/,
+    );
+    expect(workflow.match(/contents: write/g)).toHaveLength(1);
+    expect(workflow).toContain("run: python3 scripts/verify-macos-release.py");
+  });
   function sourceFixture() {
     const run = {
       id: 123,
@@ -452,6 +466,13 @@ describe("release recovery provenance", () => {
     ).toThrow(/本仓库/);
     f.run.repository.full_name = context.repo;
     f.run.path = ".github/workflows/unrelated.yml";
+    expect(() =>
+      prepareRecoveryContext({ runId: "123", repo: context.repo, gh: f.gh }),
+    ).toThrow(/正式发布/);
+  });
+  it("rejects manual candidate runs even if all three signed builds succeeded", () => {
+    const f = sourceFixture();
+    f.run.event = "workflow_dispatch";
     expect(() =>
       prepareRecoveryContext({ runId: "123", repo: context.repo, gh: f.gh }),
     ).toThrow(/正式发布/);

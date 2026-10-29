@@ -150,13 +150,45 @@ const chooseGroup = async (
 };
 
 describe("tool group restoration", () => {
+  it("shows unsupported Accio without offering configuration, installation or launch", () => {
+    mocks.statuses = [
+      ...mocks.statuses!,
+      { ...status("accio-work"), supported: false, configured: false },
+    ];
+    render(<ToolSetupGrid />);
+    expect(
+      screen.getByRole("heading", { name: "Accio Work（实验性）" }),
+    ).toBeVisible();
+    expect(screen.getByText(/暂不支持元衡配置和启动/)).toBeVisible();
+    expect(
+      screen.queryByRole("button", { name: /启动 Accio/ }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /配置 Accio/ }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /Accio.*官方下载/ }),
+    ).not.toBeInTheDocument();
+  });
   it("TRAE uses the shared picker without entering managed batch configuration", async () => {
     mocks.connection = {
       ...mocks.connection!,
       baseUrl: "https://meta-api.vip",
     };
     render(<ToolSetupGrid />);
-    fireEvent.click(screen.getByRole("button", { name: "配置 TRAE" }));
+    const assisted = screen.getByRole("button", { name: "TRAE 辅助配置" });
+    const traeCard = assisted.closest("article");
+    const workbuddyCard = screen
+      .getByRole("heading", { name: "WorkBuddy" })
+      .closest("article");
+    expect(traeCard).not.toBeNull();
+    expect(workbuddyCard).not.toBeNull();
+    expect(traeCard?.parentElement).toBe(workbuddyCard?.parentElement);
+    expect(workbuddyCard?.nextElementSibling).toBe(traeCard);
+    expect(
+      screen.queryByRole("button", { name: "选择 TRAE" }),
+    ).not.toBeInTheDocument();
+    fireEvent.click(assisted);
     await chooseGroup("TRAE", "premium", "model-a");
     expect(
       screen.getByText("https://meta-api.vip/v1/chat/completions"),

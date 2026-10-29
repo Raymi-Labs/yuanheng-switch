@@ -25,7 +25,7 @@ name = "yuanheng-core"
 path = "src/bin/yuanheng-core.rs"
 
 [features]
-default = []
+default = ["accio-work-experimental"]
 test-hooks = []
 accio-work-experimental = []
 

@@ -1,5 +1,15 @@
 // ko translations for the desktop Simplified Chinese source strings.
 export const DESKTOP_KO: Record<string, string> = {
+  "Accio 入口已开放；当前系统或构建暂不支持元衡配置和启动。":
+    "Accio는 표시되지만 현재 시스템 또는 빌드에서는 YuanHeng 설정과 실행을 아직 지원하지 않습니다.",
+  辅助配置: "설정 안내",
+  "需在 TRAE 内保存": "TRAE에서 저장 필요",
+  "元衡准备地址和模型，你在 TRAE 填入 API Key 并保存。支持国内版与国际版。":
+    "YuanHeng이 URL과 모델을 준비합니다. TRAE에서 API 키를 입력하고 저장하세요. 중국 및 국제 버전을 지원합니다.",
+  "1. 安装并登录 TRAE": "1. TRAE 설치 및 로그인",
+  "2. 选择分组和模型": "2. 그룹과 모델 선택",
+  "3. 复制参数并保存": "3. 설정값 복사 및 저장",
+  常见问题与注意事项: "문제 해결 및 주의 사항",
   "gpt-6-astra 已在 TRAE 国内版 3.4.9 的 Responses 格式完成文件任务验证。建议新增独立模型条目，API 格式选 OpenAI Responses API，模型系列与思考模式保持默认；保留原条目以便对照。":
     "gpt-6-astra는 TRAE 중국 버전 3.4.9의 Responses 형식으로 파일 작업을 검증했습니다. OpenAI Responses API로 별도 모델 항목을 추가하고 모델 계열과 사고 모드는 기본값으로 두세요. 비교를 위해 기존 항목을 유지하세요.",
   "使用 Responses 配置": "Responses 설정 사용",

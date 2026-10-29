@@ -8,15 +8,23 @@ export const DESKTOP_TOOLS: YuanhengToolId[] = [
   "chatgpt-desktop",
   "workbuddy",
   "dsh",
-  ...(import.meta.env.VITE_ENABLE_ACCIO_WORK === "1"
-    ? ["accio-work" as const]
-    : []),
+  "accio-work",
   "gemini",
   "grokbuild",
   "opencode",
   "openclaw",
   "hermes",
 ];
+
+/** Display entries include assisted tools; managed configuration still uses DESKTOP_TOOLS. */
+export function withAssistedTools(
+  tools: readonly YuanhengToolId[],
+): (YuanhengToolId | "trae")[] {
+  const entries: (YuanhengToolId | "trae")[] = [...tools];
+  const after = tools.indexOf("workbuddy");
+  entries.splice(after < 0 ? entries.length : after + 1, 0, "trae");
+  return entries;
+}
 
 export const isCoreApp = (app: YuanhengToolId): app is AppId =>
   app !== "chatgpt-desktop" &&

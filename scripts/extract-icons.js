@@ -18,7 +18,7 @@ const ICONS_TO_EXTRACT = {
 
   // 开发工具
   devTools: [
-    'github', 'gitlab', 'docker', 'kubernetes', 'vscode'
+    'github', 'gitlab', 'docker', 'kubernetes', 'vscode', 'trae'
   ],
 
   // 其他

@@ -11,14 +11,17 @@ afterEach(() => {
 });
 
 describe("Accio experimental boundary", () => {
-  it("keeps the default tool and inventory lists unchanged", async () => {
-    vi.stubEnv("VITE_ENABLE_ACCIO_WORK", "");
-    const tools = await import("@/config/desktopTools");
-    const inventory = await import("@/lib/query/toolInventory");
-    expect(tools.DESKTOP_TOOLS).not.toContain("accio-work");
-    expect(inventory.DESKTOP_INVENTORY_TARGETS).not.toContain("accio-work");
-    expect(tools.isCoreApp("accio-work")).toBe(false);
-  });
+  it.each(["", "0", "1"])(
+    "shows the tool and inventory by default regardless of legacy flag: %s",
+    async (flag) => {
+      vi.stubEnv("VITE_ENABLE_ACCIO_WORK", flag);
+      const tools = await import("@/config/desktopTools");
+      const inventory = await import("@/lib/query/toolInventory");
+      expect(tools.DESKTOP_TOOLS).toContain("accio-work");
+      expect(inventory.DESKTOP_INVENTORY_TARGETS).toContain("accio-work");
+      expect(tools.isCoreApp("accio-work")).toBe(false);
+    },
+  );
 
   it("enables both entry points without granting CLI/MCP/Skills projection", async () => {
     vi.stubEnv("VITE_ENABLE_ACCIO_WORK", "1");

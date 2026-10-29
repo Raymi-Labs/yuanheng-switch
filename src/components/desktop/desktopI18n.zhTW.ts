@@ -1,5 +1,15 @@
 // Generated from the desktop Simplified Chinese source strings, then normalized for Taiwan terminology.
 export const DESKTOP_ZH_TW: Record<string, string> = {
+  "Accio 入口已开放；当前系统或构建暂不支持元衡配置和启动。":
+    "Accio 入口已開放；目前系統或建置版本暫不支援元衡設定和啟動。",
+  辅助配置: "輔助設定",
+  "需在 TRAE 内保存": "需在 TRAE 內儲存",
+  "元衡准备地址和模型，你在 TRAE 填入 API Key 并保存。支持国内版与国际版。":
+    "元衡準備網址和模型，你在 TRAE 填入 API Key 並儲存。支援中國版與國際版。",
+  "1. 安装并登录 TRAE": "1. 安裝並登入 TRAE",
+  "2. 选择分组和模型": "2. 選擇分組和模型",
+  "3. 复制参数并保存": "3. 複製參數並儲存",
+  常见问题与注意事项: "常見問題與注意事項",
   "gpt-6-astra 已在 TRAE 国内版 3.4.9 的 Responses 格式完成文件任务验证。建议新增独立模型条目，API 格式选 OpenAI Responses API，模型系列与思考模式保持默认；保留原条目以便对照。":
     "gpt-6-astra 已在 TRAE 中國版 3.4.9 的 Responses 格式完成檔案任務驗證。建議新增獨立模型項目，API 格式選 OpenAI Responses API，模型系列與思考模式保持預設；保留原項目以便對照。",
   "使用 Responses 配置": "使用 Responses 設定",

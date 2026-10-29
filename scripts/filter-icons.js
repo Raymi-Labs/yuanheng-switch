@@ -19,7 +19,7 @@ const KEEP_LIST = [
     // Cloud/Tools
     'aws', 'googlecloud', 'huawei', 'cloudflare',
     'github', 'githubcopilot', 'vercel', 'notion', 'discord',
-    'gitlab', 'docker', 'kubernetes', 'vscode', 'settings', 'folder', 'file', 'link'
+    'gitlab', 'docker', 'kubernetes', 'vscode', 'trae', 'settings', 'folder', 'file', 'link'
 ];
 
 // Get all SVG files

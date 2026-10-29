@@ -1,5 +1,15 @@
 // Japanese translations for the desktop Simplified Chinese source strings.
 export const DESKTOP_JA: Record<string, string> = {
+  "Accio 入口已开放；当前系统或构建暂不支持元衡配置和启动。":
+    "Accio は表示されますが、このシステムまたはビルドでは YuanHeng による設定と起動はまだサポートされていません。",
+  辅助配置: "設定ガイド",
+  "需在 TRAE 内保存": "TRAE 内で保存が必要",
+  "元衡准备地址和模型，你在 TRAE 填入 API Key 并保存。支持国内版与国际版。":
+    "YuanHeng が URL とモデルを準備します。TRAE で API キーを入力して保存してください。中国版と国際版に対応しています。",
+  "1. 安装并登录 TRAE": "1. TRAE をインストールしてログイン",
+  "2. 选择分组和模型": "2. グループとモデルを選択",
+  "3. 复制参数并保存": "3. 設定値をコピーして保存",
+  常见问题与注意事项: "よくある問題と注意事項",
   "gpt-6-astra 已在 TRAE 国内版 3.4.9 的 Responses 格式完成文件任务验证。建议新增独立模型条目，API 格式选 OpenAI Responses API，模型系列与思考模式保持默认；保留原条目以便对照。":
     "gpt-6-astra は TRAE 中国版 3.4.9 の Responses 形式でファイル操作を検証済みです。OpenAI Responses API を使用して別のモデル項目を追加し、モデル系列と思考モードはデフォルトのままにしてください。比較用に元の項目を残してください。",
   "使用 Responses 配置": "Responses 設定を使用",

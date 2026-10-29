@@ -8,6 +8,8 @@ Status: implemented
 
 ## Decision
 
+2026-10-29默认隐藏入口和发布架构限制由[全平台默认展示与编译启用](2026-10-29-accio-default-availability.md)替代。下文保留v0.1.115交付证据；新源码默认展示Accio，不代表Windows桥接已经实现或Intel原生验收通过。
+
 用户授权修好后推送GitHub、合并main和发布安装包。工作基线合入伙伴v0.1.113的公司仓库迁移及v0.1.114的DSH官方桌面安装，主仓库为Raymi-Labs/yuanheng-switch，本次版本顺延0.1.115。[国内版辅助入口](2026-10-27-trae-china-edition.md)与[原生Responses路径](../bug-fix/2026-10-28-trae-native-responses.md)完成Astra文件任务、重开后调用和原生停止。最终Accio Core也完成原生文件往返；按下述明确实验范围交付，安装包签名、公证、完整性与分发另由发布工作流验证，不以本笔记代替发布成功。
 
 保留伙伴v0.1.112的账号传输、错误反馈及Core存活保护。先保存本地完整可恢复快照再快进同步；合并冲突同时保留账号传输模块和Accio模块，不覆盖新Core监督实现。

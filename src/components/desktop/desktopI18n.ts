@@ -6,6 +6,16 @@ import { DESKTOP_ZH_TW } from "./desktopI18n.zhTW";
 type Values = Record<string, string | number | null | undefined>;
 
 export const DESKTOP_EN: Record<string, string> = {
+  "Accio 入口已开放；当前系统或构建暂不支持元衡配置和启动。":
+    "Accio is listed, but this system or build does not yet support YuanHeng configuration and launch.",
+  辅助配置: "Assisted setup",
+  "需在 TRAE 内保存": "Save in TRAE to finish",
+  "元衡准备地址和模型，你在 TRAE 填入 API Key 并保存。支持国内版与国际版。":
+    "YuanHeng prepares the URL and model. Enter your API key and save in TRAE. Supports China and international editions.",
+  "1. 安装并登录 TRAE": "1. Install and sign in to TRAE",
+  "2. 选择分组和模型": "2. Choose a group and model",
+  "3. 复制参数并保存": "3. Copy the fields and save",
+  常见问题与注意事项: "Troubleshooting and notes",
   "gpt-6-astra 已在 TRAE 国内版 3.4.9 的 Responses 格式完成文件任务验证。建议新增独立模型条目，API 格式选 OpenAI Responses API，模型系列与思考模式保持默认；保留原条目以便对照。":
     "gpt-6-astra has passed a file task using Responses in TRAE China 3.4.9. Add a separate model entry with OpenAI Responses API and leave the model family and thinking mode at their defaults. Keep the original entry for comparison.",
   "使用 Responses 配置": "Use Responses configuration",

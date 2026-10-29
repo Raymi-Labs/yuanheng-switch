@@ -67,7 +67,7 @@ const connection = (): YuanhengConnectionStatus => ({
   lastSyncedAt: 1,
 });
 const open = () =>
-  fireEvent.click(screen.getByRole("button", { name: "配置 TRAE" }));
+  fireEvent.click(screen.getByRole("button", { name: "TRAE 辅助配置" }));
 const choose = () =>
   fireEvent.click(screen.getByRole("button", { name: "选择测试模型" }));
 
@@ -125,7 +125,7 @@ describe("TRAE assisted setup", () => {
     expect(
       screen.queryByRole("button", { name: "复制 Custom Request URL" }),
     ).not.toBeInTheDocument();
-    expect(screen.getByText(/复制参数不代表已接通/)).toBeInTheDocument();
+    expect(screen.getByText("需在 TRAE 内保存")).toBeVisible();
     expect(mocks.open).not.toHaveBeenCalled();
     expect(mocks.copy).not.toHaveBeenCalled();
   });
@@ -135,10 +135,8 @@ describe("TRAE assisted setup", () => {
     open();
     choose();
     expect(screen.getByText(/Full URL（完整地址）开关/)).toBeInTheDocument();
-    expect(
-      screen.getByText(/实际路由和计费以所填令牌为准/),
-    ).toBeInTheDocument();
-    expect(screen.getByText(/不读取或提交密钥/)).toBeInTheDocument();
+    expect(screen.getByText(/实际路由和计费以所填令牌为准/)).toBeVisible();
+    expect(screen.getByText(/不读取或提交密钥/)).toBeVisible();
     fireEvent.click(
       screen.getByRole("button", { name: "复制 Custom Request URL" }),
     );
