@@ -17,12 +17,15 @@ const ROUND_GAP: Duration = Duration::from_secs(30);
 #[serde(rename_all = "lowercase")]
 pub enum RouteId {
     #[default]
+    Primary,
     Relay,
     Cloudflare,
 }
 impl RouteId {
+    const ALL: [Self; 3] = [Self::Primary, Self::Relay, Self::Cloudflare];
     pub fn origin(self) -> &'static str {
         match self {
+            Self::Primary => "https://meta-api.com",
             Self::Relay => "https://meta-api.vip",
             Self::Cloudflare => "https://nan.meta-api.vip",
         }
@@ -213,7 +216,7 @@ impl Selector {
             .and_then(|v| serde_json::from_str::<Saved>(&v).ok())
             .unwrap_or(Saved {
                 policy: Policy::default(),
-                selected: RouteId::Relay,
+                selected: RouteId::Primary,
             });
         let selected = if saved.policy.mode == Mode::Fixed {
             saved.policy.fixed_route_id
@@ -233,10 +236,7 @@ impl Selector {
                     operation_id: None,
                     last_checked_at: None,
                     reason: "startup".into(),
-                    routes: vec![
-                        Measurement::empty(RouteId::Relay),
-                        Measurement::empty(RouteId::Cloudflare),
-                    ],
+                    routes: RouteId::ALL.into_iter().map(Measurement::empty).collect(),
                     core_running: true,
                 },
                 checked: None,
@@ -386,6 +386,7 @@ impl Selector {
         tokio::spawn(async move {
             let work = async {
                 tokio::join!(
+                    measure(&client, RouteId::Primary, stream),
                     measure(&client, RouteId::Relay, stream),
                     measure(&client, RouteId::Cloudflare, stream)
                 )
@@ -393,8 +394,8 @@ impl Selector {
             let result = tokio::select! { _ = cancel.notified() => return, result = tokio::time::timeout(Duration::from_secs(20), work) => result };
             if let Some(selector) = weak.upgrade() {
                 let routes = match result {
-                    Ok((a, b)) => vec![a, b],
-                    Err(_) => [RouteId::Relay, RouteId::Cloudflare]
+                    Ok((a, b, c)) => vec![a, b, c],
+                    Err(_) => RouteId::ALL
                         .iter()
                         .map(|r| {
                             let mut m = Measurement::empty(*r);
@@ -455,7 +456,9 @@ impl Selector {
                 if !current_ok {
                     next = best;
                     state.status.reason = "failover".into();
-                } else if clearly_better(&state.status.routes, best, selected) {
+                } else if best == RouteId::Primary
+                    || clearly_better(&state.status.routes, best, selected)
+                {
                     if state.pending == Some(best)
                         && previous_checked.is_some_and(|t| now.duration_since(t) >= ROUND_GAP)
                     {
@@ -470,7 +473,12 @@ impl Selector {
                             .is_none_or(|t| now.duration_since(t) >= COOLDOWN)
                     {
                         next = best;
-                        state.status.reason = "faster".into();
+                        state.status.reason = if best == RouteId::Primary {
+                            "preferred"
+                        } else {
+                            "faster"
+                        }
+                        .into();
                     }
                 } else {
                     state.pending = None;
@@ -534,6 +542,7 @@ fn choose(routes: &[Measurement]) -> Option<RouteId> {
         .filter(|r| r.healthy())
         .min_by_key(|r| {
             (
+                r.route_id != RouteId::Primary,
                 r.jitter_ms.unwrap_or(u64::MAX) / 100,
                 r.latency_ms.unwrap_or(u64::MAX),
             )
@@ -800,7 +809,7 @@ mod tests {
         assert_eq!(
             old.rewrite(&p, "https://meta-api.vip/v1/responses?x=1")
                 .unwrap(),
-            "https://meta-api.vip/v1/responses?x=1"
+            "https://meta-api.com/v1/responses?x=1"
         );
         assert_eq!(
             s.snapshot()
@@ -826,6 +835,110 @@ mod tests {
             .rewrite(&other, "https://meta-api.vip/v1/responses")
             .is_none());
     }
+    #[test]
+    fn primary_is_default_and_wins_over_faster_healthy_alternatives() {
+        let s = selector();
+        assert_eq!(s.status().selected_route_id, RouteId::Primary);
+        assert_eq!(s.status().policy.fixed_route_id, RouteId::Primary);
+        assert_eq!(s.status().routes.len(), 3);
+        assert_eq!(s.status().routes[0].origin, "https://meta-api.com");
+        let rows = vec![
+            good(RouteId::Primary, 900),
+            good(RouteId::Relay, 100),
+            good(RouteId::Cloudflare, 50),
+        ];
+        finish(&s, rows, Instant::now());
+        assert_eq!(s.status().selected_route_id, RouteId::Primary);
+        assert_eq!(s.status().status, "healthy");
+    }
+
+    #[test]
+    fn primary_fails_over_and_recovers_after_independent_rounds_and_cooldown() {
+        let s = selector();
+        let now = Instant::now();
+        let mut bad = good(RouteId::Primary, 1);
+        bad.stream_status = Some("buffered".into());
+        finish(
+            &s,
+            vec![
+                bad,
+                good(RouteId::Relay, 100),
+                good(RouteId::Cloudflare, 200),
+            ],
+            now,
+        );
+        assert_eq!(s.status().selected_route_id, RouteId::Relay);
+        assert_eq!(s.status().reason, "failover");
+        let mut recovered = good(RouteId::Primary, 900);
+        recovered.stream_status = Some("ok".into());
+        let rows = vec![
+            recovered,
+            good(RouteId::Relay, 100),
+            good(RouteId::Cloudflare, 50),
+        ];
+        finish(&s, rows.clone(), now + Duration::from_secs(30));
+        finish(&s, rows.clone(), now + Duration::from_secs(60));
+        assert_eq!(s.status().selected_route_id, RouteId::Relay);
+        finish(&s, rows, now + COOLDOWN);
+        assert_eq!(s.status().selected_route_id, RouteId::Primary);
+        assert_eq!(s.status().reason, "preferred");
+    }
+
+    #[test]
+    fn legacy_auto_selection_returns_to_primary_but_fixed_selection_is_preserved() {
+        for mode in ["auto", "fixed"] {
+            let db = Arc::new(Database::memory().unwrap());
+            db.set_setting(SETTING, &format!(r#"{{"policy":{{"mode":"{mode}","fixedRouteId":"cloudflare"}},"selected":"cloudflare"}}"#)).unwrap();
+            let s = Selector::new(db.clone());
+            assert_eq!(s.status().selected_route_id, RouteId::Cloudflare);
+            let rows = vec![
+                good(RouteId::Primary, 900),
+                good(RouteId::Relay, 100),
+                good(RouteId::Cloudflare, 50),
+            ];
+            let now = Instant::now();
+            finish(&s, rows.clone(), now);
+            assert_eq!(s.status().selected_route_id, RouteId::Cloudflare);
+            finish(&s, rows.clone(), now + Duration::from_secs(2));
+            assert_eq!(s.status().selected_route_id, RouteId::Cloudflare);
+            finish(&s, rows, now + Duration::from_secs(32));
+            let expected = if mode == "auto" {
+                RouteId::Primary
+            } else {
+                RouteId::Cloudflare
+            };
+            assert_eq!(s.status().selected_route_id, expected);
+            assert_eq!(Selector::new(db).status().selected_route_id, expected);
+        }
+    }
+
+    #[test]
+    fn fixed_primary_persists_and_does_not_fail_over() {
+        let s = selector();
+        s.set_policy(
+            Policy {
+                mode: Mode::Fixed,
+                fixed_route_id: RouteId::Primary,
+            },
+            1,
+        )
+        .unwrap();
+        finish(
+            &s,
+            vec![
+                Measurement::empty(RouteId::Primary),
+                good(RouteId::Relay, 100),
+            ],
+            Instant::now(),
+        );
+        assert_eq!(s.status().selected_route_id, RouteId::Primary);
+        assert_eq!(s.status().status, "degraded");
+        assert_eq!(
+            Selector::new(s.db.clone()).status().policy.fixed_route_id,
+            RouteId::Primary
+        );
+    }
+
     #[test]
     fn fixed_mode_never_fails_over_and_revision_conflicts_preserve_it() {
         let s = selector();
@@ -884,6 +997,7 @@ mod tests {
     #[test]
     fn latency_switch_requires_independent_rounds_and_cooldown() {
         let s = selector();
+        s.state.lock().unwrap().status.selected_route_id = RouteId::Relay;
         let now = Instant::now();
         let rows = vec![good(RouteId::Relay, 450), good(RouteId::Cloudflare, 200)];
         finish(&s, rows.clone(), now);

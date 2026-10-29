@@ -11,6 +11,9 @@ export function RouteSelectionCard() {
   const name = useId();
   const data = query.data;
   const running = !!data && !query.isError;
+  const primarySupported = data?.routes.some(
+    (route) => route.routeId === "primary",
+  );
   const checking = running && !!data.operationId;
   const mode =
     data?.policy.mode === "fixed" ? data.policy.fixedRouteId : "auto";
@@ -61,25 +64,33 @@ export function RouteSelectionCard() {
             className="space-y-2"
           >
             <legend className="sr-only">{t("routeSelection.mode")}</legend>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-              {(["auto", "relay", "cloudflare"] as const).map((value) => (
-                <label
-                  key={value}
-                  className={`flex items-center gap-2 rounded-lg border px-3 py-2.5 text-sm cursor-pointer ${mode === value ? "bg-primary text-primary-foreground border-primary" : "bg-background border-border"}`}
-                >
-                  <input
-                    type="radio"
-                    name={name}
-                    value={value}
-                    checked={mode === value}
-                    onChange={() => choose(value)}
-                    className="shrink-0 accent-current"
-                  />
-                  <span>{t(`routeSelection.mode_${value}`)}</span>
-                </label>
-              ))}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              {(["auto", "primary", "relay", "cloudflare"] as const).map(
+                (value) => (
+                  <label
+                    key={value}
+                    className={`flex items-center gap-2 rounded-lg border px-3 py-2.5 text-sm cursor-pointer ${mode === value ? "bg-primary text-primary-foreground border-primary" : "bg-background border-border"}`}
+                  >
+                    <input
+                      type="radio"
+                      disabled={value === "primary" && !primarySupported}
+                      name={name}
+                      value={value}
+                      checked={mode === value}
+                      onChange={() => choose(value)}
+                      className="shrink-0 accent-current"
+                    />
+                    <span>{t(`routeSelection.mode_${value}`)}</span>
+                  </label>
+                ),
+              )}
             </div>
           </fieldset>
+          {running && !primarySupported && (
+            <p className="text-xs text-muted-foreground">
+              {t("routeSelection.errors.core_update_required")}
+            </p>
+          )}
           <div className="rounded-lg bg-muted/40 p-4 flex flex-wrap items-center justify-between gap-3">
             <div aria-live="polite">
               <p className="text-xs text-muted-foreground">

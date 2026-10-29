@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 
-export type RouteId = "relay" | "cloudflare";
+export type RouteId = "primary" | "relay" | "cloudflare";
 export interface RoutePolicy {
   mode: "auto" | "fixed";
   fixedRouteId: RouteId;

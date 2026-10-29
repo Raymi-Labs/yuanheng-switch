@@ -8,6 +8,8 @@ Status: implemented
 
 ## Decision
 
+候选和优先级已由[.com 首选线路](../feature/2026-10-29-primary-com-route.md)扩展为三条；下文保留原两线决定的依据与初次验收。探测、请求快照与固定偏好的契约仍适用。
+
 由独立 Core 持有选路器、偏好和探测任务。设置 → 路由新增连接线路卡片，提供自动推荐、固定跳板、固定 CF；工作台只在已确认的线路异常时显示设置入口。用户确认的两条 origin 是 `https://meta-api.vip`（跳板）与 `https://nan.meta-api.vip`（CF）；cn 为重复旧入口，不参与候选。
 
 ### 能力复用与影响范围

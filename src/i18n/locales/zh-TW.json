@@ -3400,7 +3400,7 @@
     "previous": "上次結果 · 不代表目前路線健康",
     "results": "最近檢測 · 介面回應 / 成功次數",
     "samples": "{{count}} / {{total}} 次成功",
-    "autoHint": "切換對後續新請求生效，正在生成的回答繼續使用原連線。",
+    "autoHint": "優先使用 meta-api.com，異常時自動切換備用線路。切換僅對後續新請求生效。",
     "fixedHint": "保持固定路線，連線失敗也不會自動切換。",
     "useAuto": "改用自動推薦",
     "details": "連線詳情與生效範圍",
@@ -3409,7 +3409,7 @@
     "reason": "選擇原因",
     "streaming": "串流檢測",
     "streamProbe": "檢查串流傳輸",
-    "scope": "適用於經過本機路由的元衡託管模型請求。官方帳號模式、外部直連工具、圖片及 WebSocket 保持原路線；登入與儲值位址不變。",
+    "scope": "適用於經過本地路由的元衡託管模型請求。官方帳號模式、外部直連工具、圖片及 WebSocket 保持原線路；帳號介面不參與選路，官網頁面使用 meta-api.com。",
     "schedule": "Core 在啟動、代理或預設本機出站位址變更、連線失敗及使用期間約每 10 分鐘檢測，不產生模型呼叫費用。",
     "warning": "連線路線需要檢查",
     "view": "查看路線",
@@ -3431,7 +3431,8 @@
       "failover": "原線路不可用，備用線路已驗證",
       "faster": "多輪檢測確認更快",
       "save_failed": "無法儲存新選擇",
-      "cancelled": "已取消檢測"
+      "cancelled": "已取消檢測",
+      "preferred": "優先線路經多輪檢測恢復可用"
     },
     "errors": {
       "unknown": "操作未完成，請重新整理後重試。",
@@ -3452,7 +3453,9 @@
       "invalid_response": "回應驗證失敗",
       "interrupted": "串流提前結束",
       "buffered": "串流資料被集中回傳"
-    }
+    },
+    "mode_primary": "固定 .com 優先線路",
+    "primary": ".com 優先線路"
   },
   "feedback": {
     "title": "問題回報",

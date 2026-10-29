@@ -26,6 +26,17 @@ const initial = (): RouteStatus => ({
   coreRunning: true,
   routes: [
     {
+      routeId: "primary",
+      origin: "https://meta-api.com",
+      successes: 3,
+      samples: 3,
+      coldOk: true,
+      latencyMs: 200,
+      jitterMs: 10,
+      error: null,
+      streamStatus: null,
+    },
+    {
       routeId: "relay",
       origin: "https://meta-api.vip",
       successes: 3,
@@ -57,6 +68,49 @@ describe("route selection controls", () => {
     vi.resetAllMocks();
     i18n.addResourceBundle("zh", "translation", zh, true, true);
     vi.mocked(routeSelectionApi.status).mockResolvedValue(initial());
+  });
+  it("offers the primary route and saves a fixed primary choice", async () => {
+    const fixed: RouteStatus = {
+      ...initial(),
+      policy: { mode: "fixed", fixedRouteId: "primary" },
+      selectedRouteId: "primary",
+    };
+    vi.mocked(routeSelectionApi.setPolicy).mockImplementation(async () => {
+      vi.mocked(routeSelectionApi.status).mockResolvedValue(fixed);
+      return fixed;
+    });
+    mount();
+    fireEvent.click(
+      await screen.findByRole("radio", { name: t("mode_primary") }),
+    );
+    await waitFor(() =>
+      expect(routeSelectionApi.setPolicy).toHaveBeenCalledWith(
+        { mode: "fixed", fixedRouteId: "primary" },
+        7,
+      ),
+    );
+    await waitFor(() =>
+      expect(
+        screen.getByRole("radio", { name: t("mode_primary") }),
+      ).toBeChecked(),
+    );
+    expect(screen.getAllByRole("radio")).toHaveLength(4);
+    expect(
+      screen.getByText("https://meta-api.com", { exact: false }),
+    ).toBeInTheDocument();
+  });
+  it("disables the new route while an older Core is still running", async () => {
+    const old = initial();
+    old.routes = old.routes.filter((route) => route.routeId !== "primary");
+    vi.mocked(routeSelectionApi.status).mockResolvedValue(old);
+    mount();
+    expect(
+      await screen.findByRole("radio", { name: t("mode_primary") }),
+    ).toBeDisabled();
+    expect(screen.getByRole("radio", { name: t("mode_relay") })).toBeEnabled();
+    expect(
+      screen.getByText(t("errors.core_update_required")),
+    ).toBeInTheDocument();
   });
   it("saves with revision and retains the applied choice on failure", async () => {
     vi.mocked(routeSelectionApi.setPolicy).mockRejectedValue("save_failed");

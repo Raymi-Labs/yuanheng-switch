@@ -4,7 +4,7 @@
 
 ### Connect YuanHeng API projects to Claude Code, Codex, and other local AI coding tools
 
-[YuanHeng API](https://cn.meta-api.vip) · English · [中文](README_ZH.md)
+[YuanHeng API](https://meta-api.com) · English · [中文](README_ZH.md)
 
 </div>
 
@@ -16,7 +16,7 @@ Providers, API keys, model access, quotas, and billing belong in the YuanHeng AP
 
 ## Workflow
 
-1. Create a project token and configure model access in the [YuanHeng console](https://cn.meta-api.vip/console/token).
+1. Create a project token and configure model access in the [YuanHeng console](https://meta-api.com/console/token).
 2. Send the connection configuration from the console to the desktop app, or import an existing local configuration as a migration starting point.
 3. Select the target tool and project in the desktop app, then apply the configuration.
 4. Continue managing keys, model access, quotas, and usage in the YuanHeng console.
