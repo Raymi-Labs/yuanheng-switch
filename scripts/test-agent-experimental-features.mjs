@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { agentExperimentalFeatures } from "./agent-experimental-features.mjs";
 
-test("ordinary builds preserve the existing feature set on all release platforms", () => {
+test("default and legacy environment settings enable the same feature on every release platform", () => {
   for (const target of [
     "aarch64-apple-darwin",
     "x86_64-apple-darwin",
@@ -14,11 +14,13 @@ test("ordinary builds preserve the existing feature set on all release platforms
       { VITE_ENABLE_ACCIO_WORK: "0" },
       { VITE_ENABLE_ACCIO_WORK: "true" },
     ]) {
-      assert.deepEqual(agentExperimentalFeatures(env, target, "release"), []);
+      assert.deepEqual(agentExperimentalFeatures(env, target, "release"), [
+        "accio-work-experimental",
+      ]);
     }
   }
 });
-test("an explicit experimental release is limited to the verified architecture", () => {
+test("release and development builds include Accio without claiming runtime compatibility", () => {
   const env = { VITE_ENABLE_ACCIO_WORK: "1" };
   assert.deepEqual(
     agentExperimentalFeatures(env, "aarch64-apple-darwin", "release"),
@@ -31,10 +33,11 @@ test("an explicit experimental release is limited to the verified architecture",
     "x86_64-pc-windows-msvc",
     "aarch64-unknown-linux-gnu",
   ]) {
-    assert.throws(
-      () => agentExperimentalFeatures(env, target, "release"),
-      /Apple Silicon/,
-    );
+    for (const profile of ["release", "debug"]) {
+      assert.deepEqual(agentExperimentalFeatures(env, target, profile), [
+        "accio-work-experimental",
+      ]);
+    }
   }
 });
 test("release orchestration passes the same feature decision to UI and Core", () => {
@@ -56,10 +59,15 @@ test("release orchestration passes the same feature decision to UI and Core", ()
   );
   assert.match(
     workflow,
-    /target: x86_64-apple-darwin\s+bundles: app,dmg\s+accio_enabled: "0"\s+feature_args: ""/,
+    /target: x86_64-apple-darwin\s+bundles: app,dmg\s+accio_enabled: "1"\s+feature_args: "--features accio-work-experimental"/,
   );
   assert.match(
     workflow,
-    /target: x86_64-pc-windows-msvc\s+bundles: nsis\s+accio_enabled: "0"\s+feature_args: ""/,
+    /target: x86_64-pc-windows-msvc\s+bundles: nsis\s+accio_enabled: "1"\s+feature_args: "--features accio-work-experimental"/,
   );
+  const cargo = readFileSync(
+    new URL("../src-tauri/Cargo.toml", import.meta.url),
+    "utf8",
+  );
+  assert.match(cargo, /default = \["accio-work-experimental"\]/);
 });

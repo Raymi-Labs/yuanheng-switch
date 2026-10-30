@@ -64,7 +64,7 @@ describe("TRAE official Full URL setup preview", () => {
   ])(
     "builds %s without duplicating v1 or switching origins",
     (format, label, path) => {
-      for (const host of ["meta-api.vip", "cn.meta-api.vip"]) {
+      for (const host of ["meta-api.com", "meta-api.vip", "cn.meta-api.vip"]) {
         for (const suffix of ["", "/", "/v1", "/v1/"]) {
           const connection = {
             ...traeTestConnection(),
@@ -83,6 +83,12 @@ describe("TRAE official Full URL setup preview", () => {
   );
 
   it.each([
+    "https://meta-api.com.evil.test",
+    "https://meta-api.com@evil.test",
+    "https://user:secret@meta-api.com",
+    "https://meta-api.com:444",
+    "https://meta-api.com?key=secret",
+    "https://meta-api.com/unknown",
     "http://meta-api.vip",
     "https://meta-api.vip.evil.test",
     "https://meta-api.vip@evil.test",

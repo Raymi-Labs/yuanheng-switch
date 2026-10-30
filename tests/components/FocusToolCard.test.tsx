@@ -12,6 +12,10 @@ Object.defineProperty(Element.prototype, "scrollIntoView", {
   value: vi.fn(),
 });
 
+vi.mock("@/components/desktop/TraeInstallationActions", () => ({
+  TraeInstallationActions: () => <p>TRAE installation actions</p>,
+}));
+
 function createSwitcher(
   bootstrapPhase: ModelSwitchBootstrapPhase,
   retryBootstrap = vi.fn().mockResolvedValue(undefined),
@@ -77,6 +81,101 @@ function createSwitcher(
 }
 
 describe("FocusToolCard", () => {
+  it("shows Accio platform limitations without offering configure or launch", () => {
+    const switcher = createSwitcher("ready");
+    switcher.statusMap.set("accio-work", {
+      app: "accio-work",
+      supported: false,
+      configured: false,
+      needsUpdate: false,
+      model: null,
+      recommendedModel: null,
+      message: null,
+    });
+    render(
+      <FocusToolCard
+        switcher={switcher}
+        focusApp="accio-work"
+        onOpenTools={vi.fn()}
+      />,
+    );
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "暂不支持元衡配置和启动",
+    );
+    expect(screen.queryByRole("button")).not.toBeInTheDocument();
+    expect(switcher.install).not.toHaveBeenCalled();
+    expect(switcher.launch).not.toHaveBeenCalled();
+  });
+  it("TRAE is a peer picker option and never invokes managed setup or launch", async () => {
+    const switcher = createSwitcher("loading");
+    const onToolChange = vi.fn();
+    render(
+      <FocusToolCard
+        switcher={switcher}
+        focusApp="claude"
+        availableTools={["claude", "workbuddy", "codex"]}
+        onToolChange={onToolChange}
+        onOpenTools={vi.fn()}
+      />,
+    );
+    fireEvent.click(screen.getByRole("combobox", { name: "选择当前工具" }));
+    fireEvent.click(await screen.findByRole("option", { name: "TRAE" }));
+    expect(
+      screen.getByRole("combobox", { name: "选择当前工具" }),
+    ).toHaveTextContent("TRAE");
+    expect(screen.getByRole("heading", { name: "TRAE" })).toBeVisible();
+    expect(
+      screen.queryByText("TRAE installation actions"),
+    ).not.toBeInTheDocument();
+    expect(onToolChange).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "TRAE 辅助配置" }));
+    expect(screen.getByRole("dialog")).toBeVisible();
+    expect(screen.getByText("TRAE installation actions")).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "关闭" }));
+    fireEvent.click(screen.getByRole("combobox", { name: "选择当前工具" }));
+    fireEvent.click(await screen.findByRole("option", { name: "Codex" }));
+    expect(onToolChange).toHaveBeenCalledWith("codex");
+    expect(
+      screen.queryByRole("button", { name: "TRAE 辅助配置" }),
+    ).not.toBeInTheDocument();
+    expect(switcher.install).not.toHaveBeenCalled();
+    expect(switcher.launch).not.toHaveBeenCalled();
+    expect(switcher.applyModelGroup).not.toHaveBeenCalled();
+  });
+
+  it("external tool changes close the assisted dialog and restore the main card", async () => {
+    const switcher = createSwitcher("ready");
+    const props = {
+      switcher,
+      availableTools: ["claude", "codex"] as const,
+      onToolChange: vi.fn(),
+      onOpenTools: vi.fn(),
+    };
+    const view = render(
+      <FocusToolCard
+        {...props}
+        availableTools={[...props.availableTools]}
+        focusApp="claude"
+      />,
+    );
+    fireEvent.click(screen.getByRole("combobox", { name: "选择当前工具" }));
+    fireEvent.click(await screen.findByRole("option", { name: "TRAE" }));
+    fireEvent.click(screen.getByRole("button", { name: "TRAE 辅助配置" }));
+    expect(screen.getByRole("dialog")).toBeVisible();
+    view.rerender(
+      <FocusToolCard
+        {...props}
+        availableTools={[...props.availableTools]}
+        focusApp="codex"
+      />,
+    );
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("combobox", { name: "选择当前工具" }),
+    ).toHaveTextContent("Codex");
+    expect(switcher.launch).not.toHaveBeenCalled();
+  });
+
   it.each(["loading", "error", "ready"] as const)(
     "%s 状态仍能切换当前工具",
     async (phase) => {

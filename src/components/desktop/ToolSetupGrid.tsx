@@ -56,6 +56,7 @@ import {
 } from "@/lib/query/yuanheng";
 import {
   DESKTOP_TOOLS,
+  withAssistedTools,
   canRestartDesktopApp,
   isDesktopApp,
   toolLabel,
@@ -773,7 +774,10 @@ function ToolSetupGridContent({
           compact ? "sm:grid-cols-2" : "md:grid-cols-2 xl:grid-cols-3",
         )}
       >
-        {tools.map((app, index) => {
+        {withAssistedTools(tools).map((app, index) => {
+          if (app === "trae") {
+            return <TraeSetupGuide key={app} connection={connection} />;
+          }
           const versionTarget = TOOL_VERSION_TARGETS[app];
           const version = versionTarget
             ? versionMap.get(versionTarget)
@@ -786,6 +790,26 @@ function ToolSetupGridContent({
             Boolean(cliPhase) ||
             (app === "claude-desktop" && workspaceSetup.busy);
           const status = statusMap.get(app);
+          if (app === "accio-work" && status && !status.supported) {
+            return (
+              <article
+                key={app}
+                className="animate-rise-in flex flex-col rounded-2xl border bg-card p-4 shadow-sm"
+              >
+                <div className="flex items-center gap-3">
+                  <ProviderIcon
+                    icon={toolIcon(app)}
+                    name={toolLabel(app)}
+                    size={22}
+                  />
+                  <h2 className="font-display text-[15px] font-semibold">
+                    {toolLabel(app)}
+                  </h2>
+                </div>
+                <AccioConnectionNotice status={status} />
+              </article>
+            );
+          }
           const configured = Boolean(status?.configured);
           const selectable = Boolean(
             connection?.connected &&
@@ -1344,7 +1368,6 @@ function ToolSetupGridContent({
           );
         })}
       </div>
-      <TraeSetupGuide connection={connection} />
     </div>
   );
 }

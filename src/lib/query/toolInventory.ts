@@ -17,7 +17,7 @@ export const DESKTOP_INVENTORY_TARGETS = [
   "trae",
   "trae-cn",
   "dsh",
-  ...(import.meta.env.VITE_ENABLE_ACCIO_WORK === "1" ? ["accio-work"] : []),
+  "accio-work",
   "gemini",
   "grok",
   "opencode",

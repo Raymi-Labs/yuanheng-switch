@@ -2,6 +2,12 @@ name: Desktop Release
 
 on:
   workflow_dispatch:
+    inputs:
+      candidate_only:
+        description: Build signed candidates only; skip Release creation and update delivery
+        type: boolean
+        required: false
+        default: false
   push:
     tags:
       - "v*"
@@ -69,13 +75,13 @@ jobs:
           - platform: macos-15-intel
             target: x86_64-apple-darwin
             bundles: app,dmg
-            accio_enabled: "0"
-            feature_args: ""
+            accio_enabled: "1"
+            feature_args: "--features accio-work-experimental"
           - platform: windows-2022
             target: x86_64-pc-windows-msvc
             bundles: nsis
-            accio_enabled: "0"
-            feature_args: ""
+            accio_enabled: "1"
+            feature_args: "--features accio-work-experimental"
 
     runs-on: ${{ matrix.platform }}
     env:
@@ -218,6 +224,7 @@ jobs:
 
   finalize-updater-manifest:
     name: Publish complete release and updater manifest
+    if: github.event_name != 'workflow_dispatch' || !inputs.candidate_only
     needs: build
     runs-on: ubuntu-22.04
     timeout-minutes: 20

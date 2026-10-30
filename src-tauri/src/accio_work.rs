@@ -346,6 +346,8 @@ pub async fn launch(app: &tauri::AppHandle) -> Result<(), String> {
     let state = app.state::<crate::store::AppState>();
     load(&state.db)?.ok_or("请先配置 Accio Work")?;
     let path = installation::preflight(app).await?;
+    // Also protect the cold-start path before it can start/upgrade Core.
+    installation::require_not_running().await?;
     if !state.proxy_service.is_running().await {
         state.proxy_service.start().await?;
     }

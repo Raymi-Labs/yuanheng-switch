@@ -10,6 +10,19 @@ export function AccioConnectionNotice({
   dark?: boolean;
 }) {
   if (status?.app !== "accio-work") return null;
+  if (!status.supported) {
+    return (
+      <p
+        role="status"
+        className={cn(
+          "mt-3 text-[11px] leading-5",
+          dark ? "text-amber-200" : "text-amber-700 dark:text-amber-300",
+        )}
+      >
+        {dt("Accio 入口已开放；当前系统或构建暂不支持元衡配置和启动。")}
+      </p>
+    );
+  }
   return (
     <div
       className={cn(
@@ -25,11 +38,6 @@ export function AccioConnectionNotice({
       <p>
         {dt(
           "客户端选择的是默认模型，Accio 的 Auto 使用该模型；已在 Accio 中明确选择的模型由其菜单控制。",
-        )}
-      </p>
-      <p>
-        {dt(
-          "实验功能：目前支持本地模型与文件任务，官方电商云端工具执行尚未支持；仅限已验证的 Apple Silicon Mac 和 Accio 版本。",
         )}
       </p>
       {status.runtimeWarning && (

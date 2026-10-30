@@ -410,11 +410,35 @@ impl CoreSupervisor {
 
     #[cfg(target_os = "macos")]
     pub(crate) async fn launch_accio(&self, db: &Database, path: PathBuf) -> Result<(), String> {
-        // Resolve one authenticated Core first; never retry the launch mutation.
-        let info = self.status(db).await?;
+        // Never upgrade a Core out from under an already-open Accio session.
+        crate::accio_work::installation::require_not_running().await?;
+        let source = resolve_bundled_core_path()?;
+        self.launch_accio_from(db, path, &source, !cfg!(debug_assertions))
+            .await
+    }
+
+    #[cfg(target_os = "macos")]
+    async fn launch_accio_from(
+        &self,
+        db: &Database,
+        path: PathBuf,
+        source: &Path,
+        require_bundled: bool,
+    ) -> Result<(), String> {
+        // Reuse guarded upgrade/recovery. A busy Core may be returned unchanged.
+        let info = self.ensure_running_from(db, source).await?;
         if !info.status.running || info.status.port == 0 {
             return Err("元衡 Core 尚未就绪".into());
         }
+        if info.protocol_version != CORE_PROTOCOL_VERSION
+            || (require_bundled && info.binary_id != hash_file(source)?)
+        {
+            return Err(
+                "Core 更新尚未完成，请等待正在进行的请求结束后再启动 Accio；未启动旧版本".into(),
+            );
+        }
+        // Starting/upgrading Core rotates the capability. Read its revision only
+        // after readiness, and never retry the launch mutation on failure.
         let profile = crate::accio_work::load(db)?.ok_or("请先配置 Accio")?;
         let request = crate::accio_work::LaunchRequest {
             path,
@@ -1459,6 +1483,273 @@ mod tests {
     #[cfg(windows)]
     use super::CORE_EXECUTABLE_NAME;
     use super::{activate_core_version, current_core_path, install_versioned_core};
+
+    #[cfg(target_os = "macos")]
+    #[tokio::test]
+    async fn accio_idle_core_upgrade_finishes_before_launch_revision_is_read() {
+        use axum::{
+            extract::Json,
+            http::StatusCode,
+            routing::{get, post},
+            Router,
+        };
+        use std::sync::{Arc, Mutex};
+        let dir = tempfile::tempdir().unwrap();
+        let source = dir.path().join("next.bin");
+        std::fs::write(&source, b"next-core").unwrap();
+        let next = install_versioned_core(dir.path(), &source).unwrap();
+        let old_source = dir.path().join("old.bin");
+        std::fs::write(&old_source, b"old-core").unwrap();
+        let old = install_versioned_core(dir.path(), &old_source).unwrap();
+        activate_core_version(dir.path(), &old.path).unwrap();
+        super::write_private_file(&super::admin_token_path(dir.path()), b"synthetic-admin")
+            .unwrap();
+        let db = Arc::new(crate::database::Database::memory().unwrap());
+        crate::accio_work::save_configuration(&db, crate::accio_work::synthetic_profile()).unwrap();
+        let previous_revision = crate::accio_work::load(&db)
+            .unwrap()
+            .unwrap()
+            .revision()
+            .unwrap();
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let mut config = db.get_proxy_config().await.unwrap();
+        config.listen_address = "127.0.0.1".into();
+        config.listen_port = port;
+        db.update_proxy_config(config).await.unwrap();
+        let info: super::CoreInfo = serde_json::from_value(serde_json::json!({
+            "protocolVersion":0,"version":"synthetic-old","buildProfile":"release","pid":42,
+            "binaryId":old.id,"configDir":"synthetic",
+            "status":crate::proxy::ProxyStatus {running:true,address:"127.0.0.1".into(),port,..Default::default()}
+        })).unwrap();
+        let state = Arc::new(Mutex::new(info));
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let (read_state, switch_state) = (state.clone(), state.clone());
+        let (switch_events, launch_events) = (events.clone(), events.clone());
+        let (switch_db, launch_db) = (db.clone(), db.clone());
+        let next_id = next.id.clone();
+        let router = Router::new()
+            .route(
+                "/__yuanheng/core/info",
+                get(move || {
+                    let s = read_state.clone();
+                    async move { Json(s.lock().unwrap().clone()) }
+                }),
+            )
+            .route(
+                "/__yuanheng/core/shutdown",
+                post(move || {
+                    let (s, e, db, id) = (
+                        switch_state.clone(),
+                        switch_events.clone(),
+                        switch_db.clone(),
+                        next_id.clone(),
+                    );
+                    async move {
+                        e.lock().unwrap().push("upgrade");
+                        let mut p = crate::accio_work::load(&db).unwrap().unwrap();
+                        p.capability = crate::accio_work::new_capability();
+                        crate::accio_work::save(&db, &p).unwrap();
+                        let mut info = s.lock().unwrap();
+                        info.binary_id = id;
+                        info.protocol_version = super::CORE_PROTOCOL_VERSION;
+                        StatusCode::OK
+                    }
+                }),
+            )
+            .route(
+                "/__yuanheng/core/accio/launch",
+                post(move |Json(body): Json<serde_json::Value>| {
+                    let (e, db) = (launch_events.clone(), launch_db.clone());
+                    async move {
+                        e.lock().unwrap().push("launch");
+                        if body["revision"]
+                            == crate::accio_work::load(&db)
+                                .unwrap()
+                                .unwrap()
+                                .revision()
+                                .unwrap()
+                        {
+                            StatusCode::OK
+                        } else {
+                            StatusCode::CONFLICT
+                        }
+                    }
+                }),
+            );
+        let task = tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
+        let result = super::CoreSupervisor::new(dir.path().into())
+            .launch_accio_from(&db, "/Applications/Accio.app".into(), &source, true)
+            .await;
+        task.abort();
+        let _ = task.await;
+        result.unwrap();
+        assert_eq!(*events.lock().unwrap(), vec!["upgrade", "launch"]);
+        assert_eq!(
+            std::fs::read(current_core_path(dir.path())).unwrap(),
+            b"next-core"
+        );
+        assert_ne!(
+            previous_revision,
+            crate::accio_work::load(&db)
+                .unwrap()
+                .unwrap()
+                .revision()
+                .unwrap()
+        );
+    }
+
+    #[cfg(target_os = "macos")]
+    #[tokio::test]
+    async fn accio_launch_checks_core_identity_before_post_and_reads_fresh_revision() {
+        use axum::{
+            extract::Json,
+            http::{HeaderMap, StatusCode},
+            routing::{get, post},
+            Router,
+        };
+        use std::sync::{
+            atomic::{AtomicUsize, Ordering},
+            Arc,
+        };
+
+        // (old binary, old protocol, require release identity, launch succeeds)
+        for (old_binary, old_protocol, require_bundled, succeeds) in [
+            (true, false, true, true),
+            (true, true, true, true),
+            (false, false, true, true),
+            (false, false, true, false),
+            (true, false, false, true),
+        ] {
+            let dir = tempfile::tempdir().unwrap();
+            let source = dir.path().join("bundled.bin");
+            std::fs::write(&source, b"bundled-core").unwrap();
+            let bundled = install_versioned_core(dir.path(), &source).unwrap();
+            let old_source = dir.path().join("old.bin");
+            std::fs::write(&old_source, b"old-core").unwrap();
+            let old = install_versioned_core(dir.path(), &old_source).unwrap();
+            activate_core_version(
+                dir.path(),
+                if old_binary { &old.path } else { &bundled.path },
+            )
+            .unwrap();
+            super::write_private_file(&super::admin_token_path(dir.path()), b"synthetic-admin")
+                .unwrap();
+            let db = Arc::new(crate::database::Database::memory().unwrap());
+            let original = crate::accio_work::synthetic_profile();
+            crate::accio_work::save_configuration(&db, original.clone()).unwrap();
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let port = listener.local_addr().unwrap().port();
+            let mut config = db.get_proxy_config().await.unwrap();
+            config.listen_port = port;
+            config.listen_address = "127.0.0.1".into();
+            db.update_proxy_config(config).await.unwrap();
+            let info: super::CoreInfo = serde_json::from_value(serde_json::json!({
+                "protocolVersion": if old_protocol { 0 } else { super::CORE_PROTOCOL_VERSION },
+                "version": "synthetic", "buildProfile": "release", "pid": 42,
+                "binaryId": if old_binary { &old.id } else { &bundled.id }, "configDir": "synthetic",
+                "status": crate::proxy::ProxyStatus {
+                    running: true, address: "127.0.0.1".into(), port,
+                    active_connections: if old_binary { 1 } else { 0 }, ..Default::default()
+                }
+            })).unwrap();
+            let posts = Arc::new(AtomicUsize::new(0));
+            let stops = Arc::new(AtomicUsize::new(0));
+            let revisions = Arc::new(AtomicUsize::new(0));
+            let (get_db, post_db) = (db.clone(), db.clone());
+            let (post_count, stop_count, fresh_count) =
+                (posts.clone(), stops.clone(), revisions.clone());
+            let router = Router::new()
+                .route(
+                    "/__yuanheng/core/info",
+                    get(move || {
+                        let db = get_db.clone();
+                        let info = info.clone();
+                        async move {
+                            // Model a capability rotation during readiness/upgrade.
+                            let mut profile = crate::accio_work::load(&db).unwrap().unwrap();
+                            profile.capability = crate::accio_work::new_capability();
+                            crate::accio_work::save(&db, &profile).unwrap();
+                            Json(info)
+                        }
+                    }),
+                )
+                .route(
+                    "/__yuanheng/core/accio/launch",
+                    post(
+                        move |headers: HeaderMap, Json(body): Json<serde_json::Value>| {
+                            let db = post_db.clone();
+                            let count = post_count.clone();
+                            let fresh = fresh_count.clone();
+                            async move {
+                                count.fetch_add(1, Ordering::SeqCst);
+                                if headers.get("authorization").and_then(|v| v.to_str().ok())
+                                    == Some("Bearer synthetic-admin")
+                                    && body["revision"]
+                                        == crate::accio_work::load(&db)
+                                            .unwrap()
+                                            .unwrap()
+                                            .revision()
+                                            .unwrap()
+                                {
+                                    fresh.fetch_add(1, Ordering::SeqCst);
+                                }
+                                if succeeds {
+                                    StatusCode::OK
+                                } else {
+                                    StatusCode::CONFLICT
+                                }
+                            }
+                        },
+                    ),
+                )
+                .route(
+                    "/__yuanheng/core/shutdown",
+                    post(move || {
+                        let count = stop_count.clone();
+                        async move {
+                            count.fetch_add(1, Ordering::SeqCst);
+                            StatusCode::CONFLICT
+                        }
+                    }),
+                );
+            let task = tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
+            let result = super::CoreSupervisor::new(dir.path().into())
+                .launch_accio_from(
+                    &db,
+                    std::path::PathBuf::from("/Applications/Accio.app"),
+                    &source,
+                    require_bundled,
+                )
+                .await;
+            task.abort();
+            let _ = task.await;
+            let blocked = old_protocol || (old_binary && require_bundled);
+            assert_eq!(posts.load(Ordering::SeqCst), if blocked { 0 } else { 1 });
+            assert_eq!(
+                revisions.load(Ordering::SeqCst),
+                if blocked { 0 } else { 1 }
+            );
+            assert_eq!(stops.load(Ordering::SeqCst), 0);
+            if blocked {
+                assert!(result.unwrap_err().contains("Core 更新尚未完成"));
+            } else {
+                assert_eq!(result.is_ok(), succeeds);
+            }
+            assert_eq!(
+                std::fs::read(current_core_path(dir.path())).unwrap(),
+                if old_binary {
+                    b"old-core".as_slice()
+                } else {
+                    b"bundled-core".as_slice()
+                }
+            );
+            let updated = crate::accio_work::load(&db).unwrap().unwrap();
+            assert_ne!(updated.capability, original.capability);
+            assert_eq!(updated.model, original.model);
+            assert_eq!(updated.group, original.group);
+        }
+    }
 
     #[tokio::test]
     async fn failed_info_probe_preserves_existing_core_for_http_decode_and_timeout() {

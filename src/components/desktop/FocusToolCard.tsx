@@ -1,6 +1,8 @@
 import { ToolInstallProgress } from "./ToolInstallProgress";
 import { CodexHistoryHint } from "./CodexHistoryHint";
-import type { ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
+import { withAssistedTools } from "@/config/desktopTools";
+import { TraeSetupGuide } from "./TraeSetupGuide";
 import {
   AlertTriangle,
   CheckCircle2,
@@ -242,6 +244,11 @@ export function FocusToolCard({
     launch,
   } = switcher;
 
+  const [assisted, setAssisted] = useState(false);
+  useEffect(() => {
+    setAssisted(false);
+  }, [focusApp, connection?.userId, connection?.baseUrl]);
+
   const app = focusApp ?? runnableRows[0];
   const status = app ? statusMap.get(app) : undefined;
   const current = app ? models[app] : undefined;
@@ -257,18 +264,36 @@ export function FocusToolCard({
         </p>
         <CompactSelectPicker
           label={dt("选择当前工具")}
-          value={app}
-          options={availableTools.map((tool) => ({
+          value={assisted ? "trae" : app}
+          options={withAssistedTools(availableTools).map((tool) => ({
             value: tool,
-            label: toolLabel(tool),
-            icon: providerIconOf(tool),
+            label: tool === "trae" ? "TRAE" : toolLabel(tool),
+            icon: tool === "trae" ? "trae" : providerIconOf(tool),
           }))}
-          onChange={(tool) => onToolChange(tool as YuanhengToolId)}
+          onChange={(tool) => {
+            setAssisted(tool === "trae");
+            if (
+              tool !== "trae" &&
+              availableTools.includes(tool as YuanhengToolId)
+            ) {
+              onToolChange(tool as YuanhengToolId);
+            }
+          }}
           triggerClassName="h-10 border-[#e9b67c]/50 bg-white/10 px-3 text-[15px] font-semibold text-white hover:bg-white/15 focus:ring-[#e9b67c] [&>svg]:text-[#e9b67c] [&>svg]:opacity-100"
           itemClassName="text-sm"
         />
       </div>
     ) : null;
+
+  if (assisted) {
+    return (
+      <section className={focusCardShell}>
+        <FocusToolDecoration />
+        <div className="relative mb-4">{toolPicker}</div>
+        <TraeSetupGuide connection={connection} variant="focus" />
+      </section>
+    );
+  }
 
   if (
     bootstrapPhase === "loading" ||
@@ -285,6 +310,18 @@ export function FocusToolCard({
         refreshing={bootstrapRefreshing}
         toolPicker={toolPicker}
       />
+    );
+  }
+  if (app === "accio-work" && status && !status.supported) {
+    return (
+      <section className={focusCardShell}>
+        <FocusToolDecoration />
+        <div className="relative mb-4">{toolPicker}</div>
+        <div className="relative">
+          <h2 className="font-semibold">{toolLabel(app)}</h2>
+          <AccioConnectionNotice status={status} dark />
+        </div>
+      </section>
     );
   }
   if (!app || !runnableRows.includes(app)) {

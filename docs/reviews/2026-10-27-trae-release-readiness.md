@@ -15,6 +15,10 @@
 
 ## 自动配置入口复核
 
+2026-10-29补充官方会话桥接实验：providers读取通过；直接调用官方保存接口后，合成模型能在重开后的原生菜单保留，但原生请求报2001/invalid ak，本机合成服务未收到请求。保存与可用性必须分开验收。扩展的`getWebSocketRpcClient`对应MainThread实现直接抛出not implemented，不能当作原生模型服务入口。精确清理合成模型后，两份缓存自定义行数恢复30/21，测试行数均0，原Astra Responses选择恢复；四个探测扩展移出安装目录，临时服务/探测进程0。详见[会话桥接验证与缺口](../../.agents/notes/proposed/feature/2026-10-29-trae-session-model-bridge.md)。没有修改产品实现，也没有发布一键配置。
+
+2026-10-29已完成用户要求的直接本地缓存写入实测：官方国内版退出后，两份model_list_map写入成功；正常启动刷新均恢复原内容。仅修改已有合法条目显示名的第二轮也被覆盖。原配置完整恢复，未发模型请求、未提取登录token。详见[两轮原生对照](../../.agents/notes/implemented/testing/2026-10-29-trae-local-model-cache.md)。这是当前版本的缓存持久化失败证据，不是所有自动配置方案均不可行的结论。
+
 只读挂载已校验的官方3.6.4安装包，核对CLI、深链、原生模型服务和扩展入口。原生addCustomModel经wrapRequestWithCredential调用官方服务；已观察的openAddCustomModelDialog只打开原生表单，没有已验证的模型批量导入参数。协议常量ChatAddCustomModelRequest的存在不证明外部可调用的公开接口。
 
 补充检索社区实现，未下载或运行其代码：

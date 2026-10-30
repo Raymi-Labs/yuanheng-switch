@@ -15,6 +15,8 @@ import {
   type TraeModelSelection,
 } from "@/lib/traeSetup";
 import { Button } from "@/components/ui/button";
+import { ProviderIcon } from "@/components/ProviderIcon";
+import { cn } from "@/lib/utils";
 import {
   Dialog,
   DialogClose,
@@ -29,12 +31,16 @@ import { ToolModelPicker } from "./ToolModelPicker";
 import { TraeInstallationActions } from "./TraeInstallationActions";
 import { dt } from "./desktopI18n";
 
-/** An assisted setup surface, deliberately outside managed tool readiness. */
+interface TraeSetupGuideProps {
+  connection?: YuanhengConnectionStatus;
+  variant?: "card" | "focus";
+}
+
+/** A peer tool card whose assisted setup never enters managed configuration. */
 export function TraeSetupGuide({
   connection,
-}: {
-  connection?: YuanhengConnectionStatus;
-}) {
+  variant = "card",
+}: TraeSetupGuideProps) {
   return (
     <TraeSetupGuideContent
       key={JSON.stringify([
@@ -43,15 +49,12 @@ export function TraeSetupGuide({
         connection?.baseUrl,
       ])}
       connection={connection}
+      variant={variant}
     />
   );
 }
 
-function TraeSetupGuideContent({
-  connection,
-}: {
-  connection?: YuanhengConnectionStatus;
-}) {
+function TraeSetupGuideContent({ connection, variant }: TraeSetupGuideProps) {
   const [open, setOpen] = useState(false);
   const [edition, setEdition] = useState<TraeEdition>("china");
   const [selection, setSelection] = useState<TraeModelSelection>();
@@ -102,25 +105,77 @@ function TraeSetupGuideContent({
   };
 
   return (
-    <section
-      className="rounded-2xl border bg-card p-4"
+    <article
+      className={cn(
+        "flex h-full flex-col",
+        variant === "focus"
+          ? "relative"
+          : "animate-rise-in rounded-2xl border bg-card p-4 shadow-sm",
+      )}
       aria-label={dt("TRAE 辅助配置")}
     >
-      <div className="flex flex-wrap items-center gap-3">
+      <div className="flex items-start gap-3">
+        <div
+          className={cn(
+            "flex h-10 w-10 shrink-0 items-center justify-center rounded-xl",
+            variant === "focus" ? "bg-white/10" : "bg-muted/70",
+          )}
+        >
+          <ProviderIcon icon="trae" name="TRAE" size={22} />
+        </div>
         <div className="min-w-0 flex-1">
-          <h3 className="text-sm font-semibold">{dt("TRAE 辅助配置")}</h3>
-          <span className="text-xs text-amber-700 dark:text-amber-300">
-            {dt("实验接入")}
-          </span>
-          <p className="mt-1 text-xs text-muted-foreground">
-            {dt(
-              "生成官方自定义模型的填写说明；请在 TRAE 内保存并选择模型。复制参数不代表已接通。",
+          <div className="flex flex-wrap items-center gap-2">
+            <h2 className="font-display text-[15px] font-semibold">TRAE</h2>
+          </div>
+          <p
+            className={cn(
+              "mt-1 text-xs",
+              variant === "focus" ? "text-white/65" : "text-muted-foreground",
             )}
+          >
+            {dt("需在 TRAE 内保存")}
           </p>
         </div>
-        <Button variant="outline" size="sm" onClick={() => setOpen(true)}>
+        <span
+          className={cn(
+            "rounded-full px-2 py-0.5 text-[10px] font-semibold",
+            variant === "focus"
+              ? "bg-white/10 text-white/80"
+              : "bg-muted text-muted-foreground",
+          )}
+        >
+          {dt("辅助配置")}
+        </span>
+      </div>
+      <p
+        className={cn(
+          "mt-4 text-xs leading-relaxed",
+          variant === "focus" ? "text-white/80" : "text-muted-foreground",
+        )}
+      >
+        {dt(
+          "元衡准备地址和模型，你在 TRAE 填入 API Key 并保存。支持国内版与国际版。",
+        )}
+      </p>
+      <ol
+        className={cn(
+          "my-4 space-y-2 text-xs",
+          variant === "focus" ? "text-white/65" : "text-muted-foreground",
+        )}
+      >
+        <li>{dt("1. 安装并登录 TRAE")}</li>
+        <li>{dt("2. 选择分组和模型")}</li>
+        <li>{dt("3. 复制参数并保存")}</li>
+      </ol>
+      <div className="mt-auto border-t border-current/10 pt-3">
+        <Button
+          className="w-full"
+          size="sm"
+          aria-label={dt("TRAE 辅助配置")}
+          onClick={() => setOpen(true)}
+        >
           <Settings2 className="h-3.5 w-3.5" />
-          {dt("配置 TRAE")}
+          {dt("辅助配置")}
         </Button>
       </div>
 
@@ -135,6 +190,7 @@ function TraeSetupGuideContent({
             </DialogDescription>
           </DialogHeader>
           <div className="min-h-0 space-y-4 overflow-y-auto px-6 py-4 text-sm">
+            <h4 className="font-semibold">{dt("1. 安装并登录 TRAE")}</h4>
             <CompactSelectPicker
               label={dt("TRAE 版本")}
               value={edition}
@@ -179,6 +235,9 @@ function TraeSetupGuideContent({
                 {dt("TRAE 官方说明")}
               </Button>
             </div>
+            <h4 className="border-t pt-4 font-semibold">
+              {dt("2. 选择分组和模型")}
+            </h4>
             {connection?.connected && (
               <ToolModelPicker
                 connection={connection}
@@ -192,6 +251,11 @@ function TraeSetupGuideContent({
                 onChange={setSelection}
               />
             )}
+            <p className="text-xs text-muted-foreground">
+              {dt(
+                "这里选择分组只生成说明，不会修改 API Key 的分组、权限或 TRAE 配置；实际路由和计费以所填令牌为准。",
+              )}
+            </p>
             <div className="space-y-2">
               <p>{dt("API 格式")}</p>
               <CompactSelectPicker
@@ -214,6 +278,9 @@ function TraeSetupGuideContent({
             )}
             {preview.ready && (
               <>
+                <h4 className="border-t pt-4 font-semibold">
+                  {dt("3. 复制参数并保存")}
+                </h4>
                 {edition === "china" && preview.model === "gpt-6-astra" && (
                   <div className="space-y-2 rounded-lg border border-sky-500/30 bg-sky-500/5 p-3 text-xs">
                     <p>
@@ -234,6 +301,11 @@ function TraeSetupGuideContent({
                   </div>
                 )}
                 <p>{dt("所选分组：{{group}}", { group: preview.group })}</p>
+                <p className="text-xs text-muted-foreground">
+                  {dt(
+                    "TRAE 的保存流程使用官方账号服务，请先确认其凭据处理规则。此向导不读取或提交密钥，也不替代 TRAE 官方登录。",
+                  )}
+                </p>
                 <ol className="list-decimal space-y-3 pl-5">
                   <li>
                     {dt(
@@ -298,7 +370,10 @@ function TraeSetupGuideContent({
                 </ol>
               </>
             )}
-            <div className="space-y-2 rounded-lg border border-amber-500/30 bg-amber-500/5 p-3 text-xs">
+            <details className="space-y-2 rounded-lg border p-3 text-xs text-muted-foreground">
+              <summary className="cursor-pointer font-medium text-foreground">
+                {dt("常见问题与注意事项")}
+              </summary>
               <p>
                 {dt(
                   "如果报错提示不支持思考强度 none，请检查 TRAE 模型的高级配置 → 模型系列、思考模式，以及对话中的思考强度。按服务商支持的值调整后再测试；保存成功不代表请求兼容。",
@@ -319,17 +394,7 @@ function TraeSetupGuideContent({
                   "请先验证停止生成是否及时生效；界面停止不一定代表上游请求已结束，费用以平台记录为准。",
                 )}
               </p>
-              <p>
-                {dt(
-                  "这里选择分组只生成说明，不会修改 API Key 的分组、权限或 TRAE 配置；实际路由和计费以所填令牌为准。",
-                )}
-              </p>
-              <p>
-                {dt(
-                  "TRAE 的保存流程使用官方账号服务，请先确认其凭据处理规则。此向导不读取或提交密钥，也不替代 TRAE 官方登录。",
-                )}
-              </p>
-            </div>
+            </details>
           </div>
           <DialogFooter>
             <DialogClose asChild>
@@ -338,7 +403,7 @@ function TraeSetupGuideContent({
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </section>
+    </article>
   );
 }
 

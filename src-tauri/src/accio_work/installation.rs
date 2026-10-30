@@ -6,6 +6,17 @@ use std::path::PathBuf;
 #[cfg(any(target_os = "macos", test))]
 pub(crate) const SUPPORTED_VERSIONS: &[&str] = &["0.34.5", "0.35.3"];
 
+#[cfg(target_os = "macos")]
+pub(crate) async fn require_not_running() -> Result<(), String> {
+    let mut running = tokio::process::Command::new("/usr/bin/pgrep");
+    running.args(["-x", "Accio"]);
+    match super::bounded_output(&mut running).await?.status.code() {
+        Some(1) => Ok(()),
+        Some(0) => Err("请先保存工作并完整退出 Accio，再从元衡启动".into()),
+        _ => Err("无法确认 Accio 是否正在运行，已停止启动".into()),
+    }
+}
+
 #[cfg(any(target_os = "macos", test))]
 pub(crate) fn require_supported_version(version: &str) -> Result<(), String> {
     if SUPPORTED_VERSIONS.contains(&version) {

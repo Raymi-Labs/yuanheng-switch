@@ -19,9 +19,6 @@ describe("AccioConnectionNotice", () => {
       screen.getByText(/普通打开 Accio 不会自动走元衡/),
     ).toBeInTheDocument();
     expect(screen.getByText(/Auto 使用该模型/)).toBeInTheDocument();
-    expect(
-      screen.getByText(/官方电商云端工具执行尚未支持/),
-    ).toBeInTheDocument();
   });
   it("keeps incompatibility visible before configuration or launch", () => {
     render(
@@ -37,5 +34,16 @@ describe("AccioConnectionNotice", () => {
       <AccioConnectionNotice status={{ ...status, app: "codex" }} />,
     );
     expect(container).toBeEmptyDOMElement();
+  });
+  it("explains unsupported platforms without instructing users to configure or launch", () => {
+    render(
+      <AccioConnectionNotice
+        status={{ ...status, supported: false, configured: false }}
+      />,
+    );
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "暂不支持元衡配置和启动",
+    );
+    expect(screen.queryByText(/配置保存后/)).not.toBeInTheDocument();
   });
 });

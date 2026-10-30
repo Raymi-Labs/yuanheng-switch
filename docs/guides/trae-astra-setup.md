@@ -2,7 +2,7 @@
 
 已在 Apple Silicon Mac 的 TRAE 国内版 3.4.9（build 2.3.97430）、鹈鹕王分组、`gpt-6-astra` 验证文件读取、创建、修改和读回。其他模型或分组请先确认支持 Responses 协议。
 
-1. 在元衡客户端连接账号，打开工具管理的 **TRAE 辅助配置**，选择国内版、分组和 `gpt-6-astra`，点击 **使用 Responses 配置**。
+1. 在元衡客户端连接账号，在工作台的 **当前工具** 中选择 **TRAE**，或在工具管理的工具卡片列表中找到 **TRAE**，点击 **辅助配置**。按向导选择国内版、分组和 `gpt-6-astra`，点击 **使用 Responses 配置**。
 2. 打开并登录官方 TRAE，进入设置 → 模型 → 添加模型 → 自定义模型。已有 Chat Completions 条目可以保留，不需要删除。
 3. API 格式选择 **OpenAI Responses API**，打开 **完整 URL**，粘贴元衡向导显示的完整地址，例如 `https://meta-api.vip/v1/responses`。沿用自己的元衡域名，不随意替换域名。
 4. 模型 ID 填写 `gpt-6-astra`，展示名称可填 `YuanHeng Astra Responses`。API Key 使用对应分组、拥有该模型权限的元衡令牌。高级配置的模型系列与思考模式保持默认。

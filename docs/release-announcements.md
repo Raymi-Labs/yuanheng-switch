@@ -50,6 +50,8 @@
 
 ## 并行构建与集中发布
 
+手动运行 `Desktop Release` 时可选择 `candidate_only=true`：复用正式Apple签名、公证及更新签名，构建三个平台并上传Actions产物（保留7天），跳过Release创建、统一发布清单与R2/平台分发。下载对应run的`desktop-<target>`产物用于候选测试，核对receipt提交SHA与文件摘要；候选没有发布给自动更新用户。默认false仍保留原手动草稿流程，正式版本标签行为不变。恢复发布入口只接受正式标签push任务，不接受手动候选任务。
+
 `.github/workflows/release.yml` 的构建矩阵允许三个任务同时运行。构建任务仅有 `contents:read` 权限，不传入 tauri-action 的 Release 标签/ID，并禁用该 action 的 updater JSON 上传。
 
 `scripts/desktop-release.mjs` 提供三个阶段：

@@ -1,6 +1,6 @@
 [package]
 name = "yuanheng-switch"
-version = "0.1.116"
+version = "0.1.117"
 description = "YuanHeng API desktop companion for local AI coding tools"
 authors = ["nanashiwang"]
 license = "MIT"
@@ -25,7 +25,7 @@ name = "yuanheng-core"
 path = "src/bin/yuanheng-core.rs"
 
 [features]
-default = []
+default = ["accio-work-experimental"]
 test-hooks = []
 accio-work-experimental = []
 
