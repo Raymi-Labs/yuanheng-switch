@@ -40,6 +40,20 @@ GUI/Core编译、相关原生测试有当前源码证据；候选包与应用身
 
 ## Native results and remaining gates
 
+Accio绕过随包Core升级的缺口已按[启动前版本检查](../../implemented/bug-fix/2026-10-30-accio-core-upgrade-before-launch.md)本地修复，59项Accio及51项Core相关测试、GUI/Core检查通过。此变更尚未进入已下载的496f7f44签名候选，原生升级回归必须使用后续新候选，不能沿用旧包结果。
+
+2026-10-30用户要求再测：同一签名候选重开后仍出现钥匙串恢复页，不能认定单次授权已持久保留，也不能仅凭页面断定账号过期；未再读取或导出钥匙串。签名Core hash6d61dc…保持正确、health200、API无鉴权GET401且证书校验通过。为独立测取消，通过现有认证管理接口以保存的Astra/鹈鹕王profile启动Accio返回200（明确不算GUI登录通过）。已有测试会话打开，CUA输入发生顺序错位，随后窗口操作报noWindowsAvailable、screen capture failed及timeoutReached，未发送该草稿；前后请求记录相同、active0，本轮没有新增模型费用。取消和向导滚动保持未验收。
+
+代码复核发现Accio GUI入口`accio_work::launch`仅在proxy未运行时调用start，已运行时直接进入CoreSupervisor::launch_accio，而后者调用status并不执行ensure_running，因此无法在此路径保证检查随包Core更新；与上一轮旧测试Core被继续使用的现象一致。此为待修实现缺口，不等同所有启动路径都不更新Core。收尾脚本增加Core stop后最多10秒等待退出；实际Accio/GUI/Core均停止、route inactive、业务配置与签名安装前一致，签名候选保留。guest正常shutdown，run-manual exitCode0。
+
+2026-10-30签名候选实际推理续验：用户完成钥匙串、本地网络授权后，原生工作台显示已登录、原模型/分组正确；不是无交互登录继承。将Tart从副显示器移至内建显示器恢复坐标操作。原生菜单显示TRAE正确SVG、同级卡片及辅助弹窗；滚轮两次未观察到位移，滚动仍待验证。通过GUI预检/启动确认打开Accio，核对运行Core为签名产物6d61dc…、health200，原生模型菜单选中gpt-6-astra并显示分组其他模型。输入固定无工具/无文件提示，只提交一次，原生回复`yh-signed-astra-ok`；Core记录标题和正文两条HTTP200（507/14与34426/10输入/输出token）。第二次提交有界200行无工具生成用于取消，观察active=1后点击按钮时已完整输出200行；最终HTTP200、34475/1416 token、active=0，因此取消测试未成立，不能写作停止通过，未再收费重试。总计三条新模型请求均为Astra，包含后台标题请求。
+
+收尾在active=0后结束精确匹配的Accio/GUI并执行签名Core stop。立即进程检查仍见退出中的Core，后续复查Accio/GUI/Core均0、routeInactive；业务配置与先前备份只有capability不同。保留签名候选与正常授权，不覆盖用户刚恢复的钥匙串。guest正常shutdown，监督器run-manual exitCode0；本轮无新增VM、无宿主常驻测试进程。真实短回复通过；签名身份重开登录继承、原生取消、Core自动升级旧测试实例以及向导滚动仍为未完成项。
+
+2026-10-30用户完成钥匙串恢复后，签名v0.1.116 GUI进入工作台，原Astra/鹈鹕王配置可见；原生工具菜单包含TRAE同级项、正确SVG及辅助向导。虚拟机在副显示器的变形缩略画面使CUA坐标不可用，移到内建显示器后恢复可操作。向导打开通过，滚动调用未观察到位移，仍保留滚动验收缺口。第一次GUI启动Accio实际复用了旧测试Core（e3a22…），未算作签名Core验收；确认零活跃请求后结束未发消息的Accio，使用签名Core产品start更新，运行hash变为6d61dc…、版本0.1.116、health200。再次通过GUI启动Accio成功，但新Core弹出本地网络权限，尚未代为批准，也没有发送模型提示。当前停止于用户系统授权，真实请求/取消仍未完成；旧Core自动升级为何未发生需独立追查，不能隐去手动更新步骤。
+
+签名候选run 40875452709（提交496f7f4454ebfc9f8801de799fe4985f62a7a80d）三个平台成功，发布和分发任务跳过。下载Apple Silicon附件并按receipt核对版本0.1.116、run、提交及全部3个文件大小/SHA256。更新归档SHA256 `eedd0302145fabda29bf7e2ca5be04b323519b4f72398f11dd70bdbb6e0e2abe`；候选GUI SHA256 `b1b932e6c73eb90c45d39f7fe7177db3e5d335d9e18e0650341abff4354e7910`，Core SHA256 `6d61dc8a47e9cac7d9ebaf20b249281c53992415e0e2f094ddbcd4a46dc185ed`。宿主codesign deep/strict、arm64、runtime、签名时间戳、公证stapler和Gatekeeper均通过，Team ID GY42242ZWS。测试机内再次验证精确Bundle ID/Team ID与Gatekeeper后替换App，保留previous.app、旧Core路径及SQLite备份，Accio profile在替换前后完全一致。签名候选尚未启动，不能称为登录继承成功；电脑操作工具要求新下载软件首次GUI运行即时确认，停在该步骤。专用VM已正常shutdown，监督器exitCode0；日常VM未启动，无模型请求。原始本地安装脚本及下载材料未纳入仓库。
+
 2026-10-29后续网络复查：系统代理端口已变化，旧代理端口连接失败不作为当前链路失败证据。宿主使用当前系统代理GET /v1/models返回401、TLS verify=0；专用VM同一路径无鉴权GET亦401、TLS verify=0，首页HEAD 200，先前TLS错误未再复现。HEAD /v1/models返回404不表示GET API不可用。候选Core hash正确、health200、active_connections=0；Accio未运行，候选GUI重开仍停在登录恢复页，旧连接缓存不证明实时认证成功。未重复发送付费模型请求，真实推理/原生取消仍待登录恢复。复查后专用VM正常关机、监督器exitCode0，未留下测试进程。
 
 用户恢复登录并手动启动Accio后提交一次hi，截图显示诊断`7d2a3868eb87`。只读核对：候选Core hash正确、routeActive=true、Astra/鹈鹕王配置正确，日志为core_error/local_transport_error/502/network=unknown。未重放模型请求。测试机对当前来源meta-api.vip的HEAD先一次200，随后根路径和/v1/models分别复现TLS SSL_ERROR_SYSCALL及握手超时；HTTP/1.1和HTTP/2均失败。宿主同域名的直连及显式现有代理HEAD也复现SSL_ERROR_SYSCALL，未携带鉴权。DNS为代理Fake-IP范围198.18地址；这证明独立于Accio请求格式的HTTPS链路故障，不单独证明是代理节点或目标站点原因，也不能断言Core本地网络权限被拒绝。活跃请求0，用户手动操作中的测试机保留运行；未改系统代理、DNS、证书或钥匙串权限。真实成功响应和原生取消仍待网络恢复后的单次验证。

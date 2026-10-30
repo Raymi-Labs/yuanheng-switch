@@ -193,13 +193,7 @@ impl Runtime {
             return Err("Accio 配置已变化，请重新选择后启动".into());
         }
         let path = super::installation::verify(&request.path).await?;
-        let mut running = Command::new("/usr/bin/pgrep");
-        running.args(["-x", "Accio"]);
-        match super::bounded_output(&mut running).await?.status.code() {
-            Some(1) => {}
-            Some(0) => return Err("请先保存工作并完整退出 Accio，再从元衡启动".into()),
-            _ => return Err("无法确认 Accio 是否正在运行，已停止启动".into()),
-        }
+        super::installation::require_not_running().await?;
         // The revision is compared again under the database lock after all awaits.
         let profile = self.spawn_owned(
             db,
