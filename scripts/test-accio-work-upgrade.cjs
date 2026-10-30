@@ -14,6 +14,119 @@ if (!file)
   );
 const source = fs.readFileSync(file, "utf8");
 const inspectedBundles = {
+  "23f247a2135233570b73f9dd8c11b958bcaba934bcedf49f32c48316858a3980": {
+    version: "0.37.1",
+    sdkOffset: 622795,
+    aliases: {
+      V8e: "kve",
+      og: "au",
+      ag: "iu",
+      U8e: "jve",
+      h$t: "z8r",
+      cw: "OW",
+      S$t: "W8r",
+      sw: "D8r",
+      a1t: "C5r",
+      o1t: "w5r",
+      H$t: "IW",
+      s1t: "T5r",
+      Sg: "vu",
+      u$t: "F8r",
+      fg: "cu",
+      U$t: "s5r",
+      n$t: "E8r",
+      i1t: "S5r",
+      o$t: "j8r",
+      l1t: "E5r",
+      q$t: "d5r",
+      Tm: "ud",
+      X$t: "m5r",
+      $$t: "_5r",
+      oga: "M5r",
+      p$t: "L8r",
+      m$t: "R8r",
+      _$t: "B8r",
+      v$t: "V8r",
+      b$t: "H8r",
+      x$t: "U8r",
+      Bi: "Pa",
+      K: "W",
+      q: "G",
+      U: "V",
+      H: "B",
+      W: "H",
+      G: "U",
+      eo: "So",
+    },
+    protocolAliases: {
+      F: "ee",
+      I: "te",
+      ee: "F",
+      te: "ne",
+      L: "I",
+      ne: "re",
+      re: "ie",
+      ie: "ae",
+      ae: "oe",
+      oe: "L",
+      se: "R",
+      ce: "se",
+      le: "ce",
+      ue: "le",
+      de: "ue",
+      fe: "de",
+      pe: "fe",
+      me: "pe",
+      he: "me",
+      ge: "he",
+      _e: "ge",
+      ve: "_e",
+      ye: "ve",
+      be: "ye",
+      xe: "be",
+      Se: "xe",
+      Ce: "Se",
+      we: "Ce",
+      Te: "we",
+      Ee: "Te",
+      De: "Ee",
+      Oe: "De",
+      ke: "Oe",
+      Ae: "ke",
+      je: "Ae",
+      Me: "je",
+      Ne: "Me",
+      Pe: "Ne",
+      Fe: "Pe",
+      Ie: "Fe",
+      Le: "Ie",
+      Re: "Le",
+      ze: "Re",
+      Be: "ze",
+      Ve: "Be",
+      He: "Ve",
+      Ue: "He",
+      We: "Ue",
+      Ge: "We",
+      Ke: "Ge",
+      qe: "Ke",
+      Je: "qe",
+      R: "Je",
+      nt: "z",
+      rt: "nt",
+      it: "rt",
+      at: "it",
+      ot: "at",
+      st: "ot",
+      ct: "st",
+      lt: "ct",
+      z: "lt",
+      oi: "eee",
+      si: "oi",
+      ci: "si",
+      li: "ci",
+    },
+  },
   "5bb09d8401ab6a407c84acc620d90fac5a8fb7bdeb1868028c3032ce7aca2f05": {
     version: "0.35.2",
     sdkOffset: 0,
@@ -77,13 +190,13 @@ const functions = new Map(),
   schemas = new Map();
 const canonicalName = (name) => inspected.aliases[name] ?? name;
 const printer = ts.createPrinter();
-function catalogueText(node) {
-  if (inspected.version === "0.35.2") return node.getText(ast);
+function renamedText(node, aliases = inspected.aliases) {
+  if (Object.keys(aliases).length === 0) return node.getText(ast);
   const transformed = ts.transform(node, [
     (context) => {
       const visit = (child) =>
-        ts.isIdentifier(child) && inspected.aliases[child.text]
-          ? ts.factory.createIdentifier(inspected.aliases[child.text])
+        ts.isIdentifier(child) && Object.hasOwn(aliases, child.text)
+          ? ts.factory.createIdentifier(aliases[child.text])
           : ts.visitEachChild(child, visit, context);
       return (root) => ts.visitNode(root, visit);
     },
@@ -98,6 +211,8 @@ function catalogueText(node) {
     transformed.dispose();
   }
 }
+const catalogueText = (node) => renamedText(node);
+const protocolName = (name) => inspected.protocolAliases?.[name] ?? name;
 // Names and spans belong only to the hash-pinned bundle above. Extract the
 // inspected implementation at runtime; do not copy vendor code into the bridge.
 const protocolDefinitions = new Map(),
@@ -220,14 +335,18 @@ function visit(node) {
   ) {
     if (
       ts.isFunctionDeclaration(node) &&
-      protocolFunctionNames.has(node.name?.text)
+      protocolFunctionNames.has(protocolName(node.name?.text))
     ) {
-      assert.ok(!protocolFunctions.has(node.name.text), node.name.text);
-      protocolFunctions.set(node.name.text, node.getText(ast));
+      const name = protocolName(node.name.text);
+      assert.ok(!protocolFunctions.has(name), name);
+      protocolFunctions.set(
+        name,
+        renamedText(node, inspected.protocolAliases ?? {}),
+      );
     }
     if (
       ts.isVariableDeclaration(node) &&
-      protocolDefinitionNames.has(node.name.getText(ast)) &&
+      protocolDefinitionNames.has(protocolName(node.name.getText(ast))) &&
       // All inspected SDK definitions belong to this exact bundled module;
       // exclude same-named locals inside their functions and class methods.
       ts.isVariableDeclarationList(node.parent) &&
@@ -235,9 +354,12 @@ function visit(node) {
       ts.isBlock(node.parent.parent.parent) &&
       node.parent.parent.parent.getStart(ast) === 2805360 + inspected.sdkOffset
     ) {
-      const name = node.name.getText(ast);
+      const name = protocolName(node.name.getText(ast));
       assert.ok(!protocolDefinitions.has(name), name);
-      protocolDefinitions.set(name, `var ${node.getText(ast)};`);
+      protocolDefinitions.set(
+        name,
+        `var ${renamedText(node, inspected.protocolAliases ?? {})};`,
+      );
     }
   }
   if (
@@ -323,6 +445,13 @@ const sandbox = {
   U: z.array,
   So: z.union,
   D8r: () => false,
+  // 0.37.1 retains hidden-model metadata separately. These in-memory sinks do
+  // not bypass schema parsing, request authentication or stream conversion.
+  f$t: new WeakMap(),
+  g$t: () => false,
+  r$t: (model) => model === "auto" || model.startsWith("auto:"),
+  // The automatic legacy-disk persistence decision is outside this fixture.
+  c1t: () => false,
   Headers,
   AbortController,
   URL,

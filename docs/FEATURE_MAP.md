@@ -188,6 +188,8 @@ Claude diagnostic persistence uses a bounded background writer, not disk I/O on 
 
 启动前Core版本核对：Accio已运行时拒绝升级；复用CoreSupervisor空闲升级，正式构建仅在协议及二进制身份与随包Core一致时发送启动POST。升级延后时提示等待，不静默使用旧Core；profile版本在升级后读取。见[修复与回归边界](../.agents/notes/implemented/bug-fix/2026-10-30-accio-core-upgrade-before-launch.md)。本地回归及签名候选的Apple Silicon原生空闲升级通过；原生取消与钥匙串跨重启恢复仍未完成验收。
 
+Accio 0.37.1兼容修复：扩展精确版本范围，失败提示显示检测版本。Accio工具声明显式保留非严格可选参数语义，避免新版read的json_path/json_paths被同时填入后拒绝执行；不改共享转换器和模型返回参数。新版官方协议15项、旧0.35.3协议15项及Accio Rust61项通过。专用QA真实Core受控启动0.37.1返回200，保留配置和官方登录；Astra原生read→write→read→edit→read与磁盘核验通过，total=83、marker一致、verified=true、input/guard未改，6条实际模型请求全部200。收尾进程0，其他平台/模型及原生取消不由此推断。见[新版验证记录](../.agents/notes/implemented/bug-fix/2026-10-30-accio-0371-compatibility.md)。
+
 2026-10-29本地源码默认在工具管理、工作台及安装目录查询中展示Accio；Cargo、GUI/Core构建入口和三平台发布矩阵统一开启feature，不再受旧VITE_ENABLE_ACCIO_WORK隐藏开关影响。未支持的后端状态在网格和工作台明确提示并隐藏配置/启动操作。Apple Silicon已有下述原生验证；Intel开启既有macOS代码但待真机验证，Windows配置/启动尚未实现。见[默认启用决定及验证限制](../.agents/notes/implemented/feature/2026-10-29-accio-default-availability.md)。当前源码原生check/build、65项相关Rust回归、App候选及Core隔离生命周期通过；专用VM配置保留及后端受控启动通过，完整GUI/真实请求受登录恢复与系统授权阻塞。详见[候选回归](../.agents/notes/proposed/testing/2026-10-29-native-candidate-regression.md)，未发布新安装包。
 
 v0.1.115按[实验交付范围](../.agents/notes/implemented/feature/2026-10-27-agent-experimental-release.md)仅对Apple Silicon发布构建启用，普通开发构建仍默认关闭。最终候选Core配合官方0.35.3、鹈鹕王Astra完成原生read/write/read/edit/read：随机标记一致、total=123、verified=true、input/guard不变，6次模型请求全部200且正输出，退出授权撤销与零遗留通过。TRAE原生表单、Accio官方电商云端执行、其他系统和跨模型仍按各自限制说明。下文早期原型与失败记录保留历史边界。

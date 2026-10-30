@@ -4,7 +4,7 @@ use std::path::Path;
 use std::path::PathBuf;
 
 #[cfg(any(target_os = "macos", test))]
-pub(crate) const SUPPORTED_VERSIONS: &[&str] = &["0.34.5", "0.35.3"];
+pub(crate) const SUPPORTED_VERSIONS: &[&str] = &["0.34.5", "0.35.3", "0.37.1"];
 
 #[cfg(target_os = "macos")]
 pub(crate) async fn require_not_running() -> Result<(), String> {
@@ -23,7 +23,7 @@ pub(crate) fn require_supported_version(version: &str) -> Result<(), String> {
         Ok(())
     } else {
         Err(format!(
-            "此 Accio 版本尚未完成兼容验证，当前支持 {}。请等待元衡适配更新；原配置未更改。",
+            "检测到 Accio {version}，此版本尚未完成兼容验证，当前支持 {}。请等待元衡适配更新；原配置未更改。",
             SUPPORTED_VERSIONS.join("、")
         ))
     }
@@ -130,7 +130,7 @@ mod tests {
 
     #[test]
     fn exact_versions_reject_unverified_updates_and_lookalikes() {
-        for version in ["0.34.5", "0.35.3"] {
+        for version in ["0.34.5", "0.35.3", "0.37.1"] {
             assert!(require_supported_version(version).is_ok());
         }
         for version in [
@@ -138,12 +138,24 @@ mod tests {
             "0.35.4",
             "0.35.3-beta",
             "0.35.30",
+            "0.37.0",
+            "0.37.2",
+            "0.37.1-beta",
+            "0.37.10",
             " 0.35.3",
             "0.35.3\n",
             "",
         ] {
             assert!(require_supported_version(version).is_err(), "{version:?}");
         }
+    }
+
+    #[test]
+    fn unsupported_version_error_identifies_the_detected_version() {
+        let error = require_supported_version("0.37.2").unwrap_err();
+        assert!(error.contains("检测到 Accio 0.37.2"));
+        assert!(error.contains("0.37.1"));
+        assert!(error.contains("原配置未更改"));
     }
 
     #[test]
