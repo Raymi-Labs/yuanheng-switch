@@ -345,6 +345,20 @@ pub fn error_frame(code: &str, message: &str) -> Value {
     value
 }
 
+fn diagnostic_event_kind(kind: &str) -> &'static str {
+    match kind {
+        "response.reasoning_text.delta" => "response.reasoning_text.delta",
+        "response.reasoning_text.done" => "response.reasoning_text.done",
+        "response.queued" => "response.queued",
+        "response.cancelled" => "response.cancelled",
+        "ping" => "ping",
+        "heartbeat" => "heartbeat",
+        "response.output_audio.delta" => "response.output_audio.delta",
+        "response.audio.delta" => "response.audio.delta",
+        _ => "unrecognized",
+    }
+}
+
 #[derive(Default)]
 pub struct ResponseFrames {
     text: BTreeMap<(String, u64, bool), String>,
@@ -521,9 +535,13 @@ impl ResponseFrames {
             | "response.reasoning_summary_text.done"
             | "response.function_call_arguments.delta"
             | "response.function_call_arguments.done" => Ok(Vec::new()),
-            _ => Err(crate::proxy::accio_diagnostics::message(
-                "local_stream_failure", None,
-            )),
+            _ => {
+                // Only predefined event names may enter diagnostics. Never log
+                // arbitrary upstream strings or payloads as a type label.
+                let category = diagnostic_event_kind(kind);
+                log::warn!("[AccioStream] unsupported_event={category}");
+                Err(crate::proxy::accio_diagnostics::message("local_stream_failure", None))
+            },
         }
     }
 }
@@ -531,6 +549,24 @@ impl ResponseFrames {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn accio_unknown_event_diagnostics_never_echo_private_names_or_enable_events() {
+        for kind in ["response.reasoning_text.delta", "response.queued", "ping"] {
+            assert_eq!(diagnostic_event_kind(kind), kind);
+            assert!(ResponseFrames::default()
+                .push(&json!({"type":kind,"delta":"private text"}))
+                .is_err());
+        }
+        for kind in [
+            "sk-private",
+            "response.secret_account",
+            "/Users/private",
+            "other\nforged log",
+        ] {
+            assert_eq!(diagnostic_event_kind(kind), "unrecognized");
+        }
+    }
 
     #[test]
     fn accio_error_frame_is_readable_without_claiming_model_success() {
