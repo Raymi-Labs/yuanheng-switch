@@ -108,7 +108,30 @@ export type YuanhengReasoningLevel =
   | "max"
   | "ultra";
 
+export interface AccioReleaseStatus {
+  latestVersion: string | null;
+  latestVerified: boolean;
+  checkedAt: number | null;
+  stale: boolean;
+  error: string | null;
+}
+
+export function accioConfigurationBlocked(
+  status?: YuanhengToolStatus,
+): boolean {
+  return (
+    status?.app === "accio-work" &&
+    !!status.accioCompatibility &&
+    status.accioCompatibility.state !== "verified_version"
+  );
+}
+
 export interface YuanhengToolStatus {
+  accioCompatibility?: {
+    installedVersion: string | null;
+    supportedVersions: string[];
+    state: "verified_version" | "unverified_version" | "unavailable";
+  } | null;
   app: YuanhengToolId;
   supported: boolean;
   configured: boolean;
@@ -294,6 +317,9 @@ export const yuanhengApi = {
 
   getToolStatuses(): Promise<YuanhengToolStatus[]> {
     return invoke("get_yuanheng_tool_statuses");
+  },
+  getAccioReleaseStatus(): Promise<AccioReleaseStatus> {
+    return invoke("get_accio_release_status");
   },
 
   getToolActivationStatuses(): Promise<YuanhengToolActivationStatus[]> {

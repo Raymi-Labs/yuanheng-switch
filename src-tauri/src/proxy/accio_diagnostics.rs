@@ -244,6 +244,9 @@ pub(super) fn proxy_message(error: &super::ProxyError) -> String {
 }
 
 fn category(evidence: &Evidence) -> &'static str {
+    if evidence.source == "local_stream_failure" {
+        return "元衡无法解析上游流事件，响应未完成";
+    }
     match evidence.code {
         "local_transport_error" => {
             return "元衡 Core 连接上游失败，尚未取得模型响应；请检查网络和出站代理"
@@ -268,12 +271,44 @@ fn category(evidence: &Evidence) -> &'static str {
         | "validation_error"
         | "invalid_json" => "上游拒绝请求或工具参数",
         "context_length_exceeded" => "上游上下文超限",
-        "rate_limit_exceeded" | "insufficient_quota" | "overloaded_error" => "上游限额或容量异常",
+        "rate_limit_exceeded" => "上游请求限流",
+        "insufficient_quota" => "上游可用额度不足",
+        "overloaded_error" => "上游模型服务过载",
         "authentication_error" | "invalid_api_key" | "auth_unavailable" | "permission_denied" => {
             "上游认证或权限异常"
         }
         "model_not_found" | "no_available_channel" => "上游模型路由不可用",
-        _ => "上游返回错误",
+        _ => match evidence.http_status {
+            Some(401 | 403) => "上游认证或权限异常",
+            Some(429) => "上游请求限流或额度限制",
+            Some(503) => "上游服务暂不可用",
+            Some(504) => "上游网关等待超时",
+            _ => "上游返回错误",
+        },
+    }
+}
+
+fn next_step(e: &Evidence) -> &'static str {
+    match e.code {
+        "insufficient_quota" => "请在元衡控制台检查分组额度，充值前先确认具体渠道限制",
+        "rate_limit_exceeded" => "请降低并发并稍后重试，不要连续重复发送任务",
+        "invalid_function_parameters"
+        | "invalid_tool_call"
+        | "tool_use_failed"
+        | "invalid_json" => "请保留工具错误及诊断编号并检查元衡更新，不要关闭操作审批",
+        "context_length_exceeded" => "请缩短上下文或新建对话，先保存当前工作",
+        "authentication_error" | "invalid_api_key" | "permission_denied" | "local_auth_error" => {
+            "请核对元衡分组凭据；Accio 官方登录需单独检查"
+        }
+        "auth_unavailable"
+        | "no_available_channel"
+        | "local_route_unavailable"
+        | "model_not_found" => "请检查当前分组可用模型与渠道，保留诊断编号供排查",
+        "local_transport_error" | "local_timeout" => {
+            "请检查网络与出站代理，先确认原任务已停止再重试"
+        }
+        _ if e.http_status == Some(429) => "请检查额度和并发限制，不要连续重复发送任务",
+        _ => "请保留诊断编号，先确认原任务已停止再决定是否重试",
     }
 }
 
@@ -284,6 +319,7 @@ fn format_message(evidence: Evidence) -> String {
     let diagnostic = serde_json::to_string(&evidence).unwrap_or_else(|_| "{}".into());
     log::warn!("[AccioStream] diagnostic={reference} evidence={diagnostic}");
     let category = category(&evidence);
+    let advice = next_step(&evidence);
     let status = evidence
         .http_status
         .map(|status| {
@@ -302,7 +338,7 @@ fn format_message(evidence: Evidence) -> String {
         .map(|kind| format!("；network={kind}"))
         .unwrap_or_default();
     format!(
-        "{category}（{status}{}{network}；诊断编号 {reference}）；未自动重试或切换模型",
+        "{category}（{status}{}{network}；诊断编号 {reference}）；{advice}；未自动重试或切换模型",
         evidence.code
     )
 }
@@ -311,6 +347,27 @@ fn format_message(evidence: Evidence) -> String {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn accio_actionable_errors_distinguish_quota_rate_tools_and_http_status() {
+        for (code, expected) in [
+            ("insufficient_quota", "可用额度不足"),
+            ("rate_limit_exceeded", "请求限流"),
+            ("invalid_function_parameters", "不要关闭操作审批"),
+            ("context_length_exceeded", "缩短上下文"),
+        ] {
+            let message = message(
+                "responses_failed",
+                Some(&json!({"error":{"code":code,"message":"private-secret-path"}})),
+            );
+            assert!(message.contains(expected));
+            assert!(!message.contains("private-secret-path"));
+            assert!(message.contains("诊断编号"));
+        }
+        assert!(http_message(429, None).contains("额度和并发"));
+        assert!(http_message(403, None).contains("认证或权限"));
+        assert!(http_message(503, None).contains("服务暂不可用"));
+    }
 
     #[test]
     fn accio_local_transport_errors_keep_provenance_without_raw_details() {

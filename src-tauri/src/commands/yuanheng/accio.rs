@@ -94,6 +94,7 @@ pub(super) fn status(
         }),
         runtime_warning: None,
         runtime_status: None,
+        accio_compatibility: None,
     }
 }
 
@@ -105,11 +106,18 @@ pub(super) async fn annotate_installation(app: &AppHandle, status: &mut Yuanheng
         let result = async {
             let path = accio_work::installation::resolve(app).await?;
             let version = accio_work::installation::version_at(&path).await?;
+            status.accio_compatibility = Some(
+                accio_work::installation::Compatibility::from_version(Some(version.clone())),
+            );
             accio_work::installation::require_supported_version(&version)?;
             Ok::<(), String>(())
         }
         .await;
         status.runtime_warning = result.err();
+        if status.accio_compatibility.is_none() {
+            status.accio_compatibility =
+                Some(accio_work::installation::Compatibility::from_version(None));
+        }
     }
     #[cfg(not(target_os = "macos"))]
     {
@@ -139,10 +147,15 @@ pub(super) fn activation_message(
     } else if !received {
         "Accio 已由元衡启动，等待第一条模型请求；可在输入框的模型菜单直接切换。".into()
     } else if succeeded {
-        "本次启动已收到 Accio 请求并确认元衡模型输出。".into()
+        "本次启动已收到 Accio 请求并确认元衡模型输出；文件工具是否成功请查看 Accio 的执行结果，等待审批时请先确认具体操作。".into()
     } else if matches!(status_code, Some(401 | 403)) {
         "Accio 模型请求的元衡分组凭据被拒绝，请重新配置；Accio 官方登录与模型凭据需分别检查。"
             .into()
+    } else if status_code == Some(429) {
+        "模型请求受到限流或额度限制，请在元衡控制台核对分组额度与并发；不要连续重复发送任务。"
+            .into()
+    } else if matches!(status_code, Some(502 | 503 | 504)) {
+        "模型请求暂不可用：可能是网络、上游服务或路由问题，请提供诊断编号区分原因；先确认原任务已停止，再重试。".into()
     } else if status_code.is_some_and(|status| (200..300).contains(&status)) {
         "已收到 Accio 请求，但尚未确认完整模型输出，请检查对话结果或诊断记录。".into()
     } else {

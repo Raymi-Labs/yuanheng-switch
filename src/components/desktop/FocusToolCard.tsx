@@ -34,6 +34,7 @@ import { dt } from "./desktopI18n";
 import { launchDirectoryLabel } from "./useToolLaunchDirectories";
 import { ToolActivationProgress } from "./ToolActivationProgress";
 import { AccioConnectionNotice } from "./AccioConnectionNotice";
+import { accioConfigurationBlocked } from "@/lib/api/yuanheng";
 import { ToolInstallCancel } from "./ToolInstallCancel";
 import { toolInstallLabel } from "./toolInstallFeedback";
 import { useToolLifecycleState } from "@/lib/toolLifecycleState";
@@ -422,7 +423,7 @@ export function FocusToolCard({
         </button>
         <button
           type="button"
-          disabled={pending}
+          disabled={pending || accioConfigurationBlocked(status)}
           aria-label={
             restartRequired
               ? dt("重启并应用 {{v0}}", { v0: toolLabel(app) })
@@ -574,7 +575,7 @@ export function FocusToolCard({
                 group={currentGroup}
                 recommended={status?.recommendedModel}
                 tool={toolLabel(app)}
-                disabled={pending}
+                disabled={pending || accioConfigurationBlocked(status)}
                 onDark
                 onRefresh={refreshModels}
                 onChange={({ model, group }) =>
@@ -594,7 +595,7 @@ export function FocusToolCard({
                     value: level,
                     label: reasoningLabel(level, defaultReasoning),
                   }))}
-                  disabled={pending}
+                  disabled={pending || accioConfigurationBlocked(status)}
                   triggerClassName="border-white/15 bg-white/[0.08] px-2.5 text-[10.5px] text-white transition-colors hover:bg-white/[0.12] focus:border-[#e9b67c]/70"
                   onChange={(level) =>
                     void applyReasoning(app, level as YuanhengReasoningLevel)

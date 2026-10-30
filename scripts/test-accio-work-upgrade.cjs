@@ -1007,7 +1007,12 @@ async function check(name, fn) {
       "actual response parser retains bridge terminal errors and rejects snake-only envelopes",
       () => {
         const frame = {
-          content: { role: "model", parts: [] },
+          content: {
+            role: "model",
+            parts: [
+              { text: "请求未完成：synthetic upstream stream interrupted" },
+            ],
+          },
           turnComplete: true,
           errorCode: "YUANHENG_STREAM_INCOMPLETE",
           errorMessage: "synthetic upstream stream interrupted",
@@ -1017,6 +1022,7 @@ async function check(name, fn) {
         assert.equal(parsed.turnComplete, true);
         assert.equal(parsed.errorCode, frame.errorCode);
         assert.equal(parsed.errorMessage, frame.errorMessage);
+        assert.equal(parsed.content.parts[0].text, frame.content.parts[0].text);
         assert.equal(
           protocolSandbox.Br({
             content: { role: "model", parts: [] },

@@ -2,6 +2,7 @@ import { ToolInstallProgress } from "./ToolInstallProgress";
 import { AccioConnectionNotice } from "./AccioConnectionNotice";
 import { TraeSetupGuide } from "./TraeSetupGuide";
 import { ToolActivationProgress } from "./ToolActivationProgress";
+import { accioConfigurationBlocked } from "@/lib/api/yuanheng";
 import {
   useEffect,
   useMemo,
@@ -322,6 +323,8 @@ function ToolSetupGridContent({
     apps: YuanhengToolId[],
     canContinue = () => true,
   ) => {
+    if (apps.some((app) => accioConfigurationBlocked(statusMap.get(app))))
+      return false;
     if (
       apps.some((app) => isToolLifecycleBusy(TOOL_VERSION_TARGETS[app] ?? app))
     )
@@ -814,7 +817,8 @@ function ToolSetupGridContent({
           const selectable = Boolean(
             connection?.connected &&
               (installed || app === "dsh") &&
-              status?.supported,
+              status?.supported &&
+              !accioConfigurationBlocked(status),
           );
           const isSelected = selected.includes(app);
           const availableModels = compatibleModels();
@@ -1315,6 +1319,7 @@ function ToolSetupGridContent({
                     disabled={
                       !connection?.connected ||
                       !status?.supported ||
+                      accioConfigurationBlocked(status) ||
                       busy ||
                       installing ||
                       !statuses.data ||
@@ -1343,6 +1348,7 @@ function ToolSetupGridContent({
                     !installed ||
                     !connection?.connected ||
                     !status?.supported ||
+                    accioConfigurationBlocked(status) ||
                     busy ||
                     installing ||
                     !statuses.data ||
