@@ -278,7 +278,11 @@ pub fn accio_to_responses(request: &Value) -> Result<Value, String> {
                     .map(json_object)
                     .transpose()?
                     .unwrap_or_else(|| json!({"type":"object","properties":{}}));
-                let mut item = json!({"type":"function","name":name,"parameters":parameters});
+                // Accio schemas contain optional and mutually exclusive fields.
+                // Responses may normalize an omitted strict flag to required
+                // properties; preserve the source tool's optional semantics.
+                let mut item =
+                    json!({"type":"function","name":name,"parameters":parameters,"strict":false});
                 if let Some(description) = declaration.get("description") {
                     item["description"] =
                         json!(description.as_str().ok_or("Accio 工具描述无效")?);
@@ -537,6 +541,25 @@ mod tests {
         );
         assert!(!output.to_string().contains("official-secret"));
         assert!(output.get("empid").is_none());
+    }
+
+    #[test]
+    fn accio_optional_mutually_exclusive_tool_fields_remain_optional() {
+        let schema = json!({"type":"object","properties":{
+            "file_path":{"type":"string"},
+            "json_path":{"type":"string"},
+            "json_paths":{"type":"array","items":{"type":"string"}},
+            "json_with_paths":{"type":"boolean"}
+        },"required":["file_path"]});
+        for tool in [
+            json!({"name":"read","parameters_json":schema.to_string()}),
+            json!({"function_declarations":[{"name":"read","parameters":schema}]}),
+        ] {
+            let request = json!({"model":"m","contents":[{"role":"user","parts":[{"text":"read"}]}],"tools":[tool]});
+            let output = accio_to_responses(&request).unwrap();
+            assert_eq!(output["tools"][0]["strict"], false);
+            assert_eq!(output["tools"][0]["parameters"], schema);
+        }
     }
 
     #[test]
