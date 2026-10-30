@@ -12,6 +12,8 @@ Status: proposed
 
 v0.1.117发布准备：155项关联前端回归、typecheck、format:check、renderer构建及版本公告一致性检查通过。Bun不可用，笔记三个校验器改由本机Node运行并通过；CI继续使用规定的Bun。最小Rust工具链未安装Clippy，未将本地Clippy记为通过，交由合并前CI执行。当前两台VM均stopped，预览服务退出，无本轮遗留测试进程。
 
+首轮PR CI的Windows回归2534项通过、1项失败：Accio管理接口夹具硬编码Unix绝对路径，在Windows的is_absolute校验返回false，实际400而非预期409。默认开启feature后该夹具首次进入Windows常规测试。修正为对应平台的合成绝对路径，保留全部认证/来源/体积限制断言，不放宽生产路径检查或将Windows启动标记为支持。三平台Clippy、完整前端及Linux后端首轮通过；修正后的Windows结果须由新CI核验。
+
 恢复仓库指定Rust 1.95最小工具链，官方HTTPS下载并核对安装器摘要，不改shell配置；复用现有target缓存、限制编译并发。先执行locked GUI/Core check及相关Rust测试，再构建本地候选。候选须有当前源码产物哈希，旧二进制不能替代。
 
 只有候选构建成功才启动已有Accio专用测试VM；用户日常VM不参与。升级前记录脱敏配置摘要与当前包身份，检查无活跃请求，保留小范围应用/配置恢复材料，不克隆整盘。检查原配置保留、TRAE辅助卡片、Accio配置与受控启动、原生请求与取消。真实模型限定用户此前指定Astra、独享或鹈鹕王分组，不自动付费重试；权限或登录需要人工完成时明确交接。收尾正常停止测试VM并确认临时进程0。

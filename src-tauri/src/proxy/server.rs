@@ -973,8 +973,15 @@ mod image_route_tests {
             config_dir: Arc::new(std::path::PathBuf::from("/synthetic")),
             routes: crate::route_selection::Selector::new(db.clone()),
         });
+        // A rooted Unix path is not absolute on Windows. Use a native absolute
+        // fixture so this case reaches the authenticated runtime rejection.
+        let path = if cfg!(windows) {
+            r"C:\synthetic\Accio.app"
+        } else {
+            "/synthetic/Accio.app"
+        };
         let body = serde_json::to_string(&serde_json::json!({
-            "path":"/synthetic/Accio.app", "revision":"0".repeat(64),
+            "path":path, "revision":"0".repeat(64),
         }))
         .unwrap();
         for (peer, host, origin, token, payload, expected) in [
