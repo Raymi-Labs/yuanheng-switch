@@ -85,7 +85,9 @@ export function buildTraeSetupPreview(
     if (
       /[\s\\]/u.test(rawUrl) ||
       url.protocol !== "https:" ||
-      !["meta-api.com", "meta-api.vip", "cn.meta-api.vip"].includes(url.hostname) ||
+      !["meta-api.com", "meta-api.vip", "cn.meta-api.vip"].includes(
+        url.hostname,
+      ) ||
       url.port ||
       url.username ||
       url.password ||

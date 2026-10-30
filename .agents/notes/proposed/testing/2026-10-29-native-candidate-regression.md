@@ -8,6 +8,10 @@ Status: proposed
 
 ## Proposal
 
+当前验收边界（2026-10-30）：签名候选的原生Core空闲升级已通过。TRAE向导以真实组件DOM及生产CSS做900×600小窗口检查，滚动区clientHeight=372、scrollHeight=1086，滚轮可从0移至714.5并返回0，末尾步骤和固定关闭按钮可见；安装动作在夹具中省略，不能替代WKWebView/虚拟机输入验收。临时导出代码已移除，预览服务已停止。原生取消、钥匙串跨重启恢复、Intel真机与Windows Accio仍不宣称通过；本笔记保持proposed追踪这些缺口。v0.1.117公告明确TRAE辅助配置及Accio平台/云端工具限制。
+
+v0.1.117发布准备：155项关联前端回归、typecheck、format:check、renderer构建及版本公告一致性检查通过。Bun不可用，笔记三个校验器改由本机Node运行并通过；CI继续使用规定的Bun。最小Rust工具链未安装Clippy，未将本地Clippy记为通过，交由合并前CI执行。当前两台VM均stopped，预览服务退出，无本轮遗留测试进程。
+
 恢复仓库指定Rust 1.95最小工具链，官方HTTPS下载并核对安装器摘要，不改shell配置；复用现有target缓存、限制编译并发。先执行locked GUI/Core check及相关Rust测试，再构建本地候选。候选须有当前源码产物哈希，旧二进制不能替代。
 
 只有候选构建成功才启动已有Accio专用测试VM；用户日常VM不参与。升级前记录脱敏配置摘要与当前包身份，检查无活跃请求，保留小范围应用/配置恢复材料，不克隆整盘。检查原配置保留、TRAE辅助卡片、Accio配置与受控启动、原生请求与取消。真实模型限定用户此前指定Astra、独享或鹈鹕王分组，不自动付费重试；权限或登录需要人工完成时明确交接。收尾正常停止测试VM并确认临时进程0。
@@ -39,6 +43,12 @@ GUI/Core编译、相关原生测试有当前源码证据；候选包与应用身
 离线检查已通过：Accio 0.35.3已核验官方worker的15项协议回归（2个合成请求、外部请求0、计时器残留0）；Apple发布工具及签名验证脚本22项；GUI/Core feature契约3项；发布管线、Accio开关和连接提示31项；版本一致性检查通过。这些不等于当前候选原生编译、签名公证或安装升级验收。
 
 ## Native results and remaining gates
+
+2026-10-30用户完成本轮登录恢复后的27400dc3签名候选升级验收：点击前核对GUI哈希6a8a9a…，运行Core仍为旧6d61dc…，原业务配置一致、routeActive=false、active0。CUA在原生工作台点击Accio启动一次，随后只读核对current切为新签名Core e23f97…、routeActive=true，Accio进程1，原生客户端显示“Accio已由元衡启动”。没有手动运行Core start/升级或调用管理launch接口。这证明本次原生客户端启动路径完成了旧Core→新Core→Accio启动；不将其推广为并发忙碌或其他平台真机验收。检查中一次active=1，随后0；最近模型请求记录未新增，因此本轮无模型生成费用。结束确认active0，准确结束Accio/GUI、通过新Core stop并等待退出；最终三进程0、routeInactive=true、与安装前模型/分组/provider等业务配置一致，签名候选及登录材料保留。guest正常shutdown、run-manual exitCode0。Core自动升级缺口原生验收通过，钥匙串跨重启继承、取消及向导滚动仍不据此判通过。
+
+2026-10-30用户确认运行修复候选后重新启动专用VM。只读核验GUI进程来自Applications，文件SHA256为6a8a9a…（27400dc3候选）；运行Core仍为6d61dc…旧候选，业务配置与升级前备份相同、routeActive=false、activeRequests=0。截图确认GUI再次停在“恢复本机登录”页；CUA切换显示器后可见页面，但坐标动作仍报noWindowsAvailable，未点击启动或手动升级Core。保留run-manual（60分钟监督上限）及共享剪贴板交接用户完成登录；无推理或临时探针进程，不将尚未登录的状态记作自动升级失败/通过。
+
+2026-10-30修复候选run40987603919/27400dc34d44f34657d7a80f50478f6094be512a下载后，receipt提交/run/目标及三个附件摘要通过。更新归档SHA256645bb7fdeb65ac45192d819be539796f85f401d49b2d527aba65c702f0dd87f7；GUI为6a8a9a7de61926374847e8817835e068b2c9fd9e6336e1df9a79bff316639309，Core为e23f97ac3069e755b553946646b271dedbc2ef540e96a5b00a6779681e662640。宿主及guest精确Bundle ID/Team ID的codesign、Gatekeeper通过，宿主stapler通过。新签名Core隔离生命周期回归通过，模型转发0、Core退出true。专用VM安装时保留旧Core6d61dc…运行及health200，仅关闭旧GUI，备份App/SQLite后换新App，Accio profile逐字一致。新GUI尚未启动；需要电脑操作工具对首次运行本次新下载软件的即时确认。等待前guest正常shutdown、run-manual exitCode0，保留原current及登录资料。尚未证明修复候选的原生自动升级成功。
 
 Accio绕过随包Core升级的缺口已按[启动前版本检查](../../implemented/bug-fix/2026-10-30-accio-core-upgrade-before-launch.md)本地修复，59项Accio及51项Core相关测试、GUI/Core检查通过。此变更尚未进入已下载的496f7f44签名候选，原生升级回归必须使用后续新候选，不能沿用旧包结果。
 
