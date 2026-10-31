@@ -1,5 +1,8 @@
 import { render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+vi.mock("@/components/desktop/AccioReleaseNotice", () => ({
+  AccioReleaseNotice: () => <p>official release check</p>,
+}));
 import type { YuanhengToolStatus } from "@/lib/api";
 import { AccioConnectionNotice } from "@/components/desktop/AccioConnectionNotice";
 
@@ -13,6 +16,24 @@ const status: YuanhengToolStatus = {
   message: null,
 };
 describe("AccioConnectionNotice", () => {
+  it("shows installed and verified versions before configuring an unknown version", () => {
+    render(
+      <AccioConnectionNotice
+        status={{
+          ...status,
+          accioCompatibility: {
+            installedVersion: "0.38.0",
+            supportedVersions: ["0.37.1"],
+            state: "unverified_version",
+          },
+        }}
+      />,
+    );
+    expect(screen.getByText(/已安装 Accio：0.38.0/)).toBeVisible();
+    expect(screen.getByText(/元衡已验证版本：0.37.1/)).toBeVisible();
+    expect(screen.getByRole("alert")).toHaveTextContent("配置和启动暂不可用");
+    expect(screen.getByText("official release check")).toBeVisible();
+  });
   it("explains saved configuration, controlled launch and native model selection", () => {
     render(<AccioConnectionNotice status={status} />);
     expect(

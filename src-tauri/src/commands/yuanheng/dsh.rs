@@ -640,6 +640,7 @@ pub(super) fn status(
         ),
         runtime_warning: None,
         runtime_status: None,
+        accio_compatibility: None,
     }
 }
 

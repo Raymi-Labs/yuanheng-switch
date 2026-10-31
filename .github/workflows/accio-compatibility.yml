@@ -1,0 +1,29 @@
+name: Accio Official Compatibility Check
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 */6 * * *"
+  pull_request:
+    paths:
+      - scripts/check-accio-release.py
+      - scripts/test_check_accio_release.py
+      - .github/workflows/accio-compatibility.yml
+      - src-tauri/src/accio_work/installation.rs
+permissions:
+  contents: read
+concurrency:
+  group: accio-compatibility-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  compatibility:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Offline rejection tests
+        run: python3 scripts/test_check_accio_release.py
+      - name: Inspect official version without downloading the app
+        if: github.event_name != 'pull_request'
+        run: |
+          set -o pipefail
+          python3 scripts/check-accio-release.py | tee -a "$GITHUB_STEP_SUMMARY"

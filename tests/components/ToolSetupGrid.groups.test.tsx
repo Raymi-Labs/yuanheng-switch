@@ -52,11 +52,19 @@ vi.mock("@/lib/api", async (original) => {
 });
 vi.mock("@/lib/query/toolInventory", () => ({
   useToolInventory: () => ({
-    data: ["claude", "codex", "gemini", "chatgpt-desktop", "grok"].map(
-      (name) => ({ name, version: "test" }),
-    ),
+    data: [
+      "claude",
+      "codex",
+      "gemini",
+      "chatgpt-desktop",
+      "grok",
+      "accio-work",
+    ].map((name) => ({ name, version: "test" })),
     refetch: vi.fn(),
   }),
+}));
+vi.mock("@/components/desktop/AccioReleaseNotice", () => ({
+  AccioReleaseNotice: () => <p>official version</p>,
 }));
 vi.mock("@/components/desktop/useDesktopInstallFlow", () => ({
   useDesktopInstallFlow: () => ({
@@ -150,6 +158,25 @@ const chooseGroup = async (
 };
 
 describe("tool group restoration", () => {
+  it("blocks unknown Accio in individual and batch controls", () => {
+    mocks.statuses = [
+      ...mocks.statuses!,
+      {
+        ...status("accio-work"),
+        accioCompatibility: {
+          installedVersion: "99.0.0",
+          supportedVersions: ["0.37.1"],
+          state: "unverified_version",
+        },
+      },
+    ];
+    render(<ToolSetupGrid />);
+    expect(screen.getByRole("button", { name: /配置 Accio/ })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /启动 Accio/ })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /选择 Accio/ })).toBeDisabled();
+    expect(mocks.configure).not.toHaveBeenCalled();
+    expect(mocks.launch).not.toHaveBeenCalled();
+  });
   it("shows unsupported Accio without offering configuration, installation or launch", () => {
     mocks.statuses = [
       ...mocks.statuses!,

@@ -15,6 +15,9 @@ Object.defineProperty(Element.prototype, "scrollIntoView", {
 vi.mock("@/components/desktop/TraeInstallationActions", () => ({
   TraeInstallationActions: () => <p>TRAE installation actions</p>,
 }));
+vi.mock("@/components/desktop/AccioReleaseNotice", () => ({
+  AccioReleaseNotice: () => <p>official version</p>,
+}));
 
 function createSwitcher(
   bootstrapPhase: ModelSwitchBootstrapPhase,
@@ -81,6 +84,37 @@ function createSwitcher(
 }
 
 describe("FocusToolCard", () => {
+  it("blocks launching an unverified installed Accio before any action", () => {
+    const switcher = createSwitcher("ready");
+    switcher.runnableRows = ["accio-work"];
+    switcher.installedApps = new Set(["accio-work"]);
+    switcher.statusMap.set("accio-work", {
+      app: "accio-work",
+      supported: true,
+      configured: true,
+      needsUpdate: false,
+      model: "astra",
+      recommendedModel: "astra",
+      message: null,
+      accioCompatibility: {
+        installedVersion: "99.0.0",
+        supportedVersions: ["0.37.1"],
+        state: "unverified_version",
+      },
+    });
+    render(
+      <FocusToolCard
+        switcher={switcher}
+        focusApp="accio-work"
+        onOpenTools={vi.fn()}
+      />,
+    );
+    const launch = screen.getByRole("button", { name: /启动 Accio/ });
+    expect(launch).toBeDisabled();
+    fireEvent.click(launch);
+    expect(switcher.launch).not.toHaveBeenCalled();
+    expect(screen.getByText(/已安装 Accio：99.0.0/)).toBeVisible();
+  });
   it("shows Accio platform limitations without offering configure or launch", () => {
     const switcher = createSwitcher("ready");
     switcher.statusMap.set("accio-work", {

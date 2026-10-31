@@ -6,6 +6,29 @@ import { DESKTOP_ZH_TW } from "./desktopI18n.zhTW";
 type Values = Record<string, string | number | null | undefined>;
 
 export const DESKTOP_EN: Record<string, string> = {
+  "已安装 Accio：{{version}}": "Installed Accio: {{version}}",
+  未检测到有效版本: "No valid version detected",
+  "元衡已验证版本：{{versions}}": "Versions verified by YuanHeng: {{versions}}",
+  "当前版本尚未验证，配置和启动暂不可用。请到设置 → 关于检查元衡更新。":
+    "This version is not verified. Configuration and launch are unavailable. Check for YuanHeng updates in Settings → About.",
+  "暂无法确认 Accio 安装，请重新检测或选择官方应用路径。":
+    "Cannot confirm the Accio installation. Detect again or select the official application path.",
+  "正在后台查询 Accio 官方版本…":
+    "Checking the official Accio version in the background…",
+  "上次检测的官方版本：{{version}}（信息已过期）":
+    "Previously detected official version: {{version}} (outdated information)",
+  "官方发布版本：{{version}}": "Official release version: {{version}}",
+  "官方已有尚未验证的版本。请先检查元衡更新；当前已验证版本仍可使用。":
+    "An official version is not yet verified. Check for YuanHeng updates first; currently verified versions remain usable.",
+  "官方版本查询失败，不影响本机兼容检查。请稍后重试。":
+    "Official version lookup failed. Local compatibility checks still work. Try again later.",
+  "上次成功检查：{{time}}": "Last successful check: {{time}}",
+  "检查官方版本（有缓存）": "Check official version (cached)",
+  "任务一直等待或工具失败？": "Task waiting or tools failing?",
+  "先查看 Accio 是否正在等待文件操作审批；只批准你确认的操作。模型有回复不代表工具已执行成功。":
+    "Check whether Accio is waiting for file approval. Approve only operations you recognize. A model reply does not prove tools succeeded.",
+  "工具参数错误请保留错误提示和诊断编号；官方电商云端工具尚未接入，更新或重复发送不会自动解决。":
+    "For tool parameter errors, keep the error and diagnostic ID. Official commerce cloud tools are not connected; updating or repeating the request will not fix that automatically.",
   "Accio 入口已开放；当前系统或构建暂不支持元衡配置和启动。":
     "Accio is listed, but this system or build does not yet support YuanHeng configuration and launch.",
   辅助配置: "Assisted setup",

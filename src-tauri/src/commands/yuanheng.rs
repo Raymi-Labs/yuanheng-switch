@@ -297,6 +297,8 @@ pub struct YuanhengToolStatus {
     pub message: Option<String>,
     pub runtime_warning: Option<String>,
     pub runtime_status: Option<YuanhengRuntimeStatus>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub accio_compatibility: Option<crate::accio_work::installation::Compatibility>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -3367,6 +3369,7 @@ fn tool_status(
         message,
         runtime_warning: runtime_status.as_ref().map(|status| status.message.clone()),
         runtime_status,
+        accio_compatibility: None,
     }
 }
 
@@ -3501,6 +3504,7 @@ fn workbuddy_status(state: &AppState, connection: &YuanhengConnectionStatus) -> 
         },
         runtime_warning: None,
         runtime_status: None,
+        accio_compatibility: None,
     }
 }
 
@@ -3549,6 +3553,7 @@ fn chatgpt_desktop_status(
         },
         runtime_warning: None,
         runtime_status: None,
+        accio_compatibility: None,
     }
 }
 
@@ -4632,6 +4637,11 @@ pub async fn get_yuanheng_tool_statuses(
         accio::annotate_installation(&app_handle, status).await;
     }
     Ok(statuses)
+}
+
+#[tauri::command]
+pub async fn get_accio_release_status() -> crate::accio_work::releases::ReleaseStatus {
+    crate::accio_work::releases::status().await
 }
 
 #[tauri::command]

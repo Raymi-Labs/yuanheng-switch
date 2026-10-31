@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 pub(crate) mod installation;
+pub(crate) mod releases;
 mod runtime;
 pub(crate) use runtime::{LaunchRequest, Runtime};
 

@@ -190,6 +190,10 @@ Claude diagnostic persistence uses a bounded background writer, not disk I/O on 
 
 Accio 0.37.1兼容修复：扩展精确版本范围，失败提示显示检测版本。Accio工具声明显式保留非严格可选参数语义，避免新版read的json_path/json_paths被同时填入后拒绝执行；不改共享转换器和模型返回参数。新版官方协议15项、旧0.35.3协议15项及Accio Rust61项通过。专用QA真实Core受控启动0.37.1返回200，保留配置和官方登录；Astra原生read→write→read→edit→read与磁盘核验通过，total=83、marker一致、verified=true、input/guard未改，6条实际模型请求全部200。收尾进程0，其他平台/模型及原生取消不由此推断。见[新版验证记录](../.agents/notes/implemented/bug-fix/2026-10-30-accio-0371-compatibility.md)。
 
+Accio兼容预警：工具状态增加本地版本/已验证列表/状态，共用提示在工作台与工具管理显示；未知和不可确认安装禁止相关配置、启动与批量选择，后台仍完整复检签名。[官方版本查询](../src-tauri/src/accio_work/releases.rs)独立于工具清单，固定公开更新源、无重定向、响应/超时上限、成功6小时与失败5分钟单飞缓存；过期结果明确标记。查询不下载执行程序或自动放行。错误诊断提供固定分类建议，模型生效提示明确工具结果/审批需在Accio确认。[定时检查工作流](../.github/workflows/accio-compatibility.yml)每6小时只读检查官方版本，未知版本报告失败；本地未部署不代表已运行。67项Rust、71项前端、3项脚本及15项SDK回归通过；原生取消与跨模型菜单验收仍另行处理。详见[边界与验证](../.agents/notes/implemented/feature/2026-10-30-accio-readiness-diagnostics.md)。
+
+2026-10-31原生补验：沿用已授权网络的测试Core验证Accio0.37.1原生停止（官方aborted、活跃连接0）及同会话恢复ready；菜单Astra→luna→Astra选择生效，付费请求仅Astra，未声称跨模型推理通过。新P0 Core因新权限弹窗未完成UI联网验收。发现未知上游流事件仍拒绝，补可读失败文本并保留错误字段/诊断编号，68项Rust回归与15项SDK解析通过，未放行未知事件。测试环境已恢复、临时进程0。
+
 2026-10-29本地源码默认在工具管理、工作台及安装目录查询中展示Accio；Cargo、GUI/Core构建入口和三平台发布矩阵统一开启feature，不再受旧VITE_ENABLE_ACCIO_WORK隐藏开关影响。未支持的后端状态在网格和工作台明确提示并隐藏配置/启动操作。Apple Silicon已有下述原生验证；Intel开启既有macOS代码但待真机验证，Windows配置/启动尚未实现。见[默认启用决定及验证限制](../.agents/notes/implemented/feature/2026-10-29-accio-default-availability.md)。当前源码原生check/build、65项相关Rust回归、App候选及Core隔离生命周期通过；专用VM配置保留及后端受控启动通过，完整GUI/真实请求受登录恢复与系统授权阻塞。详见[候选回归](../.agents/notes/proposed/testing/2026-10-29-native-candidate-regression.md)，未发布新安装包。
 
 v0.1.115按[实验交付范围](../.agents/notes/implemented/feature/2026-10-27-agent-experimental-release.md)仅对Apple Silicon发布构建启用，普通开发构建仍默认关闭。最终候选Core配合官方0.35.3、鹈鹕王Astra完成原生read/write/read/edit/read：随机标记一致、total=123、verified=true、input/guard不变，6次模型请求全部200且正输出，退出授权撤销与零遗留通过。TRAE原生表单、Accio官方电商云端执行、其他系统和跨模型仍按各自限制说明。下文早期原型与失败记录保留历史边界。

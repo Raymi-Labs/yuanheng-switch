@@ -1619,6 +1619,7 @@ pub fn run() {
             commands::delete_sessions,
             commands::launch_session_terminal,
             commands::get_tool_versions,
+            commands::get_accio_release_status,
             commands::get_installed_tool_versions,
             commands::pick_desktop_app_path,
             commands::set_desktop_app_path,

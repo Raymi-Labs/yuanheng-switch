@@ -337,10 +337,26 @@ fn frame(parts: Vec<Value>, complete: bool) -> Value {
 }
 
 pub fn error_frame(code: &str, message: &str) -> Value {
-    let mut value = frame(Vec::new(), true);
+    // Keep the error fields, but also provide readable text. The desktop SDK
+    // strips empty content and can display its raw snake-case error envelope.
+    let mut value = frame(vec![json!({"text":format!("请求未完成：{message}")})], true);
     value["errorCode"] = json!(code);
     value["errorMessage"] = json!(message);
     value
+}
+
+fn diagnostic_event_kind(kind: &str) -> &'static str {
+    match kind {
+        "response.reasoning_text.delta" => "response.reasoning_text.delta",
+        "response.reasoning_text.done" => "response.reasoning_text.done",
+        "response.queued" => "response.queued",
+        "response.cancelled" => "response.cancelled",
+        "ping" => "ping",
+        "heartbeat" => "heartbeat",
+        "response.output_audio.delta" => "response.output_audio.delta",
+        "response.audio.delta" => "response.audio.delta",
+        _ => "unrecognized",
+    }
 }
 
 #[derive(Default)]
@@ -519,7 +535,13 @@ impl ResponseFrames {
             | "response.reasoning_summary_text.done"
             | "response.function_call_arguments.delta"
             | "response.function_call_arguments.done" => Ok(Vec::new()),
-            _ => Err("上游返回了尚未支持的流事件".into()),
+            _ => {
+                // Only predefined event names may enter diagnostics. Never log
+                // arbitrary upstream strings or payloads as a type label.
+                let category = diagnostic_event_kind(kind);
+                log::warn!("[AccioStream] unsupported_event={category}");
+                Err(crate::proxy::accio_diagnostics::message("local_stream_failure", None))
+            },
         }
     }
 }
@@ -527,6 +549,45 @@ impl ResponseFrames {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn accio_unknown_event_diagnostics_never_echo_private_names_or_enable_events() {
+        for kind in ["response.reasoning_text.delta", "response.queued", "ping"] {
+            assert_eq!(diagnostic_event_kind(kind), kind);
+            assert!(ResponseFrames::default()
+                .push(&json!({"type":kind,"delta":"private text"}))
+                .is_err());
+        }
+        for kind in [
+            "sk-private",
+            "response.secret_account",
+            "/Users/private",
+            "other\nforged log",
+        ] {
+            assert_eq!(diagnostic_event_kind(kind), "unrecognized");
+        }
+    }
+
+    #[test]
+    fn accio_error_frame_is_readable_without_claiming_model_success() {
+        let frame = error_frame(
+            "YUANHENG_STREAM_INCOMPLETE",
+            "诊断编号 synthetic；未自动重试",
+        );
+        assert_eq!(frame["errorCode"], "YUANHENG_STREAM_INCOMPLETE");
+        assert_eq!(frame["turnComplete"], true);
+        assert!(frame["content"]["parts"][0]["text"]
+            .as_str()
+            .unwrap()
+            .starts_with("请求未完成："));
+        assert!(frame.get("usageMetadata").is_none());
+        assert!(frame.get("finishReason").is_none());
+        let error = ResponseFrames::default()
+            .push(&json!({"type":"secret-event-name"}))
+            .unwrap_err();
+        assert!(error.contains("诊断编号"));
+        assert!(!error.contains("secret-event-name"));
+    }
 
     #[test]
     fn converts_proto_without_forwarding_official_identity() {

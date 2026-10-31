@@ -3,8 +3,32 @@
 use std::path::Path;
 use std::path::PathBuf;
 
-#[cfg(any(target_os = "macos", test))]
 pub(crate) const SUPPORTED_VERSIONS: &[&str] = &["0.34.5", "0.35.3", "0.37.1"];
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct Compatibility {
+    pub installed_version: Option<String>,
+    pub supported_versions: Vec<String>,
+    /// verified_version is a version hint, never proof of a trusted executable.
+    pub state: String,
+}
+
+impl Compatibility {
+    #[cfg(any(target_os = "macos", test))]
+    pub(crate) fn from_version(version: Option<String>) -> Self {
+        let state = match version.as_deref() {
+            Some(v) if SUPPORTED_VERSIONS.contains(&v) => "verified_version",
+            Some(_) => "unverified_version",
+            None => "unavailable",
+        };
+        Self {
+            installed_version: version,
+            supported_versions: SUPPORTED_VERSIONS.iter().map(|v| (*v).into()).collect(),
+            state: state.into(),
+        }
+    }
+}
 
 #[cfg(target_os = "macos")]
 pub(crate) async fn require_not_running() -> Result<(), String> {
@@ -127,6 +151,19 @@ pub(crate) async fn preflight(app: &tauri::AppHandle) -> Result<PathBuf, String>
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn accio_compatibility_hints_distinguish_missing_unknown_and_verified() {
+        assert_eq!(Compatibility::from_version(None).state, "unavailable");
+        assert_eq!(
+            Compatibility::from_version(Some("0.37.1".into())).state,
+            "verified_version"
+        );
+        let unknown = Compatibility::from_version(Some("99.0.0".into()));
+        assert_eq!(unknown.state, "unverified_version");
+        assert_eq!(unknown.installed_version.as_deref(), Some("99.0.0"));
+        assert!(unknown.supported_versions.contains(&"0.37.1".into()));
+    }
 
     #[test]
     fn exact_versions_reject_unverified_updates_and_lookalikes() {
