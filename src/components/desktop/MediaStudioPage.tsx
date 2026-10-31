@@ -13,7 +13,6 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { settingsApi } from "@/lib/api";
 import { mediaStudioApi, type MediaRecord } from "@/lib/api/media-studio";
 import { useYuanhengConnection } from "@/lib/query/yuanheng";
 import { extractErrorMessage } from "@/utils/errorUtils";
@@ -330,8 +329,9 @@ export function MediaStudioContent({ scope }: { scope: string }) {
           : result?.mime === "image/webp"
             ? "webp"
             : "png";
-    const path = await settingsApi.saveFileDialog(
+    const path = await mediaStudioApi.saveDialog(
       `yuanheng-${record.id}.${extension}`,
+      extension,
     );
     if (!path || !alive.current) return;
     await mediaStudioApi.export(record.id, path);

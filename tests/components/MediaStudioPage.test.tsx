@@ -28,6 +28,7 @@ const mocks = vi.hoisted(() => ({
   export: vi.fn(),
   delete: vi.fn(),
   save: vi.fn(),
+  saveDialog: vi.fn(),
 }));
 vi.mock("@/lib/api/media-studio", () => ({ mediaStudioApi: mocks }));
 vi.mock("@/lib/query/yuanheng", () => ({
@@ -102,6 +103,7 @@ beforeEach(() => {
     data: btoa("prepared-image"),
   });
   mocks.save.mockResolvedValue("/tmp/synthetic.png");
+  mocks.saveDialog.mockResolvedValue("/tmp/synthetic.png");
   mocks.export.mockResolvedValue(undefined);
   vi.stubGlobal(
     "confirm",
@@ -124,6 +126,51 @@ afterEach(() => {
 });
 
 describe("media creation workflow", () => {
+  it("saves videos through an MP4 dialog and cancellation never exports", async () => {
+    mocks.history.mockResolvedValue([item({ status: "completed" })]);
+    mocks.saveDialog
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce("/tmp/output.mp4");
+    mount();
+    await screen.findByRole("button", { name: "保存" });
+    fireEvent.click(screen.getByRole("button", { name: "保存" }));
+    await waitFor(() =>
+      expect(mocks.saveDialog).toHaveBeenCalledWith(
+        `yuanheng-${item().id}.mp4`,
+        "mp4",
+      ),
+    );
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "保存" })).toBeEnabled(),
+    );
+    expect(mocks.export).not.toHaveBeenCalled();
+    expect(mocks.preview).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "保存" }));
+    await waitFor(() =>
+      expect(mocks.export).toHaveBeenCalledWith(item().id, "/tmp/output.mp4"),
+    );
+    expect(mocks.save).not.toHaveBeenCalled();
+  });
+  it.each([
+    ["image/jpeg", "jpg"],
+    ["image/webp", "webp"],
+  ])("selects the actual %s image filter", async (mime, extension) => {
+    mocks.history.mockResolvedValue([
+      item({ kind: "image", status: "completed", taskId: null }),
+    ]);
+    mocks.preview.mockResolvedValue({ mime, data: btoa("image") });
+    mocks.saveDialog.mockResolvedValue(null);
+    mount();
+    await screen.findByRole("button", { name: "保存" });
+    fireEvent.click(screen.getByRole("button", { name: "保存" }));
+    await waitFor(() =>
+      expect(mocks.saveDialog).toHaveBeenCalledWith(
+        `yuanheng-${item().id}.${extension}`,
+        extension,
+      ),
+    );
+    expect(mocks.export).not.toHaveBeenCalled();
+  });
   it("accepts 180 seconds, rejects fractions and enforces the Muse prompt limit", async () => {
     mount();
     await screen.findByRole("option", { name: "gpt-image-2.5-sunburst" });
@@ -572,7 +619,11 @@ describe("media creation workflow", () => {
         "/tmp/synthetic.png",
       ),
     );
-    expect(mocks.save).toHaveBeenCalled();
+    expect(mocks.saveDialog).toHaveBeenCalledWith(
+      `yuanheng-${item().id}.png`,
+      "png",
+    );
+    expect(mocks.save).not.toHaveBeenCalled();
     view.unmount();
     expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:synthetic-media");
   });
