@@ -5,6 +5,9 @@ import type {
 } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { dt } from "./desktopI18n";
+import { assessToolActivation } from "@/lib/toolActivationAssessment";
+import { Button } from "@/components/ui/button";
+import { ToolDiagnosticDialog } from "./ToolDiagnosticDialog";
 
 interface ToolActivationProgressProps {
   activation?: YuanhengToolActivationStatus;
@@ -12,6 +15,9 @@ interface ToolActivationProgressProps {
   restartRequired?: boolean;
   dark?: boolean;
   compact?: boolean;
+  onRefresh?: () => Promise<unknown>;
+  refreshing?: boolean;
+  refreshFailed?: boolean;
 }
 
 type StepState = "done" | "active" | "waiting" | "error" | "unknown";
@@ -22,8 +28,11 @@ export function ToolActivationProgress({
   restartRequired = false,
   dark = false,
   compact = false,
+  onRefresh,
+  refreshing = false,
+  refreshFailed = false,
 }: ToolActivationProgressProps) {
-  if (!activation && !preflight) return null;
+  if (!activation && !preflight && !onRefresh) return null;
 
   const configDone = Boolean(activation?.configWritten);
   const routeDone = Boolean(
@@ -32,19 +41,26 @@ export function ToolActivationProgress({
   const accio = activation?.app === "accio-work";
   const requestObservable = Boolean(activation?.routeRequired);
   const requestDone = Boolean(
-    activation?.requestReceived && (!accio || routeDone),
+    requestObservable && activation?.requestReceived && (!accio || routeDone),
   );
   const successDone = Boolean(
-    activation?.requestSucceeded && (!accio || routeDone),
+    requestDone &&
+      activation?.requestSucceeded &&
+      routeDone &&
+      activation.lastStatusCode != null &&
+      activation.lastStatusCode >= 200 &&
+      activation.lastStatusCode < 300 &&
+      !restartRequired &&
+      activation.configuredAt != null,
   );
   const unconfirmedOutput =
-    accio &&
     requestDone &&
-    !successDone &&
+    !activation?.requestSucceeded &&
     activation?.lastStatusCode != null &&
     activation.lastStatusCode >= 200 &&
     activation.lastStatusCode < 300;
-  const requestFailed = requestDone && !successDone && !unconfirmedOutput;
+  const requestFailed =
+    requestDone && !activation?.requestSucceeded && !unconfirmedOutput;
 
   const steps: Array<{ label: string; state: StepState }> = [
     {
@@ -52,20 +68,22 @@ export function ToolActivationProgress({
       state: configDone ? "done" : "waiting",
     },
     {
-      label: accio
-        ? dt("Accio 已由元衡启动")
-        : activation?.routeRequired
-          ? dt("路由已启动")
-          : dt("无需本地路由"),
+      label: !activation
+        ? dt("等待状态检查")
+        : accio
+          ? dt("Accio 已由元衡启动")
+          : activation?.routeRequired
+            ? dt("路由已启动")
+            : dt("无需本地路由"),
       state: routeDone ? "done" : "waiting",
     },
     {
       label: restartRequired
         ? dt("等待重新打开")
-        : requestDone
+        : requestDone && routeDone
           ? dt("客户端已就绪")
           : dt("配置待验证"),
-      state: !restartRequired && requestDone ? "done" : "waiting",
+      state: !restartRequired && routeDone && requestDone ? "done" : "waiting",
     },
     {
       label: !requestObservable
@@ -103,6 +121,7 @@ export function ToolActivationProgress({
     return <Circle className="h-2.5 w-2.5" />;
   };
 
+  const assessment = assessToolActivation(activation, restartRequired);
   return (
     <div
       title={preflight?.checks
@@ -158,12 +177,15 @@ export function ToolActivationProgress({
             className={cn(
               "flex min-w-0 items-center gap-1 text-[8.5px]",
               step.state === "done" &&
+                !refreshFailed &&
                 (dark ? "text-emerald-200" : "text-emerald-700"),
               step.state === "active" &&
                 (dark ? "text-amber-200" : "text-amber-700"),
               step.state === "error" &&
                 (dark ? "text-red-200" : "text-red-700"),
-              (step.state === "waiting" || step.state === "unknown") &&
+              (step.state === "waiting" ||
+                step.state === "unknown" ||
+                refreshFailed) &&
                 (dark ? "text-white/35" : "text-muted-foreground/70"),
             )}
           >
@@ -172,15 +194,45 @@ export function ToolActivationProgress({
           </div>
         ))}
       </div>
-      {activation?.message && (
-        <p
-          className={cn(
-            "mt-1.5 text-[9px]",
-            dark ? "text-white/45" : "text-muted-foreground",
+      <div
+        className={cn(
+          "mt-1.5 text-[11px] leading-relaxed",
+          dark ? "text-white/45" : "text-muted-foreground",
+        )}
+      >
+        <p role="status" className="font-medium">
+          {dt(
+            refreshFailed ? "状态刷新失败，以下为上次结果" : assessment.title,
           )}
-        >
-          {dt(activation.message)}
         </p>
+        <p>{dt(assessment.message)}</p>
+        {accio && activation?.message && (
+          <p className="mt-1">{dt(activation.message)}</p>
+        )}
+        {activation?.lastRequestAt != null && (
+          <p>
+            {dt("最近请求记录：{{time}}", {
+              time: new Date(activation.lastRequestAt * 1000).toLocaleString(),
+            })}
+          </p>
+        )}
+      </div>
+      {onRefresh && (
+        <div className="mt-2 flex flex-wrap gap-1">
+          <Button
+            size="sm"
+            variant="ghost"
+            disabled={refreshing}
+            onClick={() => {
+              void Promise.resolve()
+                .then(onRefresh)
+                .catch(() => undefined);
+            }}
+          >
+            {dt(refreshing ? "检查中…" : "刷新状态")}
+          </Button>
+          <ToolDiagnosticDialog />
+        </div>
       )}
     </div>
   );

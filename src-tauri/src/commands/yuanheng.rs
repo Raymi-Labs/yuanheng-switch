@@ -7,7 +7,9 @@ mod dsh;
 mod imagegen;
 mod imagegen_connection;
 mod imagegen_credentials;
+mod media_studio;
 mod model_catalog;
+pub use media_studio::*;
 
 pub use desktop_feedback::*;
 
@@ -1282,18 +1284,28 @@ async fn ensure_device_api_token(
 ) -> Result<(String, i64), String> {
     let detected_name = crate::services::sync_protocol::detect_system_device_name();
     let token_name = device_token_name(detected_name.as_deref());
+    ensure_named_api_token(client, session_cookie, user_id, group, &token_name).await
+}
+
+async fn ensure_named_api_token(
+    client: &reqwest::Client,
+    session_cookie: &str,
+    user_id: &str,
+    group: &str,
+    token_name: &str,
+) -> Result<(String, i64), String> {
     let list_url = format!("{BASE_URL}/api/token/?p=1&size=100");
     let mut list = fetch_json(client, &list_url, Some(session_cookie), Some(user_id)).await?;
     ensure_api_success(&list, "读取元衡工具凭据失败")?;
     let now = chrono::Utc::now().timestamp();
-    let token_id = if let Some(id) = find_device_token_id(&list, &token_name, group, now) {
+    let token_id = if let Some(id) = find_device_token_id(&list, token_name, group, now) {
         id
     } else {
         let (created, _) = post_json(
             client,
             &format!("{BASE_URL}/api/token/"),
             &json!({
-                "name": token_name.as_str(),
+                "name": token_name,
                 "expired_time": -1,
                 "remain_quota": 0,
                 "unlimited_quota": true,
@@ -1307,7 +1319,7 @@ async fn ensure_device_api_token(
         ensure_api_success(&created, "创建本机工具凭据失败")?;
         list = fetch_json(client, &list_url, Some(session_cookie), Some(user_id)).await?;
         ensure_api_success(&list, "读取新建工具凭据失败")?;
-        find_device_token_id(&list, &token_name, group, now)
+        find_device_token_id(&list, token_name, group, now)
             .ok_or_else(|| "本机工具凭据已创建，但未能读取凭据编号".to_string())?
     };
 

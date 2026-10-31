@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import {
   useYuanhengDiagnostics,
   useYuanhengToolStatuses,
+  useYuanhengToolActivationStatuses,
   yuanhengKeys,
 } from "@/lib/query/yuanheng";
 import { createTestQueryClient } from "../utils/testQueryClient";
@@ -25,10 +26,17 @@ describe("account-scoped diagnostic and tool cache", () => {
         lastSyncedAt: 1,
       };
       client.setQueryData(yuanhengKeys.connection, connection);
-      client.setQueryData([...yuanhengKeys.diagnostics, "one", true, 1], {
-        status: "ok",
-        snapshotId: "private-one",
-      });
+      client.setQueryData(
+        [...yuanhengKeys.activation, connection.baseUrl, "one", true, 1],
+        [{ app: "codex", lastModel: "old-account-model" }],
+      );
+      client.setQueryData(
+        [...yuanhengKeys.diagnostics, connection.baseUrl, "one", true, 1],
+        {
+          status: "ok",
+          snapshotId: "private-one",
+        },
+      );
       client.setQueryData(
         [...yuanhengKeys.tools, connection.baseUrl, "one", true],
         [{ app: "codex", model: "old-account-model" }],
@@ -40,6 +48,7 @@ describe("account-scoped diagnostic and tool cache", () => {
         () => ({
           report: useYuanhengDiagnostics(false),
           tools: useYuanhengToolStatuses(),
+          activation: useYuanhengToolActivationStatuses(),
         }),
         { wrapper },
       );
@@ -47,15 +56,25 @@ describe("account-scoped diagnostic and tool cache", () => {
       expect(view.result.current.tools.data?.[0].model).toBe(
         "old-account-model",
       );
+      expect(view.result.current.activation.data?.[0].lastModel).toBe(
+        "old-account-model",
+      );
       await act(async () => {
         client.setQueryData(yuanhengKeys.connection, {
           ...connection,
           ...next,
-          lastSyncedAt: 2,
+          lastSyncedAt: 1,
         });
       });
       await waitFor(() =>
         expect(view.result.current.report.data).toBeUndefined(),
+      );
+      await waitFor(() =>
+        expect(
+          view.result.current.activation.data?.some(
+            (row) => row.lastModel === "old-account-model",
+          ) ?? false,
+        ).toBe(false),
       );
       await waitFor(() =>
         expect(

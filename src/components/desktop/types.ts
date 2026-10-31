@@ -9,6 +9,7 @@ export type DesktopView =
   | "agents"
   | "usage"
   | "voiceClone"
+  | "mediaStudio"
   | "network"
   | "settings"
   | "workspace"

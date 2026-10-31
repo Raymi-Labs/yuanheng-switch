@@ -1,4 +1,5 @@
 import i18n from "@/i18n";
+import { MEDIA_EN } from "./mediaStudioTranslations";
 import { DESKTOP_JA } from "./desktopI18n.ja";
 import { DESKTOP_KO } from "./desktopI18n.ko";
 import { DESKTOP_ZH_TW } from "./desktopI18n.zhTW";
@@ -6,6 +7,58 @@ import { DESKTOP_ZH_TW } from "./desktopI18n.zhTW";
 type Values = Record<string, string | number | null | undefined>;
 
 export const DESKTOP_EN: Record<string, string> = {
+  ...MEDIA_EN,
+  等待状态检查: "Waiting for a status check",
+  尚无检查结果: "No check results yet",
+  "刷新状态后再判断配置是否生效。":
+    "Refresh the status before checking whether configuration has taken effect.",
+  配置尚未就绪: "Configuration is not ready",
+  "请先为此工具应用配置，再检查状态。":
+    "Apply configuration to this tool, then check its status.",
+  本地连接尚未就绪: "Local connection is not ready",
+  "请从元衡重新打开此工具；若仍不可用，查看诊断报告。旧请求成功不代表当前连接正常。":
+    "Reopen this tool from YuanHeng. If it remains unavailable, check the diagnostic report. Past success does not prove the current connection is healthy.",
+  "配置已保存，等待应用读取": "Configuration saved; waiting for the app",
+  "请结束当前任务后重新打开此工具，再查看新请求记录。":
+    "Finish the current task, reopen this tool, then check for new request records.",
+  "配置已保存，请在工具内验证": "Configuration saved; verify in the tool",
+  "此工具的请求不经过本地网关，元衡无法确认模型调用结果；本次检查不会发送测试消息。":
+    "This tool bypasses the local gateway, so YuanHeng cannot confirm model results. This check sends no test messages.",
+  "本地配置已就绪，等待实际请求":
+    "Local configuration ready; waiting for a request",
+  "请在工具内正常使用一次，再刷新状态；本次检查不会发送测试消息。":
+    "Use the tool normally, then refresh its status. This check sends no test messages.",
+  最近请求已成功: "The latest recorded request succeeded",
+  "已记录一次成功请求；不代表文件操作或其他工具任务已完成。":
+    "A successful request was recorded. This does not prove file operations or other tool tasks completed.",
+  请求完成情况待确认: "Request completion is unconfirmed",
+  "HTTP 2xx 不代表完整响应已结束。请查看诊断记录，避免重复发送尚在处理的任务。":
+    "HTTP 2xx does not prove the full response completed. Check diagnostics and avoid resending tasks that may still be processing.",
+  请求被拒绝: "Request rejected",
+  "请检查当前分组的模型权限与凭据；403 也可能是安全策略拦截，不能仅凭状态码认定账号封禁。":
+    "Check model access and credentials for the current group. A 403 may also indicate a security filter; the status alone does not establish an account ban.",
+  请核对账户额度: "Check account quota",
+  "请在平台核对余额、套餐和额度；具体拒绝原因以请求记录为准。":
+    "Check your balance, plan and quota on the platform. Request records determine the actual rejection reason.",
+  请求受到限制: "Request limited",
+  "请核对并发、频率和可用额度，稍后再试；不要连续重复发送。":
+    "Check concurrency, request frequency and available quota. Try later rather than repeatedly resending.",
+  请求等待超时: "Request timed out",
+  "请先查看原任务是否仍在执行，再导出诊断定位超时环节；暂不重复发送。":
+    "Check whether the original task is still running, then export diagnostics to locate the timeout. Avoid resending for now.",
+  请求处理异常: "Request processing error",
+  "本地网关或上游都可能返回此错误，请通过诊断记录定位，暂不需要重装工具。":
+    "Either the local gateway or the upstream may return this error. Use diagnostic records to locate it; reinstalling is not the next step.",
+  请求尚未成功: "Request has not succeeded",
+  "请保留报错时间和请求编号，通过诊断报告核对模型、参数及连接情况。":
+    "Keep the error time and request ID. Use the report to check the model, parameters and connection.",
+  "状态刷新失败，以下为上次结果": "Refresh failed; showing previous results",
+  "最近请求记录：{{time}}": "Latest request record: {{time}}",
+  诊断与报告: "Diagnostics and report",
+  "检查覆盖当前账号的工具连接，不发送模型消息。报告可预览、复制或导出，不会自动上传。":
+    "Checks cover tool connections for the current account and send no model messages. Preview, copy or export the report; it is not uploaded automatically.",
+  "详细体检可能补齐 Codex 历史会话路由；其他配置修复请返回连接检查入口操作。":
+    "Detailed diagnostics may restore Codex history routes. Use the main connection check for other configuration repairs.",
   "已安装 Accio：{{version}}": "Installed Accio: {{version}}",
   未检测到有效版本: "No valid version detected",
   "元衡已验证版本：{{versions}}": "Versions verified by YuanHeng: {{versions}}",
