@@ -1501,6 +1501,7 @@ pub fn run() {
             commands::s3_sync_save_settings,
             commands::s3_sync_fetch_remote_info,
             commands::save_file_dialog,
+            commands::save_media_file_dialog,
             commands::open_file_dialog,
             commands::open_zip_file_dialog,
             commands::create_db_backup,

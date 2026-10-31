@@ -33,6 +33,11 @@ export interface MediaRequest {
   images?: string[];
 }
 export const mediaStudioApi = {
+  saveDialog: (
+    defaultName: string,
+    extension: "mp4" | "png" | "jpg" | "webp",
+  ) =>
+    invoke<string | null>("save_media_file_dialog", { defaultName, extension }),
   models: () => invoke<MediaModel[]>("get_media_studio_models"),
   history: () => invoke<MediaRecord[]>("get_media_studio_history"),
   submit: (request: MediaRequest) =>

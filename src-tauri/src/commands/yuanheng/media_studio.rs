@@ -4,6 +4,7 @@ use base64::{engine::general_purpose::STANDARD as B64, Engine};
 use futures::StreamExt;
 use sha2::{Digest, Sha256};
 use std::{io::Write, path::PathBuf, sync::Mutex, time::Duration};
+use tauri_plugin_dialog::DialogExt;
 
 const GROUP: &str = "生图和视频";
 const MAX_MEDIA: usize = 64 * 1024 * 1024;
@@ -898,6 +899,68 @@ pub struct MediaPreview {
     data: String,
     mime: String,
 }
+fn media_extension(mime: &str) -> Result<&'static str, String> {
+    match mime {
+        "video/mp4" => Ok("mp4"),
+        "image/png" => Ok("png"),
+        "image/jpeg" => Ok("jpg"),
+        "image/webp" => Ok("webp"),
+        _ => Err("不支持的媒体格式".into()),
+    }
+}
+fn validate_media_destination(path: &std::path::Path, extension: &str) -> Result<(), String> {
+    let actual = path
+        .extension()
+        .and_then(|s| s.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    if actual == extension || (extension == "jpg" && actual == "jpeg") {
+        return Ok(());
+    }
+    Err(format!(
+        "请将保存文件名的扩展名设为 .{extension}，不要使用 .sql 或其他格式"
+    ))
+}
+fn media_save_builder<R: tauri::Runtime>(
+    app: &tauri::AppHandle<R>,
+    name: &str,
+    extension: &str,
+) -> Result<tauri_plugin_dialog::FileDialogBuilder<R>, String> {
+    let (label, extensions) = media_save_filter(extension)?;
+    if name.is_empty() || name.contains(['/', '\\', '\0']) {
+        return Err("保存文件名无效".into());
+    }
+    validate_media_destination(std::path::Path::new(name), extension)?;
+    Ok(app
+        .dialog()
+        .file()
+        .add_filter(label, extensions)
+        .set_file_name(name))
+}
+fn media_save_filter(extension: &str) -> Result<(&'static str, &'static [&'static str]), String> {
+    match extension {
+        "mp4" => Ok(("MP4 视频", &["mp4"])),
+        "png" => Ok(("PNG 图片", &["png"])),
+        "jpg" => Ok(("JPEG 图片", &["jpg", "jpeg"])),
+        "webp" => Ok(("WebP 图片", &["webp"])),
+        _ => Err("不支持的媒体保存格式".into()),
+    }
+}
+#[tauri::command]
+pub async fn save_media_file_dialog<R: tauri::Runtime>(
+    app: tauri::AppHandle<R>,
+    default_name: String,
+    extension: String,
+) -> Result<Option<String>, String> {
+    let result = media_save_builder(&app, &default_name, &extension)?.blocking_save_file();
+    result
+        .map(|path| {
+            let path = path.to_string();
+            validate_media_destination(std::path::Path::new(&path), &extension)?;
+            Ok(path)
+        })
+        .transpose()
+}
 async fn ensure_media_file(
     state: &AppState,
     session: &Login,
@@ -1027,8 +1090,9 @@ pub async fn export_media_studio(
     if path.trim().is_empty() {
         return Err("请选择保存位置".into());
     }
-    let (source, _) = ensure_media_file(&state, &session, &id).await?;
+    let (source, mime) = ensure_media_file(&state, &session, &id).await?;
     let destination = PathBuf::from(path);
+    validate_media_destination(&destination, media_extension(&mime)?)?;
     // Never truncate an existing destination while a copy can still fail.
     let parent = destination.parent().ok_or("保存目录无效")?;
     let mut temporary = tempfile::NamedTempFile::new_in(parent).map_err(|_| "无法创建保存文件")?;
@@ -1078,6 +1142,38 @@ mod tests {
     use super::*;
     use crate::database::Database;
     use std::sync::Arc;
+    #[test]
+    fn media_save_filters_and_destination_formats_match_real_content() {
+        for (mime, ext) in [
+            ("video/mp4", "mp4"),
+            ("image/png", "png"),
+            ("image/jpeg", "jpg"),
+            ("image/webp", "webp"),
+        ] {
+            assert_eq!(media_extension(mime).unwrap(), ext);
+            let (label, filters) = media_save_filter(ext).unwrap();
+            assert!(filters.contains(&ext));
+            assert!(!filters.contains(&"sql"));
+            assert!(!label.contains("SQL"));
+            for name in [
+                format!("视频输出.{ext}"),
+                format!("export.{}", ext.to_uppercase()),
+            ] {
+                assert!(validate_media_destination(std::path::Path::new(&name), ext).is_ok());
+            }
+            for name in [
+                format!("video.{ext}.sql"),
+                "no-extension".into(),
+                "file.txt".into(),
+            ] {
+                assert!(validate_media_destination(std::path::Path::new(&name), ext).is_err());
+            }
+        }
+        assert!(validate_media_destination(std::path::Path::new("photo.jpeg"), "jpg").is_ok());
+        assert!(validate_media_destination(std::path::Path::new("photo.mp4"), "png").is_err());
+        assert!(media_save_filter("sql").is_err());
+        assert!(media_extension("application/sql").is_err());
+    }
 
     fn request(model: &str) -> MediaRequest {
         let p = profile(model).unwrap();
