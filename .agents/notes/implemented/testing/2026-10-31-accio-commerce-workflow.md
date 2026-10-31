@@ -42,6 +42,8 @@ Status: implemented
 
 ## Consequences
 
+补充冷启动验收：专用QA虚拟机完全关机后再次启动，使用同一已验证Core受控启动Accio0.37.1，管理接口HTTP200；原生登录、商品会话、Astra菜单选择、两个输出文件均保留。源商品文件和guard不变，定点修订标题仍在；日志仍为原19条模型请求，没有新增推理。收尾比较businessConfigurationPreserved=true、originalCoreRestored=true、active=false、testProcessesRemaining=0；随后正常shutdown，VM监督器exitCode=0。该证据覆盖客体macOS冷启动，不扩大为物理Mac重启、最新GUI安装包升级或其他模型推理。2026-11-01官方发布元数据出现0.37.2，检查器要求兼容复核，版本门禁未扩展。
+
 生成内容需要人工审稿；机器结构校验不能证明营销质量、合规或平台审核结果。官方升级、云端工具、Windows支持不属于本轮验收。
 
-用户交付复用[商品工作流指南](../../../../docs/guides/accio-product-copy.md)、[合成样例](../../../../docs/examples/accio-commerce/products.json)、任务模板及本地校验脚本，没有新增业务接口或修改官方应用。当前仓库已有伙伴媒体保存改动，原样保留，不能随本次一起提交。未推送或发布安装包，原始测试账号/设备标识/日志不进仓库。
+用户交付复用[商品工作流指南](../../../../docs/guides/accio-product-copy.md)、[合成样例](../../../../docs/examples/accio-commerce/products.json)、任务模板及本地校验脚本，没有新增业务接口或修改官方应用。[收尾范围](../../../../docs/reviews/2026-11-01-agent-acceptance-closeout.md)区分已验收能力与后续兼容缺口。本次只交付指南、样例与离线验收工具，不提高产品版本或发布安装包；原始测试账号/设备标识/日志不进仓库。伙伴移动端改动留在原工作区，本次使用独立工作区提交。

@@ -191,7 +191,7 @@ Claude diagnostic persistence uses a bounded background writer, not disk I/O on 
 
 ## Accio Work 实验接入
 
-本地商品资料工作流：提供[双语商品草稿指南](guides/accio-product-copy.md)与[两条合成商品样例](examples/accio-commerce/products.json)，通过原生文件工具生成JSON/Markdown、读回并定点修订。离线校验器`scripts/check-accio-commerce.mjs`核对SKU/事实字段/语言与预览一致性，始终要求人工审稿。0.37.1配合已验证Core及Astra在Apple Silicon QA完成两阶段19条成功模型请求，原文件不变，定点修改仅影响目标标题；应用退出重开保留同会话显式模型选择及元衡业务配置，未测试整机重启/官方升级/另一模型推理。证据见[工作流验收](../.agents/notes/implemented/testing/2026-10-31-accio-commerce-workflow.md)。本地指南与样例不等于官方云端电商工具或店铺发布能力。
+本地商品资料工作流：提供[双语商品草稿指南](guides/accio-product-copy.md)与[两条合成商品样例](examples/accio-commerce/products.json)，通过原生文件工具生成JSON/Markdown、读回并定点修订。离线校验器`scripts/check-accio-commerce.mjs`核对SKU/事实字段/语言与预览一致性，始终要求人工审稿。0.37.1配合已验证Core及Astra在Apple Silicon QA完成两阶段19条成功模型请求，原文件不变，定点修改仅影响目标标题；应用退出重开保留同会话显式模型选择及元衡业务配置，补充专用macOS虚拟机冷启动后登录/原会话/Astra/文件保留，未测试物理Mac重启、官方升级或另一模型推理。证据见[工作流验收](../.agents/notes/implemented/testing/2026-10-31-accio-commerce-workflow.md)和[TRAE/Accio收尾范围](reviews/2026-11-01-agent-acceptance-closeout.md)。2026-11-01官方0.37.2待兼容验证，门禁未放宽。本地指南与样例不等于官方云端电商工具或店铺发布能力。
 
 启动前Core版本核对：Accio已运行时拒绝升级；复用CoreSupervisor空闲升级，正式构建仅在协议及二进制身份与随包Core一致时发送启动POST。升级延后时提示等待，不静默使用旧Core；profile版本在升级后读取。见[修复与回归边界](../.agents/notes/implemented/bug-fix/2026-10-30-accio-core-upgrade-before-launch.md)。本地回归及签名候选的Apple Silicon原生空闲升级通过；原生取消与钥匙串跨重启恢复仍未完成验收。
 
