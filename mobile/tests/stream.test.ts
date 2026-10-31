@@ -1,6 +1,7 @@
 import { StreamReader } from "../src/stream";
 import {
   amountToQuota,
+  balanceText,
   quotaAmount,
   readConversations,
   saveConversations,
@@ -57,6 +58,10 @@ describe("quota and account isolation", () => {
       expect(() => amountToQuota(raw, 500000)).toThrow();
     expect(() => amountToQuota("1", 0)).toThrow();
     expect(quotaAmount(100, 0)).toBe("—");
+  });
+  it("keeps small balances visible in either display unit", () => {
+    expect(balanceText(100, 500000, "quota", 0.2)).toBe("0.0002");
+    expect(balanceText(100, 500000, "cny", 0.2)).toBe("0.00004");
   });
   it("never shows another account's conversations and tolerates corrupt storage", () => {
     saveConversations(1, [
