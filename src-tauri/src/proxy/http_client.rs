@@ -252,7 +252,7 @@ fn build_client(proxy_url: Option<&str>) -> Result<Client, String> {
 
 /// Images are non-idempotent. Never replay a POST on redirect or transport retry.
 /// Use the same configured network proxy as chat without changing its policy.
-pub(super) fn image_client() -> Result<Client, String> {
+pub(crate) fn image_client() -> Result<Client, String> {
     build_client_with_image_policy(get_current_proxy_url().as_deref(), true)
 }
 
@@ -275,6 +275,32 @@ fn build_client_with_policy(
     no_replay: bool,
     timeout: Duration,
 ) -> Result<Client, String> {
+    client_builder_with_policy(proxy_url, no_replay, timeout)?
+        .build()
+        .map_err(|e| format!("Failed to build HTTP client: {e}"))
+}
+
+/// Public media only: retains configured proxy/TLS policy, pins vetted addresses
+/// for direct connections, and never carries account headers or follows redirects.
+pub(crate) fn image_download_client(
+    host: &str,
+    addresses: &[std::net::SocketAddr],
+) -> Result<Client, String> {
+    client_builder_with_policy(
+        get_current_proxy_url().as_deref(),
+        true,
+        Duration::from_secs(90),
+    )?
+    .resolve_to_addrs(host, addresses)
+    .build()
+    .map_err(|_| "无法建立图片下载连接".into())
+}
+
+fn client_builder_with_policy(
+    proxy_url: Option<&str>,
+    no_replay: bool,
+    timeout: Duration,
+) -> Result<reqwest::ClientBuilder, String> {
     let mut builder = Client::builder()
         .timeout(timeout)
         .connect_timeout(timeout.min(Duration::from_secs(30)))
@@ -323,9 +349,7 @@ fn build_client_with_policy(
         }
     }
 
-    builder
-        .build()
-        .map_err(|e| format!("Failed to build HTTP client: {e}"))
+    Ok(builder)
 }
 
 fn system_proxy_points_to_loopback() -> bool {

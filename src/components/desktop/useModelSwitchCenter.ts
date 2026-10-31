@@ -818,6 +818,8 @@ export function useModelSwitchCenter() {
     statusMap,
     activationMap,
     activationRefreshing: activationStatuses.isFetching,
+    activationRefreshFailed: activationStatuses.isError,
+    refreshActivation: activationStatuses.refetch,
     preflightResults,
     preflightPending: preflight.isPending,
     codexBridge,

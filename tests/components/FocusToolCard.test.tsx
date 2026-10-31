@@ -18,6 +18,9 @@ vi.mock("@/components/desktop/TraeInstallationActions", () => ({
 vi.mock("@/components/desktop/AccioReleaseNotice", () => ({
   AccioReleaseNotice: () => <p>official version</p>,
 }));
+vi.mock("@/components/desktop/ToolDiagnosticDialog", () => ({
+  ToolDiagnosticDialog: () => <button>诊断与报告</button>,
+}));
 
 function createSwitcher(
   bootstrapPhase: ModelSwitchBootstrapPhase,
@@ -57,6 +60,8 @@ function createSwitcher(
     statusMap: new Map(),
     activationMap: new Map(),
     activationRefreshing: false,
+    activationRefreshFailed: false,
+    refreshActivation: vi.fn().mockResolvedValue(undefined),
     preflightResults: {},
     preflightPending: false,
     codexBridge: {} as ModelSwitchCenterState["codexBridge"],

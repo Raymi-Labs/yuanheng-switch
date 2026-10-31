@@ -92,6 +92,12 @@ describe("DesktopSidebar", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "声音克隆" }));
     expect(onNavigate).toHaveBeenCalledWith("voiceClone");
+    const buttons = screen.getAllByRole("button");
+    const voice = screen.getByRole("button", { name: "声音克隆" });
+    const media = screen.getByRole("button", { name: "图片与视频" });
+    expect(buttons.indexOf(media)).toBe(buttons.indexOf(voice) + 1);
+    fireEvent.click(media);
+    expect(onNavigate).toHaveBeenLastCalledWith("mediaStudio");
   });
 
   it("帮助位于主导航外，打开说明不导航，关闭后恢复入口焦点", async () => {

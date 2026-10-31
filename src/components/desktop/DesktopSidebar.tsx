@@ -11,6 +11,7 @@ import {
   Network,
   LoaderCircle,
   Mic2,
+  Images,
   Settings,
   UserRound,
   WalletCards,
@@ -40,6 +41,7 @@ interface DesktopSidebarProps {
 const dailyItems = [
   { id: "home" as const, label: "工作台", icon: Gauge },
   { id: "voiceClone" as const, label: "声音克隆", icon: Mic2 },
+  { id: "mediaStudio" as const, label: "图片与视频", icon: Images },
   { id: "usage" as const, label: "会话与用量", icon: Activity },
   { id: "tools" as const, label: "工具管理", icon: Bot },
   { id: "capabilities" as const, label: "能力中心", icon: Blocks },

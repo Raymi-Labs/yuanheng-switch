@@ -206,7 +206,9 @@ export function useYuanhengToolActivationStatuses() {
   const query = useQuery({
     queryKey: [
       ...yuanhengKeys.activation,
+      connection?.baseUrl ?? null,
       connection?.userId ?? null,
+      connection?.connected ?? false,
       connection?.lastSyncedAt ?? null,
     ],
     queryFn: () => yuanhengApi.getToolActivationStatuses(),
@@ -304,6 +306,7 @@ export function useYuanhengDiagnostics(enabled = true) {
   return useQuery({
     queryKey: [
       ...yuanhengKeys.diagnostics,
+      connection?.baseUrl ?? null,
       connection?.userId ?? null,
       connection?.connected ?? false,
       connection?.lastSyncedAt ?? null,
@@ -432,16 +435,17 @@ export function useConfigureYuanhengTools() {
     }) => yuanhengApi.configureTools(apps, models, groups, reasoning),
     // System preparation may be deferred after configuration has been saved.
     // Refresh saved choices on either outcome so resuming cannot show stale data.
-    onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: yuanhengKeys.tools });
-      queryClient.invalidateQueries({ queryKey: yuanhengKeys.diagnostics });
-      queryClient.invalidateQueries({
-        queryKey: yuanhengKeys.codexAccountMode,
-      });
-      queryClient.invalidateQueries({ queryKey: yuanhengKeys.activation });
-      queryClient.invalidateQueries({
-        queryKey: ["desktop", "tool-connections"],
-      });
-    },
+    onSettled: () =>
+      Promise.all([
+        queryClient.invalidateQueries({ queryKey: yuanhengKeys.tools }),
+        queryClient.invalidateQueries({ queryKey: yuanhengKeys.diagnostics }),
+        queryClient.invalidateQueries({
+          queryKey: yuanhengKeys.codexAccountMode,
+        }),
+        queryClient.invalidateQueries({ queryKey: yuanhengKeys.activation }),
+        queryClient.invalidateQueries({
+          queryKey: ["desktop", "tool-connections"],
+        }),
+      ]),
   });
 }

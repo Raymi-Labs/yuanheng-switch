@@ -83,6 +83,8 @@ import {
 import {
   clearRestartRequired,
   markRestartRequired,
+  getRestartRequiredApps,
+  subscribeRestartRequired,
 } from "./desktopRestartState";
 import { useDesktopInstallFlow } from "./useDesktopInstallFlow";
 import { clearToolInventoryCache } from "./toolInventoryCache";
@@ -201,6 +203,16 @@ function ToolSetupGridContent({
   const mounted = useRef(true);
   const [actionPending, setActionPending] = useState(false);
   const busy = actionPending || configure.isPending;
+  const [restartRequiredApps, setRestartRequiredApps] = useState(
+    getRestartRequiredApps,
+  );
+  useEffect(
+    () =>
+      subscribeRestartRequired(() =>
+        setRestartRequiredApps(getRestartRequiredApps()),
+      ),
+    [],
+  );
   useEffect(() => {
     mounted.current = true;
     return () => {
@@ -945,17 +957,21 @@ function ToolSetupGridContent({
               </div>
 
               {app === "accio-work" && (
-                <>
-                  <AccioConnectionNotice status={status} />
-                  <div className="mt-3">
-                    <ToolActivationProgress
-                      activation={activationStatuses.data?.find(
-                        (item) => item.app === app,
-                      )}
-                      compact
-                    />
-                  </div>
-                </>
+                <AccioConnectionNotice status={status} />
+              )}
+              {status?.supported !== false && (
+                <div className="mt-3">
+                  <ToolActivationProgress
+                    activation={activationStatuses.data?.find(
+                      (item) => item.app === app,
+                    )}
+                    compact
+                    restartRequired={restartRequiredApps.has(app)}
+                    onRefresh={activationStatuses.refetch}
+                    refreshing={activationStatuses.isFetching}
+                    refreshFailed={activationStatuses.isError}
+                  />
+                </div>
               )}
 
               {supportsCustomPath && (

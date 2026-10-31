@@ -46,6 +46,7 @@ describe("diagnostic snapshots", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     account.userId = "user-one";
+    diagnostics.isError = false;
     diagnostics.data = {
       status: "ok",
       readyTools: 1,
@@ -61,6 +62,37 @@ describe("diagnostic snapshots", () => {
     api.getDiagnosticSnapshot.mockResolvedValue(safe);
     api.exportDiagnostics.mockResolvedValue("/tmp/report.json");
     api.saveFileDialog.mockResolvedValue("/tmp/report.json");
+  });
+  it("the nearby diagnostic entry never presents repair/rotation/rollback actions", async () => {
+    diagnostics.data.status = "error";
+    diagnostics.data.checks = [
+      {
+        id: "credentials",
+        status: "error",
+        title: "凭据",
+        message: "需修复",
+        action: "repair_credentials",
+      },
+    ];
+    render(<YuanhengHealthCard initiallyExpanded checkOnly />);
+    expect(screen.getAllByText("需修复")).toHaveLength(2);
+    expect(
+      screen.queryByRole("button", { name: "一键修复" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "重新生成本机凭据" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "恢复接管前配置" }),
+    ).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "重新检查" }));
+    await waitFor(() => expect(diagnostics.refetch).toHaveBeenCalledTimes(1));
+  });
+  it("does not retain an all-clear heading after a failed refresh", () => {
+    diagnostics.isError = true;
+    render(<YuanhengHealthCard initiallyExpanded />);
+    expect(screen.queryByText("检查通过")).not.toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveTextContent("上次结果");
   });
   it("preview, copy and export refer to the identical snapshot, without another health check", async () => {
     render(<YuanhengHealthCard />);

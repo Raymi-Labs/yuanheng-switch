@@ -39,6 +39,9 @@ import {
 
 interface YuanhengHealthCardProps {
   compact?: boolean;
+  initiallyExpanded?: boolean;
+  // Hides explicit repairs; the existing diagnostic command can maintain history routes.
+  checkOnly?: boolean;
   onOpenConnection?: () => void;
   onConfigureTools?: () => void;
 }
@@ -76,6 +79,8 @@ const STATUS_META = {
 
 export function YuanhengHealthCard({
   compact = false,
+  initiallyExpanded = false,
+  checkOnly = false,
   onOpenConnection,
   onConfigureTools,
 }: YuanhengHealthCardProps) {
@@ -85,22 +90,27 @@ export function YuanhengHealthCard({
   const repair = useRepairYuanheng();
   const rotateCredential = useRotateYuanhengCredential();
   const rollbackTools = useRollbackYuanhengTools();
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useState(initiallyExpanded);
   const [previewOpen, setPreviewOpen] = useState(false);
   const [sharing, setSharing] = useState(false);
   useEffect(() => {
     setPreviewOpen(false);
-  }, [connection?.userId, connection?.lastSyncedAt]);
+  }, [
+    connection?.baseUrl,
+    connection?.userId,
+    connection?.connected,
+    connection?.lastSyncedAt,
+  ]);
   const report = diagnostics.data;
   const meta =
-    STATUS_META[report?.status ?? (diagnostics.isError ? "warning" : "idle")];
+    STATUS_META[diagnostics.isError ? "warning" : (report?.status ?? "idle")];
   const StatusIcon = meta.icon;
   const actions = new Set(
     report?.checks.map((check) => check.action).filter(Boolean) ?? [],
   );
 
   const handlePrimaryAction = async () => {
-    if (!report) {
+    if (!report || checkOnly) {
       const result = await diagnostics.refetch();
       if (result.isError) toast.error(dt("暂时无法检查"));
       return;
@@ -243,15 +253,17 @@ export function YuanhengHealthCard({
     ? dt("检查中…")
     : !report
       ? dt(diagnostics.isError ? "重新检查" : "开始检查")
-      : !connection?.connected || actions.has("login")
-        ? dt("前往登录")
-        : actions.has("configure_tools") && !actions.has("repair_credentials")
-          ? dt("配置工具")
-          : report?.status === "ok" ||
-              (!actions.has("repair_tools") &&
-                !actions.has("repair_credentials"))
-            ? dt("重新检查")
-            : dt("一键修复");
+      : checkOnly
+        ? dt("重新检查")
+        : !connection?.connected || actions.has("login")
+          ? dt("前往登录")
+          : actions.has("configure_tools") && !actions.has("repair_credentials")
+            ? dt("配置工具")
+            : report?.status === "ok" ||
+                (!actions.has("repair_tools") &&
+                  !actions.has("repair_credentials"))
+              ? dt("重新检查")
+              : dt("一键修复");
 
   return (
     <section className="overflow-hidden rounded-2xl border bg-card shadow-sm">
@@ -292,7 +304,7 @@ export function YuanhengHealthCard({
           >
             {repair.isPending || diagnostics.isFetching ? (
               <Loader2 className="h-3.5 w-3.5 animate-spin" />
-            ) : !report ? (
+            ) : !report || checkOnly ? (
               <Stethoscope className="h-3.5 w-3.5" />
             ) : report.status === "ok" ? (
               <RefreshCw className="h-3.5 w-3.5" />
@@ -325,6 +337,9 @@ export function YuanhengHealthCard({
 
       {expanded && report && (
         <div className="space-y-2 border-t px-4 py-3">
+          {diagnostics.isError && (
+            <p role="status">{dt("状态刷新失败，以下为上次结果")}</p>
+          )}
           <p className="text-[11px] leading-5 text-muted-foreground">
             {dt(
               "默认体检不调用模型、不测试收费推理；服务运行、网关认证和桌面工作区是不同检查项。失败时可预览并导出同一份脱敏诊断。",
@@ -383,7 +398,7 @@ export function YuanhengHealthCard({
             <Download className="h-3.5 w-3.5" />
             {dt("导出脱敏诊断")}
           </Button>
-          {connection?.connected && (
+          {!checkOnly && connection?.connected && (
             <Button
               variant="ghost"
               size="sm"
@@ -399,7 +414,7 @@ export function YuanhengHealthCard({
               {dt("重新生成本机凭据")}
             </Button>
           )}
-          {connection?.connected && report.readyTools > 0 && (
+          {!checkOnly && connection?.connected && report.readyTools > 0 && (
             <Button
               variant="ghost"
               size="sm"

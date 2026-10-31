@@ -554,6 +554,9 @@ export function FocusToolCard({
           activation={activationMap.get(app)}
           preflight={preflightResults[app]}
           restartRequired={restartRequired}
+          onRefresh={switcher.refreshActivation}
+          refreshing={switcher.activationRefreshing}
+          refreshFailed={switcher.activationRefreshFailed}
           dark
         />
       </div>
