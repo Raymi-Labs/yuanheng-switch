@@ -1034,6 +1034,43 @@ async function check(name, fn) {
       },
     );
     await check(
+      "actual transport preserves readable terminal failure without successful usage",
+      async () => {
+        const before = modelRequests.length;
+        const frame = {
+          content: {
+            role: "model",
+            parts: [{ text: "请求未完成：synthetic failure" }],
+          },
+          turnComplete: true,
+          partial: false,
+          errorCode: "YUANHENG_STREAM_INCOMPLETE",
+          errorMessage: "synthetic failure",
+        };
+        nextModelBody = `data: ${JSON.stringify(frame)}\n\ndata: [DONE]\n\n`;
+        const transport = newTransport();
+        const frames = [];
+        try {
+          for await (const item of transport.streamGenerateContent(
+            protocolSandbox.R(syntheticSdkRequest()),
+          ))
+            frames.push(item);
+          assert.equal(frames.length, 1);
+          assert.equal(frames[0].errorCode, frame.errorCode);
+          assert.equal(
+            frames[0].content.parts[0].text,
+            frame.content.parts[0].text,
+          );
+          assert.equal(modelRequests.length, before + 1);
+          assert.equal(transport.activeControllers.size, 0);
+          assert.equal(timers.size, 0);
+        } finally {
+          transport.close();
+        }
+        modelRequests.splice(before);
+      },
+    );
+    await check(
       "actual transport cancellation releases the reader, controller and timers",
       async () => {
         let cancelled = false;
