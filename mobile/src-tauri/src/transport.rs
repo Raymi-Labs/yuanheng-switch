@@ -79,6 +79,11 @@ pub fn api_route(operation: &str, body: &Value) -> Result<(Method, String), Stri
         .and_then(Value::as_u64)
         .unwrap_or(1)
         .clamp(1, 10000);
+    let size = body
+        .get("size")
+        .and_then(Value::as_u64)
+        .unwrap_or(20)
+        .clamp(1, 100);
     let id = || {
         body.get("id")
             .and_then(Value::as_i64)
@@ -87,6 +92,7 @@ pub fn api_route(operation: &str, body: &Value) -> Result<(Method, String), Stri
     };
     let path = match operation {
         "status" => "/api/status".into(),
+        "pricing" => "/api/pricing".into(),
         "account" => "/api/user/self".into(),
         "groups" => "/api/user/self/groups".into(),
         "models" => {
@@ -101,16 +107,60 @@ pub fn api_route(operation: &str, body: &Value) -> Result<(Method, String), Stri
                 url.query().map(|v| format!("?{v}")).unwrap_or_default()
             )
         }
-        "tokens" => format!("/api/token/?p={page}&size=20"),
+        "health_groups" => {
+            let model = body
+                .get("model")
+                .and_then(Value::as_str)
+                .filter(|v| !v.is_empty() && v.len() <= 160)
+                .ok_or("模型名称无效")?;
+            let mut url =
+                url::Url::parse(&format!("{BASE}/api/health/groups")).map_err(|_| "地址无效")?;
+            url.query_pairs_mut().append_pair("model", model);
+            url.query_pairs_mut().append_pair("hours", "24");
+            format!(
+                "{}{}",
+                url.path(),
+                url.query().map(|v| format!("?{v}")).unwrap_or_default()
+            )
+        }
+        "tokens" => format!("/api/token/?p={page}&size={size}"),
         "token_key" => format!("/api/token/{}/key", id()?),
         "records" => format!("/api/user/payment-records/self?p={page}&size=20"),
         "token_create" => return Ok((Method::POST, "/api/token/".into())),
+        "token_update" => return Ok((Method::PUT, "/api/token/".into())),
         "token_status" => {
             id()?;
             return Ok((Method::PUT, "/api/token/?status_only=true".into()));
         }
         "token_delete" => return Ok((Method::DELETE, format!("/api/token/{}", id()?))),
         "redeem" => return Ok((Method::POST, "/api/user/redeem".into())),
+        "aff_transfer" => {
+            body.get("quota")
+                .and_then(Value::as_i64)
+                .filter(|v| *v > 0)
+                .ok_or("划转额度无效")?;
+            return Ok((Method::POST, "/api/user/aff_transfer".into()));
+        }
+        "logs" => {
+            let kind = body
+                .get("type")
+                .and_then(Value::as_u64)
+                .unwrap_or(0)
+                .min(10);
+            let start = body.get("start").and_then(Value::as_i64).unwrap_or(0);
+            let end = body.get("end").and_then(Value::as_i64).unwrap_or(0);
+            format!(
+                "/api/log/self?p={page}&size={size}&type={kind}&start_timestamp={start}&end_timestamp={end}"
+            )
+        }
+        "log_stat" => {
+            let start = body.get("start").and_then(Value::as_i64).unwrap_or(0);
+            let end = body.get("end").and_then(Value::as_i64).unwrap_or(0);
+            format!("/api/log/self/stat?type=2&start_timestamp={start}&end_timestamp={end}")
+        }
+        "redemptions" => format!("/api/user/redemptions/self?p={page}&page_size={size}"),
+        "redemption_summary" => "/api/user/redemptions/self/summary".into(),
+        "redemption_create" => return Ok((Method::POST, "/api/user/redemptions".into())),
         _ => return Err("不支持的操作".into()),
     };
     Ok((Method::GET, path))
@@ -137,7 +187,17 @@ pub fn check_website_access(destination: &str, ios: bool) -> Result<(), String> 
 }
 
 pub fn check_api_access(operation: &str, ios: bool) -> Result<(), String> {
-    if ios && ["redeem", "records"].contains(&operation) {
+    if ios
+        && [
+            "redeem",
+            "records",
+            "redemptions",
+            "redemption_summary",
+            "redemption_create",
+            "aff_transfer",
+        ]
+        .contains(&operation)
+    {
         return Err("iOS 版不提供充值或兑换功能".into());
     }
     Ok(())
@@ -216,7 +276,14 @@ mod tests {
         for destination in ["privacy", "terms"] {
             assert!(check_website_access(destination, true).is_ok());
         }
-        for operation in ["redeem", "records"] {
+        for operation in [
+            "redeem",
+            "records",
+            "redemptions",
+            "redemption_summary",
+            "redemption_create",
+            "aff_transfer",
+        ] {
             assert!(check_api_access(operation, true).is_err());
             assert!(check_api_access(operation, false).is_ok());
         }
@@ -226,8 +293,11 @@ mod tests {
             "groups",
             "token_create",
             "token_status",
+            "logs",
+            "log_stat",
         ] {
             assert!(check_api_access(operation, true).is_ok());
+            assert!(check_api_access(operation, false).is_ok());
         }
     }
     #[test]
@@ -242,6 +312,60 @@ mod tests {
         );
         let (_, path) = api_route("models", &json!({"group":"x&token=secret"})).unwrap();
         assert!(path.contains("x%26token%3Dsecret"));
+    }
+    #[test]
+    fn routes_pricing_and_token_updates() {
+        assert_eq!(api_route("pricing", &json!({})).unwrap().1, "/api/pricing");
+        assert_eq!(
+            api_route("token_update", &json!({"id": 1})).unwrap().0,
+            Method::PUT
+        );
+        assert!(api_route("tokens", &json!({"size": 500}))
+            .unwrap()
+            .1
+            .ends_with("size=100"));
+        assert_eq!(
+            api_route(
+                "logs",
+                &json!({"page":1,"size":20,"type":2,"start":10,"end":20})
+            )
+            .unwrap()
+            .1,
+            "/api/log/self?p=1&size=20&type=2&start_timestamp=10&end_timestamp=20"
+        );
+        assert_eq!(
+            api_route("log_stat", &json!({"start":10,"end":20}))
+                .unwrap()
+                .1,
+            "/api/log/self/stat?type=2&start_timestamp=10&end_timestamp=20"
+        );
+        assert_eq!(
+            api_route("redemptions", &json!({"page":2,"size":20}))
+                .unwrap()
+                .1,
+            "/api/user/redemptions/self?p=2&page_size=20"
+        );
+        assert_eq!(
+            api_route("health_groups", &json!({"model":"gemini-4-argon"}))
+                .unwrap()
+                .1,
+            "/api/health/groups?model=gemini-4-argon&hours=24"
+        );
+        assert!(api_route("health_groups", &json!({})).is_err());
+        assert_eq!(
+            api_route("redemption_summary", &json!({})).unwrap().1,
+            "/api/user/redemptions/self/summary"
+        );
+        assert_eq!(
+            api_route("redemption_create", &json!({})).unwrap().0,
+            Method::POST
+        );
+        assert_eq!(
+            api_route("aff_transfer", &json!({"quota": 500})).unwrap(),
+            (Method::POST, "/api/user/aff_transfer".to_string())
+        );
+        assert!(api_route("aff_transfer", &json!({"quota": 0})).is_err());
+        assert!(check_api_access("pricing", true).is_ok());
     }
     #[test]
     fn reads_only_session_cookie() {

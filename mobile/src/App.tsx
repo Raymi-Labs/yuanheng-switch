@@ -1,27 +1,35 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  ArrowLeftRight,
   ArrowUpRight,
   ChevronRight,
+  Copy,
+  Gift,
   Image,
-  KeyRound,
+  LayoutDashboard,
   LogOut,
   MessageSquare,
   RefreshCw,
   ShieldCheck,
+  Store,
   UserRound,
   Wallet,
+  Zap,
 } from "lucide-react";
-import { Account, api, errorText, quotaAmount } from "./api";
+import { Account, api, balanceText, BalanceUnit, errorText } from "./api";
 import { Chat } from "./Chat";
 import { Images } from "./Images";
-import { Tokens } from "./Tokens";
+import { Models } from "./Models";
+import { Console } from "./Console";
 import { Redeem } from "./Redeem";
+import { Redemptions } from "./Redemptions";
 
-type Tab = "chat" | "images" | "tokens" | "account";
+type Tab = "chat" | "images" | "models" | "console" | "account";
 const tabs = [
   { id: "chat", label: "聊天", icon: MessageSquare },
   { id: "images", label: "生图", icon: Image },
-  { id: "tokens", label: "令牌", icon: KeyRound },
+  { id: "models", label: "广场", icon: Store },
+  { id: "console", label: "控制台", icon: LayoutDashboard },
   { id: "account", label: "我的", icon: UserRound },
 ] as const;
 
@@ -32,12 +40,89 @@ export function Notice({ text }: { text: string }) {
     </div>
   ) : null;
 }
+const tabOrder = tabs.map((t) => t.id);
 export function App() {
   const [account, setAccount] = useState<Account | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [perUnit, setPerUnit] = useState(0);
+  const [price, setPrice] = useState(0);
+  const [unit, setUnit] = useState<BalanceUnit>(() =>
+    localStorage.getItem("yuanheng-wallet-unit") === "cny" ? "cny" : "quota",
+  );
+  const toggleUnit = useCallback(() => {
+    setUnit((old) => {
+      const next: BalanceUnit = old === "cny" ? "quota" : "cny";
+      try {
+        localStorage.setItem("yuanheng-wallet-unit", next);
+      } catch {
+        /* Storage can be unavailable; the choice still applies this session. */
+      }
+      return next;
+    });
+  }, []);
   const [tab, setTab] = useState<Tab>("chat");
+  const [slide, setSlide] = useState<{
+    dir: "left" | "right";
+    n: number;
+  } | null>(null);
+  const switchTab = useCallback(
+    (next: Tab) => {
+      if (next === tab) return;
+      setTab(next);
+      setSlide({
+        dir: tabOrder.indexOf(next) > tabOrder.indexOf(tab) ? "left" : "right",
+        n: Date.now(),
+      });
+    },
+    [tab],
+  );
+  useEffect(() => {
+    if (!slide) return;
+    const panel = document.querySelector<HTMLElement>(
+      ".main > .panel:not([hidden])",
+    );
+    if (!panel || typeof panel.animate !== "function") return;
+    panel.animate(
+      [
+        {
+          transform: `translateX(${slide.dir === "left" ? 28 : -28}px)`,
+          opacity: 0.35,
+        },
+        { transform: "translateX(0)", opacity: 1 },
+      ],
+      { duration: 240, easing: "cubic-bezier(0.22, 0.61, 0.36, 1)" },
+    );
+  }, [slide]);
+  const swipe = useRef<{ x: number; y: number; at: number } | null>(null);
+  const startSwipe = (e: React.TouchEvent) => {
+    if (
+      e.touches.length !== 1 ||
+      document.querySelector(".sheet-backdrop") ||
+      (e.target as HTMLElement).closest(
+        "input, textarea, select, .chip-row, .choice-list, .image-thumbs",
+      )
+    ) {
+      swipe.current = null;
+      return;
+    }
+    const touch = e.touches[0];
+    swipe.current = { x: touch.clientX, y: touch.clientY, at: Date.now() };
+  };
+  const endSwipe = (e: React.TouchEvent) => {
+    const start = swipe.current;
+    swipe.current = null;
+    const touch = e.changedTouches[0];
+    if (!start || !touch || Date.now() - start.at > 700) return;
+    const dx = touch.clientX - start.x;
+    const dy = touch.clientY - start.y;
+    if (Math.abs(dx) < 64 || Math.abs(dx) < Math.abs(dy) * 1.5) return;
+    const next = tabOrder[tabOrder.indexOf(tab) + (dx < 0 ? 1 : -1)];
+    if (next) switchTab(next);
+  };
+  const [preset, setPreset] = useState<{ model: string; group: string } | null>(
+    null,
+  );
   const [refreshing, setRefreshing] = useState(false);
   const [purchases, setPurchases] = useState(false);
   const [version, setVersion] = useState("");
@@ -46,13 +131,14 @@ export function App() {
   const epoch = useRef(0);
   const loadUnit = useCallback(async () => {
     try {
-      const v = await api.get<{ quota_per_unit: number }>("status");
-      if (
-        mounted.current &&
-        Number.isFinite(v.quota_per_unit) &&
-        v.quota_per_unit > 0
-      )
+      const v = await api.get<{ quota_per_unit: number; price?: number }>(
+        "status",
+      );
+      if (!mounted.current) return;
+      if (Number.isFinite(v.quota_per_unit) && v.quota_per_unit > 0)
         setPerUnit(v.quota_per_unit);
+      if (Number.isFinite(v.price) && (v.price as number) > 0)
+        setPrice(v.price as number);
     } catch {
       /* Keep unknown amounts hidden until a later refresh succeeds. */
     }
@@ -129,6 +215,7 @@ export function App() {
       setAccount(null);
       setError("");
       setTab("chat");
+      setPreset(null);
       setAiConsent(false);
     } catch (e) {
       setError(errorText(e));
@@ -159,9 +246,19 @@ export function App() {
           <header className="topbar">
             <Brand compact />
             <div className="topbar-right">
-              <span className="balance-mini">
-                {quotaAmount(account.quota, perUnit)}
-              </span>
+              <button
+                className="balance-toggle"
+                aria-label="切换余额单位"
+                onClick={toggleUnit}
+              >
+                <Money
+                  value={account.quota}
+                  perUnit={perUnit}
+                  price={price}
+                  unit={unit}
+                />
+                <ArrowLeftRight size={12} className="balance-swap" />
+              </button>
               <button
                 className="icon-button"
                 aria-label="刷新余额"
@@ -172,7 +269,15 @@ export function App() {
               </button>
             </div>
           </header>
-          <main className="main" key={account.id}>
+          <main
+            className="main"
+            key={account.id}
+            onTouchStart={startSwipe}
+            onTouchEnd={endSwipe}
+            onTouchCancel={() => {
+              swipe.current = null;
+            }}
+          >
             <Notice text={error} />
             <div hidden={tab !== "chat"} className="panel">
               {aiConsent ? (
@@ -180,6 +285,8 @@ export function App() {
                   userId={account.id}
                   defaultGroup={account.group}
                   refresh={refresh}
+                  preset={preset}
+                  onPresetUsed={() => setPreset(null)}
                 />
               ) : (
                 <AiConsent onAccept={() => changeAiConsent(true)} />
@@ -187,18 +294,43 @@ export function App() {
             </div>
             <div hidden={tab !== "images"} className="panel">
               {aiConsent ? (
-                <Images active={tab === "images"} refresh={refresh} />
+                <Images
+                  userId={account.id}
+                  active={tab === "images"}
+                  refresh={refresh}
+                />
               ) : (
                 <AiConsent onAccept={() => changeAiConsent(true)} />
               )}
             </div>
-            <div hidden={tab !== "tokens"} className="panel">
-              <Tokens active={tab === "tokens"} perUnit={perUnit} />
+            {tab === "models" && (
+              <div className="panel">
+                <Models
+                  defaultGroup={account.group}
+                  unit={unit}
+                  price={price}
+                  onUse={(model, group) => {
+                    setPreset({ model, group });
+                    switchTab("chat");
+                  }}
+                />
+              </div>
+            )}
+            <div hidden={tab !== "console"} className="panel">
+              <Console
+                perUnit={perUnit}
+                price={price}
+                unit={unit}
+                active={tab === "console"}
+              />
             </div>
             <div hidden={tab !== "account"} className="panel">
               <AccountPage
                 account={account}
                 perUnit={perUnit}
+                price={price}
+                unit={unit}
+                toggleUnit={toggleUnit}
                 refresh={refresh}
                 logout={logout}
                 purchases={purchases}
@@ -213,7 +345,7 @@ export function App() {
               <button
                 key={id}
                 className={tab === id ? "active" : ""}
-                onClick={() => setTab(id)}
+                onClick={() => switchTab(id)}
                 aria-current={tab === id ? "page" : undefined}
               >
                 <Icon size={22} />
@@ -224,6 +356,30 @@ export function App() {
         </>
       )}
     </div>
+  );
+}
+export function Money({
+  value,
+  perUnit,
+  price,
+  unit,
+  icon = 13,
+}: {
+  value: number;
+  perUnit: number;
+  price: number;
+  unit: BalanceUnit;
+  icon?: number;
+}) {
+  return (
+    <span className="money">
+      {unit === "cny" ? (
+        <span className="unit-mark">¥</span>
+      ) : (
+        <Zap size={icon} />
+      )}
+      <span>{balanceText(value, perUnit, unit, price)}</span>
+    </span>
   );
 }
 function Brand({ compact = false }: { compact?: boolean }) {
@@ -389,6 +545,9 @@ function Login({
 function AccountPage({
   account,
   perUnit,
+  price,
+  unit,
+  toggleUnit,
   refresh,
   logout,
   purchases,
@@ -398,6 +557,9 @@ function AccountPage({
 }: {
   account: Account;
   perUnit: number;
+  price: number;
+  unit: BalanceUnit;
+  toggleUnit: () => void;
   refresh: () => Promise<void>;
   logout: () => Promise<void>;
   purchases: boolean;
@@ -406,8 +568,35 @@ function AccountPage({
   revokeConsent: () => Promise<void>;
 }) {
   const [redeem, setRedeem] = useState(false);
+  const [codes, setCodes] = useState(false);
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
+  const [transferring, setTransferring] = useState(false);
+  const affQuota = account.aff_quota || 0;
+  const affLink = account.aff_code
+    ? `https://meta-api.vip/i/${account.aff_code}`
+    : "";
+  const copyAffLink = async () => {
+    try {
+      await navigator.clipboard.writeText(affLink);
+      setMessage("邀请链接已复制，分享给好友注册即可获得奖励");
+    } catch {
+      setMessage("复制失败，请长按链接手动复制");
+    }
+  };
+  const transferAff = async () => {
+    if (transferring || affQuota <= 0) return;
+    setTransferring(true);
+    try {
+      await api.transferAffQuota(affQuota, account.id);
+      setMessage("邀请奖励已划转到账户余额");
+      await refresh();
+    } catch (e) {
+      setMessage(errorText(e));
+    } finally {
+      setTransferring(false);
+    }
+  };
   const open = async (
     destination: "topup" | "account" | "usage" | "privacy" | "terms",
   ) => {
@@ -437,16 +626,115 @@ function AccountPage({
         </div>
       </div>
       <section className="wallet-card">
-        <span>账户余额</span>
-        <strong>{quotaAmount(account.quota, perUnit)}</strong>
-        <p>累计用量 {quotaAmount(account.used_quota, perUnit)}</p>
+        <div className="wallet-head">
+          <span>账户余额</span>
+          <button
+            className="unit-switch"
+            aria-label="切换余额单位"
+            onClick={toggleUnit}
+          >
+            {unit === "cny" ? "额度" : "人民币"}
+            <ArrowLeftRight size={11} />
+          </button>
+        </div>
+        <div className="wallet-amount">
+          <strong>
+            <Money
+              value={account.quota}
+              perUnit={perUnit}
+              price={price}
+              unit={unit}
+              icon={22}
+            />
+          </strong>
+        </div>
+        <p>
+          累计用量
+          <Money
+            value={account.used_quota}
+            perUnit={perUnit}
+            price={price}
+            unit={unit}
+            icon={11}
+          />
+        </p>
         {purchases && (
           <div className="row">
             <button onClick={() => void open("topup")}>
               官网充值 <ArrowUpRight size={16} />
             </button>
             <button onClick={() => setRedeem(true)}>使用兑换码</button>
+            <button onClick={() => setCodes(true)}>创建兑换码</button>
           </div>
+        )}
+      </section>
+      <section className="invite-card">
+        <div className="invite-head">
+          <Gift size={18} />
+          <div>
+            <strong>邀请奖励</strong>
+            <small>邀请好友获得额外奖励</small>
+          </div>
+        </div>
+        <div className="invite-stats">
+          <div>
+            <strong>
+              <Money
+                value={affQuota}
+                perUnit={perUnit}
+                price={price}
+                unit={unit}
+                icon={11}
+              />
+            </strong>
+            <span>待使用收益</span>
+          </div>
+          <div>
+            <strong>
+              <Money
+                value={account.aff_history_quota || 0}
+                perUnit={perUnit}
+                price={price}
+                unit={unit}
+                icon={11}
+              />
+            </strong>
+            <span>总收益</span>
+          </div>
+          <div>
+            <strong>{account.aff_count || 0}</strong>
+            <span>邀请人数</span>
+          </div>
+        </div>
+        {affLink && (
+          <div className="invite-link">
+            <span>邀请链接</span>
+            <div className="invite-link-row">
+              <input
+                readOnly
+                value={affLink}
+                aria-label="邀请链接"
+                onFocus={(e) => e.currentTarget.select()}
+              />
+              <button
+                type="button"
+                className="invite-copy"
+                onClick={() => void copyAffLink()}
+              >
+                <Copy size={14} />
+                复制
+              </button>
+            </div>
+          </div>
+        )}
+        {purchases && (
+          <button
+            className="primary full invite-transfer"
+            disabled={transferring || affQuota <= 0}
+            onClick={() => void transferAff()}
+          >
+            {transferring ? "正在划转…" : "划转到账户余额"}
+          </button>
         )}
       </section>
       <Notice text={message} />
@@ -507,6 +795,20 @@ function AccountPage({
         <Redeem
           perUnit={perUnit}
           close={() => setRedeem(false)}
+          refresh={refresh}
+        />
+      )}
+      {purchases && codes && (
+        <Redemptions
+          userId={account.id}
+          perUnit={perUnit}
+          price={price}
+          unit={unit}
+          quotaLimit={Math.min(
+            account.quota,
+            account.transferable_quota ?? account.quota,
+          )}
+          close={() => setCodes(false)}
           refresh={refresh}
         />
       )}

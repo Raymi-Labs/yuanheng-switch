@@ -1,3 +1,4 @@
+mod gallery;
 mod transport;
 
 use base64::{engine::general_purpose::STANDARD, Engine};
@@ -6,7 +7,7 @@ use reqwest::{header, Client, Method};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::{collections::HashMap, sync::Mutex, time::Duration};
-use tauri::{ipc::Channel, AppHandle, State};
+use tauri::{ipc::Channel, AppHandle, Manager, State};
 use tauri_plugin_opener::OpenerExt;
 use tauri_plugin_yuanheng_native::NativeExt;
 use tokio_util::sync::CancellationToken;
@@ -31,11 +32,19 @@ struct MobileState {
     tasks: Mutex<HashMap<String, CancellationToken>>,
 }
 impl MobileState {
+    fn require_user(session: &Session, expected: Option<i64>) -> Result<(), String> {
+        if expected == Some(session.user_id) && session.user_id > 0 {
+            Ok(())
+        } else {
+            Err("账号已变化，请重新打开页面操作".into())
+        }
+    }
     fn new() -> Self {
         Self {
             client: Client::builder()
                 .https_only(true)
                 .redirect(reqwest::redirect::Policy::none())
+                .retry(reqwest::retry::never())
                 .connect_timeout(Duration::from_secs(20))
                 .user_agent("yuanheng-mobile/0.1")
                 .build()
@@ -83,7 +92,7 @@ impl MobileState {
             return Err("任务标识无效".into());
         }
         let mut tasks = self.tasks.lock().map_err(|_| "任务状态不可用")?;
-        if tasks.len() >= 2 || tasks.contains_key(id) {
+        if tasks.len() >= 4 || tasks.contains_key(id) {
             return Err("已有生成任务，请等待完成或停止后重试".into());
         }
         let token = CancellationToken::new();
@@ -232,6 +241,7 @@ async fn mobile_api(
     state: State<'_, MobileState>,
     operation: String,
     body: Option<Value>,
+    expected_user_id: Option<i64>,
 ) -> Result<Value, String> {
     let body = body.unwrap_or_else(|| json!({}));
     transport::check_api_access(&operation, cfg!(target_os = "ios"))?;
@@ -240,10 +250,13 @@ async fn mobile_api(
         .client
         .request(method.clone(), format!("{BASE}{path}"))
         .timeout(Duration::from_secs(45));
-    let (request, epoch) = if operation == "status" {
+    let (request, epoch) = if matches!(operation.as_str(), "status" | "pricing") {
         (request, None)
     } else {
         let (session, epoch) = state.snapshot()?;
+        if matches!(operation.as_str(), "redemption_create" | "aff_transfer") {
+            MobileState::require_user(&session, expected_user_id)?;
+        }
         (
             request
                 .header(header::COOKIE, session.cookie)
@@ -451,6 +464,51 @@ async fn mobile_save_image(app: AppHandle, data: String) -> Result<(), String> {
     Ok(())
 }
 
+fn gallery_root(app: &AppHandle) -> Result<std::path::PathBuf, String> {
+    let dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|_| "无法访问本地收藏目录")?;
+    std::fs::create_dir_all(&dir).map_err(|_| "无法创建应用目录")?;
+    Ok(dir)
+}
+
+#[tauri::command]
+fn mobile_gallery_save(
+    app: AppHandle,
+    state: State<'_, MobileState>,
+    entry: String,
+    user_id: i64,
+) -> Result<(), String> {
+    let login = state.login.lock().map_err(|_| "登录状态不可用")?;
+    let session = login.session.as_ref().ok_or("请先登录")?;
+    MobileState::require_user(session, Some(user_id))?;
+    gallery::save(&gallery_root(&app)?, session.user_id, &entry)
+}
+#[tauri::command]
+fn mobile_gallery_list(
+    app: AppHandle,
+    state: State<'_, MobileState>,
+    user_id: i64,
+) -> Result<Value, String> {
+    let login = state.login.lock().map_err(|_| "登录状态不可用")?;
+    let session = login.session.as_ref().ok_or("请先登录")?;
+    MobileState::require_user(session, Some(user_id))?;
+    gallery::list(&gallery_root(&app)?, session.user_id)
+}
+#[tauri::command]
+fn mobile_gallery_delete(
+    app: AppHandle,
+    state: State<'_, MobileState>,
+    id: String,
+    user_id: i64,
+) -> Result<(), String> {
+    let login = state.login.lock().map_err(|_| "登录状态不可用")?;
+    let session = login.session.as_ref().ok_or("请先登录")?;
+    MobileState::require_user(session, Some(user_id))?;
+    gallery::delete(&gallery_root(&app)?, session.user_id, &id)
+}
+
 #[tauri::command]
 fn mobile_open_website(app: AppHandle, destination: String) -> Result<(), String> {
     let url = transport::website_url(&destination)?;
@@ -476,6 +534,9 @@ pub fn run() {
             mobile_cancel,
             mobile_image,
             mobile_save_image,
+            mobile_gallery_save,
+            mobile_gallery_list,
+            mobile_gallery_delete,
             mobile_open_website
         ])
         .run(tauri::generate_context!())
@@ -485,6 +546,16 @@ pub fn run() {
 #[cfg(test)]
 mod state_tests {
     use super::*;
+    #[test]
+    fn delayed_gallery_and_wallet_commands_reject_the_previous_account() {
+        let session = Session {
+            cookie: "synthetic".into(),
+            user_id: 2,
+        };
+        assert!(MobileState::require_user(&session, Some(1)).is_err());
+        assert!(MobileState::require_user(&session, None).is_err());
+        assert!(MobileState::require_user(&session, Some(2)).is_ok());
+    }
     #[test]
     fn ai_tasks_require_current_account_consent() {
         let state = MobileState::new();
@@ -530,9 +601,11 @@ mod state_tests {
         let state = MobileState::new();
         state.begin("chat").unwrap();
         assert!(state.begin("chat").is_err());
-        state.begin("image").unwrap();
-        assert!(state.begin("third").is_err());
+        state.begin("image-one").unwrap();
+        state.begin("image-two").unwrap();
+        state.begin("image-three").unwrap();
+        assert!(state.begin("fifth").is_err());
         state.cancel_all();
-        assert!(state.begin("third").is_ok());
+        assert!(state.begin("fifth").is_ok());
     }
 }

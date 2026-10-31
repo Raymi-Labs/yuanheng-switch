@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowUp,
   Check,
+  ChevronDown,
   Copy,
   History,
   Plus,
@@ -16,25 +17,46 @@ import {
   errorText,
   Group,
   Message,
+  PricingModel,
   readConversations,
   saveConversations,
 } from "./api";
 import { Notice } from "./App";
+import { ChoiceSheet } from "./ChoiceSheet";
+
+const nonChat =
+  /image|dall-e|flux|imagen|seedream|embedding|rerank|tts|whisper|voice|audio|video|sora|veo/i;
+const chatEndpoints = new Set([
+  "openai",
+  "openai-response",
+  "anthropic",
+  "gemini",
+]);
+
+function isChatModel(model: PricingModel): boolean {
+  if (nonChat.test(model.model_name)) return false;
+  const types = model.supported_endpoint_types || [];
+  return !types.length || types.some((t) => chatEndpoints.has(t));
+}
 
 export function Chat({
   userId,
   defaultGroup,
   refresh,
+  preset,
+  onPresetUsed,
 }: {
   userId: number;
   defaultGroup: string;
   refresh: () => Promise<void>;
+  preset?: { model: string; group: string } | null;
+  onPresetUsed?: () => void;
 }) {
   const [conversations, setConversations] = useState<Conversation[]>(() =>
     readConversations(userId),
   );
   const [selected, setSelected] = useState<string | null>(null);
-  const [models, setModels] = useState<string[]>([]);
+  const [catalog, setCatalog] = useState<PricingModel[]>([]);
   const [groups, setGroups] = useState<Record<string, Group>>({});
   const [model, setModel] = useState("");
   const [group, setGroup] = useState(defaultGroup);
@@ -42,6 +64,7 @@ export function Chat({
   const [text, setText] = useState("");
   const [error, setError] = useState("");
   const [history, setHistory] = useState(false);
+  const [picker, setPicker] = useState<"model" | "group" | null>(null);
   const [busy, setBusy] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
   const currentTask = useRef<string | null>(null);
@@ -68,18 +91,41 @@ export function Chat({
     const version = ++catalogVersion.current;
     setLoading(true);
     try {
-      const [nextModels, nextGroups] = await Promise.all([
-        api.get<string[]>("models", { group }),
-        api.get<Record<string, Group>>("groups"),
+      const [pricing, ownGroups] = await Promise.all([
+        api.pricing(),
+        api.get<Record<string, Group>>("groups").catch(() => null),
       ]);
       if (!alive.current || catalogVersion.current !== version) return;
-      const textModels = nextModels.filter(
-        (m) =>
-          !/image|dall-e|flux|imagen|seedream|embedding|tts|whisper/i.test(m),
-      );
-      setModels(textModels);
+      const ratios = pricing.group_ratio || {};
+      const nextGroups: Record<string, Group> =
+        ownGroups ||
+        Object.fromEntries(
+          Object.entries(ratios).map(([id, ratio]) => [id, { ratio }]),
+        );
+      const usable = new Set(Object.keys(nextGroups));
+      const list = (Array.isArray(pricing.data) ? pricing.data : [])
+        .filter(isChatModel)
+        .map((m) => ({
+          ...m,
+          enable_groups: (m.enable_groups || [])
+            .filter((g) => usable.has(g))
+            .sort(
+              (a, b) =>
+                (nextGroups[a]?.ratio ?? ratios[a] ?? 99) -
+                (nextGroups[b]?.ratio ?? ratios[b] ?? 99),
+            ),
+        }))
+        .filter((m) => (m.enable_groups as string[]).length > 0);
+      setCatalog(list);
       setGroups(nextGroups);
-      setModel((old) => (textModels.includes(old) ? old : textModels[0] || ""));
+      setModel((old) =>
+        list.some((m) => m.model_name === old)
+          ? old
+          : list.find((m) => m.enable_groups?.includes(defaultGroup))
+              ?.model_name ||
+            list[0]?.model_name ||
+            "",
+      );
       setError("");
     } catch (e) {
       if (alive.current && catalogVersion.current === version)
@@ -88,13 +134,45 @@ export function Chat({
       if (alive.current && catalogVersion.current === version)
         setLoading(false);
     }
-  }, [group]);
+  }, [defaultGroup]);
   useEffect(() => {
     void load();
     return () => {
       catalogVersion.current++;
     };
   }, [load]);
+  const current = useMemo(
+    () => catalog.find((m) => m.model_name === model),
+    [catalog, model],
+  );
+  const groupChoices = current?.enable_groups || [];
+  useEffect(() => {
+    if (!current) return;
+    if (groupChoices.includes(group)) return;
+    setGroup(
+      groupChoices.includes(defaultGroup)
+        ? defaultGroup
+        : groupChoices[0] || group,
+    );
+  }, [current, group, defaultGroup, groupChoices]);
+  useEffect(() => {
+    if (!preset) return;
+    const entry = catalog.find((m) => m.model_name === preset.model);
+    if (!entry) {
+      if (catalog.length) onPresetUsed?.();
+      return;
+    }
+    const ids = entry.enable_groups || [];
+    setModel(preset.model);
+    setGroup((old) =>
+      ids.includes(preset.group)
+        ? preset.group
+        : ids.includes(old)
+          ? old
+          : ids[0] || old,
+    );
+    onPresetUsed?.();
+  }, [preset, catalog, onPresetUsed]);
   useEffect(() => {
     const node = listRef.current;
     if (node) node.scrollTop = node.scrollHeight;
@@ -204,34 +282,29 @@ export function Chat({
         </div>
       </div>
       <div className="model-bar">
-        <select
-          aria-label="聊天分组"
-          value={group}
-          onChange={(e) => setGroup(e.target.value)}
-          disabled={busy || loading}
+        <button
+          className="picker-button"
+          aria-label="选择模型"
+          onClick={() => setPicker("model")}
+          disabled={busy || loading || !catalog.length}
         >
-          {!groups[group] && <option value={group}>{group}</option>}
-          {Object.entries(groups).map(([id, g]) => (
-            <option key={id} value={id}>
-              {g.desc || id}
-            </option>
-          ))}
-        </select>
-        <select
-          aria-label="聊天模型"
-          value={model}
-          onChange={(e) => setModel(e.target.value)}
-          disabled={busy || loading}
+          <span className="picker-label">
+            {model || (loading ? "正在读取模型…" : "选择模型")}
+          </span>
+          <ChevronDown size={14} />
+        </button>
+        <button
+          className="picker-button group-picker"
+          aria-label="选择分组"
+          onClick={() => setPicker("group")}
+          disabled={busy || loading || !groupChoices.length}
         >
-          {!model && (
-            <option value="">
-              {loading ? "正在读取模型…" : "暂无可用模型"}
-            </option>
+          <span className="picker-label">{group || "选择分组"}</span>
+          {groups[group]?.ratio !== undefined && (
+            <small>{groups[group].ratio}×</small>
           )}
-          {models.map((m) => (
-            <option key={m}>{m}</option>
-          ))}
-        </select>
+          <ChevronDown size={14} />
+        </button>
       </div>
       {error && (
         <div className="inline-notice">
@@ -324,6 +397,43 @@ export function Chat({
           )}
         </div>
       </form>
+      {picker === "model" && (
+        <ChoiceSheet
+          title="选择模型"
+          subtitle={`${catalog.length} 个可用于对话的模型`}
+          searchable
+          searchPlaceholder="搜索模型名称"
+          emptyText="没有匹配的模型"
+          close={() => setPicker(null)}
+          onSelect={setModel}
+          choices={catalog.map((m) => ({
+            id: m.model_name,
+            label: m.display_name || m.model_name,
+            meta: `${m.enable_groups?.length || 0} 个分组`,
+            note:
+              m.display_name && m.display_name !== m.model_name
+                ? m.model_name
+                : m.owner_by,
+            active: m.model_name === model,
+          }))}
+        />
+      )}
+      {picker === "group" && (
+        <ChoiceSheet
+          title="选择分组"
+          subtitle={`${model} 可用的分组，倍率越低越便宜`}
+          emptyText="该模型暂无可用的分组"
+          close={() => setPicker(null)}
+          onSelect={setGroup}
+          choices={groupChoices.map((id) => ({
+            id,
+            label: id,
+            note: groups[id]?.desc,
+            meta: `${groups[id]?.ratio ?? 1}×`,
+            active: id === group,
+          }))}
+        />
+      )}
       {history && (
         <div className="sheet-backdrop">
           <section
