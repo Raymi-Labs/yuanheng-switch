@@ -154,7 +154,7 @@ pub(super) fn activation_message(
     } else if status_code == Some(429) {
         "模型请求受到限流或额度限制，请在元衡控制台核对分组额度与并发；不要连续重复发送任务。"
             .into()
-    } else if matches!(status_code, Some(502 | 503 | 504)) {
+    } else if matches!(status_code, Some(502..=504)) {
         "模型请求暂不可用：可能是网络、上游服务或路由问题，请提供诊断编号区分原因；先确认原任务已停止，再重试。".into()
     } else if status_code.is_some_and(|status| (200..300).contains(&status)) {
         "已收到 Accio 请求，但尚未确认完整模型输出，请检查对话结果或诊断记录。".into()
