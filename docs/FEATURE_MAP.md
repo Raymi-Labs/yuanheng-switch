@@ -191,6 +191,8 @@ Claude diagnostic persistence uses a bounded background writer, not disk I/O on 
 
 ## Accio Work 实验接入
 
+本地商品资料工作流：提供[双语商品草稿指南](guides/accio-product-copy.md)与[两条合成商品样例](examples/accio-commerce/products.json)，通过原生文件工具生成JSON/Markdown、读回并定点修订。离线校验器`scripts/check-accio-commerce.mjs`核对SKU/事实字段/语言与预览一致性，始终要求人工审稿。0.37.1配合已验证Core及Astra在Apple Silicon QA完成两阶段19条成功模型请求，原文件不变，定点修改仅影响目标标题；应用退出重开保留同会话显式模型选择及元衡业务配置，未测试整机重启/官方升级/另一模型推理。证据见[工作流验收](../.agents/notes/implemented/testing/2026-10-31-accio-commerce-workflow.md)。本地指南与样例不等于官方云端电商工具或店铺发布能力。
+
 启动前Core版本核对：Accio已运行时拒绝升级；复用CoreSupervisor空闲升级，正式构建仅在协议及二进制身份与随包Core一致时发送启动POST。升级延后时提示等待，不静默使用旧Core；profile版本在升级后读取。见[修复与回归边界](../.agents/notes/implemented/bug-fix/2026-10-30-accio-core-upgrade-before-launch.md)。本地回归及签名候选的Apple Silicon原生空闲升级通过；原生取消与钥匙串跨重启恢复仍未完成验收。
 
 Accio 0.37.1兼容修复：扩展精确版本范围，失败提示显示检测版本。Accio工具声明显式保留非严格可选参数语义，避免新版read的json_path/json_paths被同时填入后拒绝执行；不改共享转换器和模型返回参数。新版官方协议15项、旧0.35.3协议15项及Accio Rust61项通过。专用QA真实Core受控启动0.37.1返回200，保留配置和官方登录；Astra原生read→write→read→edit→read与磁盘核验通过，total=83、marker一致、verified=true、input/guard未改，6条实际模型请求全部200。收尾进程0，其他平台/模型及原生取消不由此推断。见[新版验证记录](../.agents/notes/implemented/bug-fix/2026-10-30-accio-0371-compatibility.md)。

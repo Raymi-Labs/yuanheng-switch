@@ -1,0 +1,32 @@
+{
+  "dataset": "synthetic-commerce-demo",
+  "products": [
+    {
+      "sku": "DEMO-BAG-01",
+      "name_zh": "帆布收纳袋",
+      "name_en": "Canvas Organizer Bag",
+      "price_cny": 39.9,
+      "material": "cotton canvas",
+      "dimensions_cm": [24, 16, 8],
+      "colors": ["beige", "navy"],
+      "features": ["zip closure", "one inner pocket"],
+      "care": "spot clean; air dry",
+      "waterproof": null,
+      "certifications": []
+    },
+    {
+      "sku": "DEMO-STAND-02",
+      "name_zh": "折叠手机支架",
+      "name_en": "Folding Phone Stand",
+      "price_cny": 29,
+      "material": "aluminum alloy with silicone pads",
+      "dimensions_cm": [10, 7, 2],
+      "colors": ["silver"],
+      "features": ["foldable", "adjustable viewing angle"],
+      "compatibility": "phones from 4 to 7 inches",
+      "charging": "no charging function",
+      "load_capacity_kg": null,
+      "certifications": []
+    }
+  ]
+}
