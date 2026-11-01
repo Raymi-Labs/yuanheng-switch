@@ -82,4 +82,4 @@ GitHub REST 的 `GET /releases/tags/:tag` 不返回草稿。发布脚本先使�
 
 ## Meta API 名称与安装兼容
 
-从 v0.1.121 起桌面应用显示为 Meta API；Android 和 iOS 同步采用新显示名称。分发附件仍沿用 YuanHeng.Desktop / YuanHeng 文件名前缀，应用标识、用户目录、凭据与更新签名保持兼容。Windows 沿用旧安装目录和卸载注册表身份，界面与快捷方式显示新名。macOS 应用内更新仍替换当前应用路径，因此 Finder 目录名可能保持旧名；手动安装 Meta API.app 时请先退出并移走旧应用副本，避免误开旧版，无需删除用户数据。
+从 v0.1.122 起桌面应用显示为 Meta API；Android 和 iOS 同步采用新显示名称。分发附件仍沿用 YuanHeng.Desktop / YuanHeng 文件名前缀，应用标识、用户目录、凭据与更新签名保持兼容。Windows 沿用旧安装目录和卸载注册表身份，界面与快捷方式显示新名。macOS 应用内更新仍替换当前应用路径，因此 Finder 目录名可能保持旧名；手动安装 Meta API.app 时请先退出并移走旧应用副本，避免误开旧版，无需删除用户数据。
