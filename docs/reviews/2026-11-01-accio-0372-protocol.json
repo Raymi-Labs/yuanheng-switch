@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "status": "protocol_passed",
+  "version": "0.37.2",
+  "platform": "macOS arm64",
+  "officialIdentityVerified": true,
+  "archiveSha512": "f5f02775fe9c3aa2e251af2c05a94f6646e51c1f0f5b63f56313144331e3178f2a9f6aa94ffce4c3fcb6cf58904fefbfea1ba33cddafd7ccce61623a17a8f5ce",
+  "workerSha256": "2cea95e2687b5e249e8e42c93d7266084318f3b2571a07f4a8dee483179a3fd4",
+  "baselineVersion": "0.37.1",
+  "matchedDeclarations": 102,
+  "protocolChecks": 16,
+  "timersRemaining": 0,
+  "externalProtocolRequests": 0,
+  "paidModelRequests": 0,
+  "nativeGuiTested": false,
+  "officialAppLaunched": false,
+  "configurationBlocked": false,
+  "testProcessesRemaining": 0
+}

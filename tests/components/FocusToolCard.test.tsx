@@ -89,7 +89,7 @@ function createSwitcher(
 }
 
 describe("FocusToolCard", () => {
-  it("blocks launching an unverified installed Accio before any action", () => {
+  it("launches an unverified installed Accio through the usual action", () => {
     const switcher = createSwitcher("ready");
     switcher.runnableRows = ["accio-work"];
     switcher.installedApps = new Set(["accio-work"]);
@@ -115,9 +115,9 @@ describe("FocusToolCard", () => {
       />,
     );
     const launch = screen.getByRole("button", { name: /启动 Accio/ });
-    expect(launch).toBeDisabled();
+    expect(launch).toBeEnabled();
     fireEvent.click(launch);
-    expect(switcher.launch).not.toHaveBeenCalled();
+    expect(switcher.launch).toHaveBeenCalledWith("accio-work");
     expect(screen.getByText(/已安装 Accio：99.0.0/)).toBeVisible();
   });
   it("shows Accio platform limitations without offering configure or launch", () => {

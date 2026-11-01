@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AccioReleaseNotice } from "@/components/desktop/AccioReleaseNotice";
@@ -22,7 +22,7 @@ function mount(children = <AccioReleaseNotice />) {
   );
 }
 describe("Accio release readiness", () => {
-  it("shares a background query between two surfaces", async () => {
+  it("only queries on demand and shares results without unknown-version warnings", async () => {
     const spy = vi
       .spyOn(yuanhengApi, "getAccioReleaseStatus")
       .mockResolvedValue({
@@ -38,9 +38,12 @@ describe("Accio release readiness", () => {
         <AccioReleaseNotice />
       </>,
     );
+    expect(spy).not.toHaveBeenCalled();
+    fireEvent.click(screen.getAllByRole("button")[0]);
     await waitFor(() =>
-      expect(screen.getAllByText(/官方已有尚未验证/)).toHaveLength(2),
+      expect(screen.getAllByText(/官方发布版本：0.38.0/)).toHaveLength(2),
     );
+    expect(screen.queryByText(/尚未验证/)).not.toBeInTheDocument();
     expect(spy).toHaveBeenCalledTimes(1);
   });
   it("labels stale values instead of claiming latest or compatible", async () => {
@@ -52,6 +55,7 @@ describe("Accio release readiness", () => {
       error: "private backend detail",
     });
     mount();
+    fireEvent.click(screen.getByRole("button"));
     await screen.findByText(/信息已过期/);
     expect(screen.getByText(/查询失败/)).toBeVisible();
     expect(screen.queryByText(/private backend/)).not.toBeInTheDocument();
@@ -62,9 +66,10 @@ describe("Accio release readiness", () => {
       new Error("private"),
     );
     mount();
-    expect(await screen.findByText(/不影响本机兼容检查/)).toBeVisible();
+    fireEvent.click(screen.getByRole("button"));
+    expect(await screen.findByText(/不影响配置和启动/)).toBeVisible();
   });
-  it("only blocks local Accio incompatibility, not a newer remote release or other tools", () => {
+  it("only blocks unavailable installation, never unknown versions or other tools", () => {
     const s = {
       app: "accio-work",
       accioCompatibility: {
@@ -74,13 +79,16 @@ describe("Accio release readiness", () => {
       },
     } as YuanhengToolStatus;
     expect(accioConfigurationBlocked(s)).toBe(false);
+    expect(accioConfigurationBlocked({ ...s, accioCompatibility: null })).toBe(
+      false,
+    );
     for (const state of ["unverified_version", "unavailable"] as const)
       expect(
         accioConfigurationBlocked({
           ...s,
           accioCompatibility: { ...s.accioCompatibility!, state },
         }),
-      ).toBe(true);
+      ).toBe(state === "unavailable");
     expect(accioConfigurationBlocked({ ...s, app: "codex" })).toBe(false);
     expect(accioConfigurationBlocked(undefined)).toBe(false);
   });

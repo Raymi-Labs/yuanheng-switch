@@ -40,18 +40,9 @@ export function AccioConnectionNotice({
                 dt("未检测到有效版本"),
             })}
           </p>
-          <p>
-            {dt("元衡已验证版本：{{versions}}", {
-              versions: status.accioCompatibility.supportedVersions.join("、"),
-            })}
-          </p>
-          {status.accioCompatibility.state !== "verified_version" && (
+          {status.accioCompatibility.state === "unavailable" && (
             <p role="alert">
-              {dt(
-                status.accioCompatibility.state === "unverified_version"
-                  ? "当前版本尚未验证，配置和启动暂不可用。请到设置 → 关于检查元衡更新。"
-                  : "暂无法确认 Accio 安装，请重新检测或选择官方应用路径。",
-              )}
+              {dt("暂无法确认 Accio 安装，请重新检测或选择官方应用路径。")}
             </p>
           )}
           <AccioReleaseNotice />

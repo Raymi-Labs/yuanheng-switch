@@ -1,14 +1,15 @@
-//! One compatibility rule for configuration, discovery hints and Core launch.
+//! Official identity checks for configuration and Core launch; versions are diagnostic only.
 #[cfg(any(target_os = "macos", test))]
 use std::path::Path;
 use std::path::PathBuf;
 
-pub(crate) const SUPPORTED_VERSIONS: &[&str] = &["0.34.5", "0.35.3", "0.37.1"];
+pub(crate) const VERIFIED_VERSIONS: &[&str] = &["0.34.5", "0.35.3", "0.37.1"];
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct Compatibility {
     pub installed_version: Option<String>,
+    /// Legacy wire name: historical native verification, never a version allowlist.
     pub supported_versions: Vec<String>,
     /// verified_version is a version hint, never proof of a trusted executable.
     pub state: String,
@@ -18,13 +19,13 @@ impl Compatibility {
     #[cfg(any(target_os = "macos", test))]
     pub(crate) fn from_version(version: Option<String>) -> Self {
         let state = match version.as_deref() {
-            Some(v) if SUPPORTED_VERSIONS.contains(&v) => "verified_version",
+            Some(v) if VERIFIED_VERSIONS.contains(&v) => "verified_version",
             Some(_) => "unverified_version",
             None => "unavailable",
         };
         Self {
             installed_version: version,
-            supported_versions: SUPPORTED_VERSIONS.iter().map(|v| (*v).into()).collect(),
+            supported_versions: VERIFIED_VERSIONS.iter().map(|v| (*v).into()).collect(),
             state: state.into(),
         }
     }
@@ -38,18 +39,6 @@ pub(crate) async fn require_not_running() -> Result<(), String> {
         Some(1) => Ok(()),
         Some(0) => Err("请先保存工作并完整退出 Accio，再从元衡启动".into()),
         _ => Err("无法确认 Accio 是否正在运行，已停止启动".into()),
-    }
-}
-
-#[cfg(any(target_os = "macos", test))]
-pub(crate) fn require_supported_version(version: &str) -> Result<(), String> {
-    if SUPPORTED_VERSIONS.contains(&version) {
-        Ok(())
-    } else {
-        Err(format!(
-            "检测到 Accio {version}，此版本尚未完成兼容验证，当前支持 {}。请等待元衡适配更新；原配置未更改。",
-            SUPPORTED_VERSIONS.join("、")
-        ))
     }
 }
 
@@ -82,7 +71,7 @@ pub(crate) async fn version_at(path: &Path) -> Result<String, String> {
         || version.len() > 40
         || !version
             .bytes()
-            .all(|byte| byte.is_ascii_digit() || byte == b'.')
+            .all(|byte| byte.is_ascii_alphanumeric() || b".-+".contains(&byte))
     {
         return Err("无法识别 Accio 版本，请检查官方应用是否完整".into());
     }
@@ -112,7 +101,6 @@ pub(crate) async fn verify(path: &Path) -> Result<PathBuf, String> {
     {
         return Err("Accio 官方身份或签名校验失败，请重新安装官方应用；原配置未更改".into());
     }
-    require_supported_version(&version_at(&path).await?)?;
     Ok(path)
 }
 
@@ -166,33 +154,12 @@ mod tests {
     }
 
     #[test]
-    fn exact_versions_reject_unverified_updates_and_lookalikes() {
-        for version in ["0.34.5", "0.35.3", "0.37.1"] {
-            assert!(require_supported_version(version).is_ok());
+    fn new_versions_remain_diagnostic_not_claimed_verified() {
+        for version in ["0.37.2", "0.37.1-beta", "99.0.0"] {
+            let hint = Compatibility::from_version(Some(version.into()));
+            assert_eq!(hint.installed_version.as_deref(), Some(version));
+            assert_eq!(hint.state, "unverified_version");
         }
-        for version in [
-            "0.35.2",
-            "0.35.4",
-            "0.35.3-beta",
-            "0.35.30",
-            "0.37.0",
-            "0.37.2",
-            "0.37.1-beta",
-            "0.37.10",
-            " 0.35.3",
-            "0.35.3\n",
-            "",
-        ] {
-            assert!(require_supported_version(version).is_err(), "{version:?}");
-        }
-    }
-
-    #[test]
-    fn unsupported_version_error_identifies_the_detected_version() {
-        let error = require_supported_version("0.37.2").unwrap_err();
-        assert!(error.contains("检测到 Accio 0.37.2"));
-        assert!(error.contains("0.37.1"));
-        assert!(error.contains("原配置未更改"));
     }
 
     #[test]

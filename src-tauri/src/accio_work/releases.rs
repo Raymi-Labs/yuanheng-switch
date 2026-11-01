@@ -1,4 +1,4 @@
-//! Public metadata only. Never downloads code or changes the compatibility gate.
+//! Public metadata only. Never downloads code or authorizes execution.
 use serde::{Deserialize, Serialize};
 use std::{
     sync::OnceLock,
@@ -7,7 +7,7 @@ use std::{
 use tokio::sync::Mutex;
 
 const URL: &str = "https://work-download.accio-ai.com/package/beta-mac.yml";
-const ERROR: &str = "无法查询 Accio 官方版本；本机兼容检查仍有效，请稍后重试。";
+const ERROR: &str = "无法查询 Accio 官方版本；不影响配置和启动，请稍后重试。";
 const MAX_BYTES: usize = 64 * 1024;
 const SUCCESS_TTL: Duration = Duration::from_secs(6 * 3600);
 const FAILURE_TTL: Duration = Duration::from_secs(300);
@@ -41,8 +41,7 @@ impl Cache {
     fn store(&mut self, result: Result<String, String>, now: Instant) -> ReleaseStatus {
         let value = match result {
             Ok(version) => ReleaseStatus {
-                latest_verified: super::installation::SUPPORTED_VERSIONS
-                    .contains(&version.as_str()),
+                latest_verified: super::installation::VERIFIED_VERSIONS.contains(&version.as_str()),
                 latest_version: Some(version),
                 checked_at: Some(chrono::Utc::now().timestamp()),
                 stale: false,

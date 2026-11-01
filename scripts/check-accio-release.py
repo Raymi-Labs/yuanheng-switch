@@ -1,4 +1,4 @@
-"""Read public official metadata; never download/execute an application or relax gates."""
+"""On-demand public version report; never download/execute an application or gate use."""
 import json
 import re
 import sys
@@ -25,22 +25,22 @@ def version_from_manifest(data):
     return matches[0]
 
 
-def supported_versions(source):
-    match = re.search(r"const SUPPORTED_VERSIONS: &\[&str\] = &\[([^\]]+)\];", source)
+def verified_versions(source):
+    match = re.search(r"const VERIFIED_VERSIONS: &\[&str\] = &\[([^\]]+)\];", source)
     if not match:
-        raise ValueError("version_gate_not_found")
+        raise ValueError("verification_history_not_found")
     versions = re.findall(r'"([0-9]+\.[0-9]+\.[0-9]+)"', match[1])
     if not versions or re.sub(r'"[0-9]+\.[0-9]+\.[0-9]+"|[\s,]', '', match[1]):
-        raise ValueError("version_gate_invalid")
+        raise ValueError("verification_history_invalid")
     return versions
 
 
 def inspect(data, source):
     version = version_from_manifest(data)
-    supported = supported_versions(source)
+    supported = verified_versions(source)
     return {"officialVersion": version, "verifiedVersions": supported,
-            "requiresCompatibilityReview": version not in supported,
-            "applicationDownloaded": False, "gateChanged": False}
+            "hasNativeVerification": version in supported,
+            "configurationBlocked": False, "applicationDownloaded": False}
 
 
 def main():
@@ -57,9 +57,6 @@ def main():
         print(json.dumps({"status": "check_failed", "message": "Official metadata unavailable or invalid"}))
         return 2
     print(json.dumps(report, ensure_ascii=False))
-    if report["requiresCompatibilityReview"]:
-        print("Official version needs signature, protocol and native regression review before enabling.")
-        return 1
     return 0
 
 

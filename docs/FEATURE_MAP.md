@@ -1,5 +1,7 @@
 # YuanHeng Desktop: capability map
 
+Accio官方包自动诊断：[维护者命令/工作流指南](guides/accio-compatibility-check.md) → [完整检查脚本](../scripts/check-accio-package.py) → 官方固定元数据与ARM64包 → SHA512/归档/签名核验 → [关键声明指纹匹配](../scripts/accio-protocol-fingerprint.cjs)及既有16项隔离协议回归。0.37.2签名及102个选定声明检查通过，[结果](reviews/2026-11-01-accio-0372-protocol.json)明确原生GUI未测。诊断不修改用户版本门禁或客户端自动查询；相关PR自动回归，完整官方包通过手动工作流触发，无周期任务。见[决定](../.agents/notes/implemented/testing/2026-11-01-accio-package-automation.md)。
+
 Verified from the local checkout on 2026-09-29. This is a scoped navigation aid, not a complete product audit or a replacement for [existing guidance](../README.md). Recheck implementation when using it; extend entries only as tasks confirm the relevant behavior. Do not treat roadmap ideas as implemented features.
 
 签名候选构建：手动[Desktop Release](../.github/workflows/release.yml)选择`candidate_only=true`，复用三平台签名/公证/完整性检查，仅保存Actions产物，不创建Release或推送更新；默认草稿与标签正式发布不变。见[候选流程](../.agents/notes/implemented/process/2026-10-29-signed-candidate-artifacts.md)。
@@ -191,13 +193,15 @@ Claude diagnostic persistence uses a bounded background writer, not disk I/O on 
 
 ## Accio Work 实验接入
 
-本地商品资料工作流：提供[双语商品草稿指南](guides/accio-product-copy.md)与[两条合成商品样例](examples/accio-commerce/products.json)，通过原生文件工具生成JSON/Markdown、读回并定点修订。离线校验器`scripts/check-accio-commerce.mjs`核对SKU/事实字段/语言与预览一致性，始终要求人工审稿。0.37.1配合已验证Core及Astra在Apple Silicon QA完成两阶段19条成功模型请求，原文件不变，定点修改仅影响目标标题；应用退出重开保留同会话显式模型选择及元衡业务配置，补充专用macOS虚拟机冷启动后登录/原会话/Astra/文件保留，未测试物理Mac重启、官方升级或另一模型推理。证据见[工作流验收](../.agents/notes/implemented/testing/2026-10-31-accio-commerce-workflow.md)和[TRAE/Accio收尾范围](reviews/2026-11-01-agent-acceptance-closeout.md)。2026-11-01官方0.37.2待兼容验证，门禁未放宽。本地指南与样例不等于官方云端电商工具或店铺发布能力。
+本地商品资料工作流：提供[双语商品草稿指南](guides/accio-product-copy.md)与[两条合成商品样例](examples/accio-commerce/products.json)，通过原生文件工具生成JSON/Markdown、读回并定点修订。离线校验器`scripts/check-accio-commerce.mjs`核对SKU/事实字段/语言与预览一致性，始终要求人工审稿。0.37.1配合已验证Core及Astra在Apple Silicon QA完成两阶段19条成功模型请求，原文件不变，定点修改仅影响目标标题；应用退出重开保留同会话显式模型选择及元衡业务配置，补充专用macOS虚拟机冷启动后登录/原会话/Astra/文件保留，未测试物理Mac重启、官方升级或另一模型推理。证据见[工作流验收](../.agents/notes/implemented/testing/2026-10-31-accio-commerce-workflow.md)和[TRAE/Accio收尾范围](reviews/2026-11-01-agent-acceptance-closeout.md)。该收尾时官方0.37.2尚待验证；后续取消门禁及0.37.2签名候选回归见下文。本地指南与样例不等于官方云端电商工具或店铺发布能力。
 
 启动前Core版本核对：Accio已运行时拒绝升级；复用CoreSupervisor空闲升级，正式构建仅在协议及二进制身份与随包Core一致时发送启动POST。升级延后时提示等待，不静默使用旧Core；profile版本在升级后读取。见[修复与回归边界](../.agents/notes/implemented/bug-fix/2026-10-30-accio-core-upgrade-before-launch.md)。本地回归及签名候选的Apple Silicon原生空闲升级通过；原生取消与钥匙串跨重启恢复仍未完成验收。
 
 Accio 0.37.1兼容修复：扩展精确版本范围，失败提示显示检测版本。Accio工具声明显式保留非严格可选参数语义，避免新版read的json_path/json_paths被同时填入后拒绝执行；不改共享转换器和模型返回参数。新版官方协议15项、旧0.35.3协议15项及Accio Rust61项通过。专用QA真实Core受控启动0.37.1返回200，保留配置和官方登录；Astra原生read→write→read→edit→read与磁盘核验通过，total=83、marker一致、verified=true、input/guard未改，6条实际模型请求全部200。收尾进程0，其他平台/模型及原生取消不由此推断。见[新版验证记录](../.agents/notes/implemented/bug-fix/2026-10-30-accio-0371-compatibility.md)。
 
-Accio兼容预警：工具状态增加本地版本/已验证列表/状态，共用提示在工作台与工具管理显示；未知和不可确认安装禁止相关配置、启动与批量选择，后台仍完整复检签名。[官方版本查询](../src-tauri/src/accio_work/releases.rs)独立于工具清单，固定公开更新源、无重定向、响应/超时上限、成功6小时与失败5分钟单飞缓存；过期结果明确标记。查询不下载执行程序或自动放行。错误诊断提供固定分类建议，模型生效提示明确工具结果/审批需在Accio确认。[定时检查工作流](../.github/workflows/accio-compatibility.yml)每6小时只读检查官方版本，未知版本报告失败；本地未部署不代表已运行。67项Rust、71项前端、3项脚本及15项SDK回归通过；原生取消与跨模型菜单验收仍另行处理。详见[边界与验证](../.agents/notes/implemented/feature/2026-10-30-accio-readiness-diagnostics.md)。
+Accio当前版本策略（取代下文历史验收中的精确版本门禁）：配置预检与Core启动复用[官方身份验证](../src-tauri/src/accio_work/installation.rs)，不再因未实测版本拒绝；工作台和工具管理的单项/批量入口一致放行未知版本，仅安装不可用仍禁用。历史实测列表只用于诊断，不是允许列表，不伪称新版本已验证。[官方版本查询](../src-tauri/src/accio_work/releases.rs)改为手动，保留固定源、无重定向、响应/超时上限及单飞缓存；取消周期查询和[仓库工作流](../.github/workflows/accio-compatibility.yml)定时触发，未知版本不作为检查失败。实际签名、路径、平台、账号和协议错误仍明确报告。原错误分类与原生证据保留，见[取消版本门禁](../.agents/notes/implemented/simplification/2026-11-01-accio-remove-version-gate.md)及[历史预警记录](../.agents/notes/implemented/feature/2026-10-30-accio-readiness-diagnostics.md)。
+
+v0.1.121签名候选与官方Accio0.37.2的Apple Silicon原生回归通过：安装保留原profile，GUI经系统钥匙串交互恢复原会话；工作台同分组Astra配置保存与GUI受控启动通过。6条实际Astra请求完成read/write/read/edit/read，磁盘total=83、marker一致、verified=true且输入/保护文件未改；原生停止后活跃请求0。显式GUI保存会同步平台最新模型目录，不保证整个配置JSON不变；owner/group/model保留。测试进程0、QA虚拟机正常关机。见[候选回归与边界](reviews/2026-11-01-release121-native-regression.md)，不代表正式分发、Intel真机、Windows Accio或其他模型已验收。
 
 2026-10-31原生补验：沿用已授权网络的测试Core验证Accio0.37.1原生停止（官方aborted、活跃连接0）及同会话恢复ready；菜单Astra→luna→Astra选择生效，付费请求仅Astra，未声称跨模型推理通过。新P0 Core因新权限弹窗未完成UI联网验收。发现未知上游流事件仍拒绝，补可读失败文本并保留错误字段/诊断编号，68项Rust回归与15项SDK解析通过，未放行未知事件。测试环境已恢复、临时进程0。
 

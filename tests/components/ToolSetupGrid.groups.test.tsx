@@ -158,7 +158,7 @@ const chooseGroup = async (
 };
 
 describe("tool group restoration", () => {
-  it("blocks unknown Accio in individual and batch controls", () => {
+  it("allows unknown Accio in individual and batch controls", async () => {
     mocks.statuses = [
       ...mocks.statuses!,
       {
@@ -171,11 +171,27 @@ describe("tool group restoration", () => {
       },
     ];
     render(<ToolSetupGrid />);
-    expect(screen.getByRole("button", { name: /配置 Accio/ })).toBeDisabled();
-    expect(screen.getByRole("button", { name: /启动 Accio/ })).toBeDisabled();
-    expect(screen.getByRole("button", { name: /选择 Accio/ })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /配置 Accio/ })).toBeEnabled();
+    expect(screen.getByRole("button", { name: /启动 Accio/ })).toBeEnabled();
+    expect(screen.getByRole("button", { name: /选择 Accio/ })).toBeEnabled();
     expect(mocks.configure).not.toHaveBeenCalled();
     expect(mocks.launch).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: /配置 Accio/ }));
+    await waitFor(() =>
+      expect(mocks.configure).toHaveBeenCalledWith(
+        expect.objectContaining({ apps: ["accio-work"] }),
+      ),
+    );
+    mocks.configure.mockClear();
+    fireEvent.click(screen.getByRole("button", { name: /选择 Accio/ }));
+    fireEvent.click(screen.getByRole("button", { name: "一键配置所选工具" }));
+    await waitFor(() =>
+      expect(mocks.configure).toHaveBeenCalledWith(
+        expect.objectContaining({
+          apps: expect.arrayContaining(["accio-work"]),
+        }),
+      ),
+    );
   });
   it("shows unsupported Accio without offering configuration, installation or launch", () => {
     mocks.statuses = [

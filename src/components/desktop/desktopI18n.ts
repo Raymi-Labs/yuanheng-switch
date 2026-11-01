@@ -7,6 +7,9 @@ import { DESKTOP_ZH_TW } from "./desktopI18n.zhTW";
 type Values = Record<string, string | number | null | undefined>;
 
 export const DESKTOP_EN: Record<string, string> = {
+  "正在查询 Accio 官方版本…": "Checking the official Accio version…",
+  "官方版本查询失败，不影响配置和启动。请稍后重试。":
+    "Official version lookup failed. Configuration and launch are unaffected. Try again later.",
   ...MEDIA_EN,
   等待状态检查: "Waiting for a status check",
   尚无检查结果: "No check results yet",
