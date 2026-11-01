@@ -9,7 +9,7 @@
 - receipt 的版本、提交、run、target 及归档、更新签名、DMG 的大小和 SHA-256 均已核对。
 - 更新归档 SHA-256：`8dbf833a7a281c19d50bff663018fd98a3f2629aa93160baa663704c1d4c36f9`。
 - 随包 Core SHA-256：`c03d918a0b54d3884a730ac4cc68a989ab20573f5f470a6b3fa8d272e5d7024e`。
-- 首次 Intel 构建在 `stapler validate` 连续三次 Apple CloudKit 网络中断后以错误 68 失败；已通过既有入口重跑失败任务，未跳过签名、公证或产物校验。
+- 首次 Intel 构建在 `stapler validate` 连续三次 Apple CloudKit 网络中断后以错误 68 失败；通过既有入口重跑失败任务后，Intel签名/公证/打包校验及上传全部成功，三个平台候选齐全；未跳过任何校验。
 
 ## 原生结果
 
