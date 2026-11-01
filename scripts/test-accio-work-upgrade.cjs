@@ -6,6 +6,22 @@ const assert = require("node:assert/strict");
 const { createHash } = require("node:crypto");
 const ts = require("typescript");
 const { z } = require("zod");
+const {
+  fingerprint,
+  matchBundle,
+  externalNames,
+} = require("./accio-protocol-fingerprint.cjs");
+const rawDescriptors = [];
+function capture(node, group, name, aliases) {
+  const f = fingerprint(node, ast);
+  rawDescriptors.push({
+    ...f,
+    group,
+    name,
+    references: externalNames(node),
+    names: f.names.map((n) => (Object.hasOwn(aliases, n) ? aliases[n] : n)),
+  });
+}
 
 const file = process.argv[2];
 if (!file)
@@ -174,10 +190,13 @@ const inspectedBundles = {
   },
 };
 const inspected =
-  inspectedBundles[createHash("sha256").update(source).digest("hex")];
+  inspectedBundles[createHash("sha256").update(source).digest("hex")] ||
+  (process.argv.includes("--match-baseline")
+    ? { version: process.env.ACCIO_CANDIDATE_VERSION || "unknown", aliases: {} }
+    : null);
 assert.ok(
   inspected,
-  "Uninspected official bundle; keep the production version gate unchanged",
+  "Uninspected bundle; use the non-blocking baseline diagnostic",
 );
 const ast = ts.createSourceFile(
   file,
@@ -338,6 +357,7 @@ function visit(node) {
       protocolFunctionNames.has(protocolName(node.name?.text))
     ) {
       const name = protocolName(node.name.text);
+      capture(node, "protocolFunctions", name, inspected.protocolAliases || {});
       assert.ok(!protocolFunctions.has(name), name);
       protocolFunctions.set(
         name,
@@ -355,6 +375,12 @@ function visit(node) {
       node.parent.parent.parent.getStart(ast) === 2805360 + inspected.sdkOffset
     ) {
       const name = protocolName(node.name.getText(ast));
+      capture(
+        node,
+        "protocolDefinitions",
+        name,
+        inspected.protocolAliases || {},
+      );
       assert.ok(!protocolDefinitions.has(name), name);
       protocolDefinitions.set(
         name,
@@ -367,6 +393,7 @@ function visit(node) {
     selectedFunctions.has(node.name?.text)
   ) {
     const name = canonicalName(node.name.text);
+    capture(node, "functions", name, inspected.aliases);
     assert.ok(!functions.has(name));
     functions.set(name, catalogueText(node));
   }
@@ -375,6 +402,7 @@ function visit(node) {
     selectedSchemas.has(node.name.getText(ast))
   ) {
     const name = canonicalName(node.name.getText(ast));
+    capture(node, "schemas", name, inspected.aliases);
     assert.ok(!schemas.has(name));
     schemas.set(name, `var ${catalogueText(node)};`);
   }
@@ -388,7 +416,33 @@ function visit(node) {
   }
   ts.forEachChild(node, visit);
 }
-visit(ast);
+if (process.argv.includes("--match-baseline")) {
+  const manifest = JSON.parse(
+    fs.readFileSync(
+      require("node:path").join(__dirname, "accio-protocol-baseline.json"),
+      "utf8",
+    ),
+  );
+  const matched = matchBundle(source, manifest);
+  if (matched.status !== "matched") {
+    console.log(
+      JSON.stringify({
+        ...matched,
+        nativeGuiTested: false,
+        configurationBlocked: false,
+      }),
+    );
+    process.exit(3);
+  }
+  for (const [key, map] of Object.entries({
+    functions,
+    schemas,
+    protocolDefinitions,
+    protocolFunctions,
+  }))
+    for (const [name, text] of matched.groups[key]) map.set(name, text);
+  consumerCondition = matched.consumerCondition;
+} else visit(ast);
 assert.equal(functions.size, names.size);
 assert.equal(schemas.size, schemaNames.size);
 assert.ok(consumerCondition);
@@ -402,6 +456,31 @@ assert.deepEqual(
   [...protocolFunctionNames].sort(),
   "all inspected SDK/protobuf functions found",
 );
+if (process.argv.includes("--export-baseline")) {
+  assert.equal(
+    inspected.version,
+    "0.37.1",
+    "only audited baseline can be exported",
+  );
+  const declarations = rawDescriptors;
+  fs.writeSync(
+    1,
+    JSON.stringify(
+      {
+        schemaVersion: 1,
+        version: inspected.version,
+        workerSha256: createHash("sha256").update(source).digest("hex"),
+        consumerCondition,
+        aliases: inspected.aliases,
+        protocolAliases: inspected.protocolAliases,
+        declarations,
+      },
+      null,
+      2,
+    ) + "\n",
+  );
+  process.exit(0);
+}
 
 const root = "http://127.0.0.1:54321/accio-work/synthetic-capability";
 const requests = [],
@@ -1118,7 +1197,8 @@ async function check(name, fn) {
         timersRemaining: timers.size,
         syntheticModelRequests: modelRequests.length,
         externalRequests: 0,
-        productionVersionGateChanged: false,
+        configurationBlocked: false,
+        nativeGuiTested: false,
       }),
     );
   } finally {

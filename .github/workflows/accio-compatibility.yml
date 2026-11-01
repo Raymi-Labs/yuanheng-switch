@@ -1,12 +1,23 @@
-name: Accio Official Compatibility Check
+name: Accio Compatibility Diagnostics
 on:
   workflow_dispatch:
+    inputs:
+      expected_version:
+        description: "Optional expected official version (a mismatch reports review required)"
+        required: false
+        type: string
   pull_request:
     paths:
       - scripts/check-accio-release.py
       - scripts/test_check_accio_release.py
       - .github/workflows/accio-compatibility.yml
       - src-tauri/src/accio_work/installation.rs
+      - scripts/check-accio-package.py
+      - scripts/test_check_accio_package.py
+      - scripts/accio-protocol-fingerprint.cjs
+      - scripts/accio-protocol-baseline.json
+      - scripts/test-accio-protocol-fingerprint.cjs
+      - scripts/test-accio-work-upgrade.cjs
 permissions:
   contents: read
 concurrency:
@@ -19,9 +30,39 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - name: Offline rejection tests
-        run: python3 scripts/test_check_accio_release.py
+        run: |
+          python3 scripts/test_check_accio_release.py
+          python3 scripts/test_check_accio_package.py
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: "22"
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v4
+        with:
+          version: 10.12.3
+      - run: pnpm install --frozen-lockfile --ignore-scripts
+      - name: Protocol matcher adversarial tests
+        run: node --test scripts/test-accio-protocol-fingerprint.cjs
       - name: Inspect official version without downloading the app
         if: github.event_name != 'pull_request'
         run: |
           set -o pipefail
           python3 scripts/check-accio-release.py | tee -a "$GITHUB_STEP_SUMMARY"
+  official-package:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: macos-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: "22"
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v4
+        with:
+          version: 10.12.3
+      - run: pnpm install --frozen-lockfile --ignore-scripts
+      - name: Verify official package and run offline protocol checks
+        env:
+          EXPECTED_VERSION: ${{ inputs.expected_version }}
+        run: |
+          set -o pipefail
+          python3 scripts/check-accio-package.py --expected-version "$EXPECTED_VERSION" | tee -a "$GITHUB_STEP_SUMMARY"
