@@ -973,7 +973,11 @@ describe("App integration with MSW", { timeout: 15_000 }, () => {
     expect(getConfiguredToolGroupCalls()).toHaveLength(callsBeforeFavorite);
     expect(groupPicker.textContent).toBe(groupBeforeFavorite);
     expect(screen.getByRole("dialog")).toBeInTheDocument();
-    fireEvent.click(await screen.findByRole("option", { name: /^vip 0.8x/ }));
+    fireEvent.click(
+      await screen.findByRole("option", {
+        name: /^vip 0\.8× 比官方价格低 20%/,
+      }),
+    );
     fireEvent.click(screen.getByRole("option", { name: "gpt-5.6-sol" }));
     await waitFor(() =>
       expect(getConfiguredToolGroupCalls()).toContainEqual({ codex: "vip" }),
@@ -1041,7 +1045,11 @@ describe("App integration with MSW", { timeout: 15_000 }, () => {
     expect(getConfiguredToolGroupCalls()).toHaveLength(callsBeforeFavorite);
     expect(groupPicker.textContent).toBe(groupBeforeFavorite);
     expect(screen.getByRole("dialog")).toBeInTheDocument();
-    fireEvent.click(await screen.findByRole("option", { name: /^vip 0.8x/ }));
+    fireEvent.click(
+      await screen.findByRole("option", {
+        name: /^vip 0\.8× 比官方价格低 20%/,
+      }),
+    );
     fireEvent.click(screen.getByRole("option", { name: "claude-sonnet-5" }));
     await waitFor(() =>
       expect(getConfiguredToolGroupCalls()).toContainEqual({ codex: "vip" }),
@@ -1548,7 +1556,11 @@ describe("App integration with MSW", { timeout: 15_000 }, () => {
     expect(getConfiguredToolGroupCalls()).toHaveLength(callsBeforeFavorite);
     expect(groupPicker.textContent).toBe(groupBeforeFavorite);
     expect(screen.getByRole("dialog")).toBeInTheDocument();
-    fireEvent.click(await screen.findByRole("option", { name: /^vip 0.5x/ }));
+    fireEvent.click(
+      await screen.findByRole("option", {
+        name: /^vip 0\.5× 比官方价格低 50%/,
+      }),
+    );
     fireEvent.click(screen.getByRole("option", { name: "gpt-5.6-sol" }));
     fireEvent.click(screen.getByRole("button", { name: "配置 Claude" }));
 

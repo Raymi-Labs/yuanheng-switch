@@ -58,6 +58,54 @@ beforeEach(() => {
 });
 
 describe("ToolModelPicker", () => {
+  it.each([
+    [0.38, "比官方价格低 62%"],
+    [0.2, "比官方价格低 80%"],
+    [0.8, "比官方价格低 20%"],
+    [0.6, "比官方价格低 40%"],
+    [1, "与官方价格一致"],
+    [1.2, "比官方价格高 20%"],
+    [0, "比官方价格低 100%"],
+    [0.3333, "比官方价格低 66.67%"],
+    [0.99999, "比官方价格低 <0.01%"],
+  ])(
+    "explains the account ratio %s without changing selection",
+    (ratio, label) => {
+      const connection = catalog();
+      connection.groups[0].ratio = ratio;
+      const { onChange } = setup({ connection });
+      fireEvent.click(screen.getByLabelText("DSH 分组与模型"));
+      expect(screen.getByText(label)).toBeInTheDocument();
+      expect(screen.getByText(`${ratio}×`)).toBeInTheDocument();
+      expect(screen.getByText("1 个模型")).toBeInTheDocument();
+      expect(onChange).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([null, -0.1, NaN, Infinity])(
+    "does not invent an official price comparison for ratio %s",
+    (ratio) => {
+      const connection = catalog();
+      connection.groups[0].ratio = ratio;
+      setup({ connection });
+      fireEvent.click(screen.getByLabelText("DSH 分组与模型"));
+      expect(screen.queryByText(/官方价格/)).not.toBeInTheDocument();
+      expect(screen.getByText("1 个模型")).toBeInTheDocument();
+    },
+  );
+
+  it("updates price comparisons when the account catalog refreshes", () => {
+    const { props, rerender, onChange } = setup();
+    fireEvent.click(screen.getByLabelText("DSH 分组与模型"));
+    expect(screen.getByText("比官方价格低 90%")).toBeInTheDocument();
+    const connection = catalog();
+    connection.groups[0].ratio = 0.8;
+    rerender(<ToolModelPicker {...props} connection={connection} />);
+    expect(screen.queryByText("比官方价格低 90%")).not.toBeInTheDocument();
+    expect(screen.getByText("比官方价格低 20%")).toBeInTheDocument();
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
   it("offers exactly two controls and submits a Grok pair only after selecting its model", async () => {
     const { onChange } = setup();
     expect(screen.getAllByRole("combobox")).toHaveLength(2);

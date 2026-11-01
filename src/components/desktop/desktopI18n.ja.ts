@@ -1,6 +1,9 @@
 // Japanese translations for the desktop Simplified Chinese source strings.
 import { MEDIA_JA } from "./mediaStudioTranslations";
 export const DESKTOP_JA: Record<string, string> = {
+  与官方价格一致: "公式料金と同じ",
+  "比官方价格低 {{percent}}%": "公式料金より {{percent}}% 安い",
+  "比官方价格高 {{percent}}%": "公式料金より {{percent}}% 高い",
   "正在查询 Accio 官方版本…": "Accio の公式バージョンを確認中…",
   "官方版本查询失败，不影响配置和启动。请稍后重试。":
     "公式バージョンの確認に失敗しました。設定と起動には影響しません。後で再試行してください。",
