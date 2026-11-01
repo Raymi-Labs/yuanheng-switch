@@ -7,16 +7,15 @@ export function AccioReleaseNotice() {
   const query = useQuery({
     queryKey: ["desktop", "accio-official-release"],
     queryFn: () => yuanhengApi.getAccioReleaseStatus(),
+    enabled: false,
     staleTime: 5 * 60 * 1000,
-    refetchInterval: 6 * 60 * 60 * 1000,
-    refetchIntervalInBackground: false,
     refetchOnWindowFocus: false,
     retry: false,
   });
   const data = query.data;
   return (
     <div className="space-y-1" aria-live="polite">
-      {query.isPending && <p>{dt("正在后台查询 Accio 官方版本…")}</p>}
+      {query.isFetching && <p>{dt("正在查询 Accio 官方版本…")}</p>}
       {data?.latestVersion && (
         <p>
           {dt(
@@ -27,18 +26,8 @@ export function AccioReleaseNotice() {
           )}
         </p>
       )}
-      {data?.latestVersion &&
-        !data.latestVerified &&
-        !data.stale &&
-        !query.isError && (
-          <p role="status">
-            {dt(
-              "官方已有尚未验证的版本。请先检查元衡更新；当前已验证版本仍可使用。",
-            )}
-          </p>
-        )}
       {(query.isError || data?.error) && (
-        <p>{dt("官方版本查询失败，不影响本机兼容检查。请稍后重试。")}</p>
+        <p>{dt("官方版本查询失败，不影响配置和启动。请稍后重试。")}</p>
       )}
       {data?.checkedAt && (
         <p>

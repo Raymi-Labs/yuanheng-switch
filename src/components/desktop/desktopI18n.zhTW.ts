@@ -1,6 +1,9 @@
 // Generated from the desktop Simplified Chinese source strings, then normalized for Taiwan terminology.
 import { MEDIA_ZH_TW } from "./mediaStudioTranslations";
 export const DESKTOP_ZH_TW: Record<string, string> = {
+  "正在查询 Accio 官方版本…": "正在查詢 Accio 官方版本…",
+  "官方版本查询失败，不影响配置和启动。请稍后重试。":
+    "官方版本查詢失敗，不影響設定和啟動。請稍後重試。",
   ...MEDIA_ZH_TW,
   等待状态检查: "等待狀態檢查",
   尚无检查结果: "尚無檢查結果",

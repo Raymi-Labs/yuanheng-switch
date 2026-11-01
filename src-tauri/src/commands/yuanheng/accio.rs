@@ -103,20 +103,22 @@ pub(super) fn status(
 pub(super) async fn annotate_installation(app: &AppHandle, status: &mut YuanhengToolStatus) {
     #[cfg(target_os = "macos")]
     {
-        let result = async {
-            let path = accio_work::installation::resolve(app).await?;
-            let version = accio_work::installation::version_at(&path).await?;
-            status.accio_compatibility = Some(
-                accio_work::installation::Compatibility::from_version(Some(version.clone())),
-            );
-            accio_work::installation::require_supported_version(&version)?;
-            Ok::<(), String>(())
-        }
-        .await;
-        status.runtime_warning = result.err();
-        if status.accio_compatibility.is_none() {
-            status.accio_compatibility =
-                Some(accio_work::installation::Compatibility::from_version(None));
+        match accio_work::installation::resolve(app).await {
+            Ok(path) => {
+                // Version metadata is diagnostic only. Failure to read it must
+                // not recreate a version gate; explicit actions verify identity.
+                status.accio_compatibility = accio_work::installation::version_at(&path)
+                    .await
+                    .ok()
+                    .map(|version| {
+                        accio_work::installation::Compatibility::from_version(Some(version))
+                    });
+            }
+            Err(error) => {
+                status.runtime_warning = Some(error);
+                status.accio_compatibility =
+                    Some(accio_work::installation::Compatibility::from_version(None));
+            }
         }
     }
     #[cfg(not(target_os = "macos"))]

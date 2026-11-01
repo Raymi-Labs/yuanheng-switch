@@ -122,7 +122,7 @@ export function accioConfigurationBlocked(
   return (
     status?.app === "accio-work" &&
     !!status.accioCompatibility &&
-    status.accioCompatibility.state !== "verified_version"
+    status.accioCompatibility.state === "unavailable"
   );
 }
 

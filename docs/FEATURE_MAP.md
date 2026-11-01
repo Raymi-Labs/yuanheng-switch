@@ -197,7 +197,7 @@ Claude diagnostic persistence uses a bounded background writer, not disk I/O on 
 
 Accio 0.37.1兼容修复：扩展精确版本范围，失败提示显示检测版本。Accio工具声明显式保留非严格可选参数语义，避免新版read的json_path/json_paths被同时填入后拒绝执行；不改共享转换器和模型返回参数。新版官方协议15项、旧0.35.3协议15项及Accio Rust61项通过。专用QA真实Core受控启动0.37.1返回200，保留配置和官方登录；Astra原生read→write→read→edit→read与磁盘核验通过，total=83、marker一致、verified=true、input/guard未改，6条实际模型请求全部200。收尾进程0，其他平台/模型及原生取消不由此推断。见[新版验证记录](../.agents/notes/implemented/bug-fix/2026-10-30-accio-0371-compatibility.md)。
 
-Accio兼容预警：工具状态增加本地版本/已验证列表/状态，共用提示在工作台与工具管理显示；未知和不可确认安装禁止相关配置、启动与批量选择，后台仍完整复检签名。[官方版本查询](../src-tauri/src/accio_work/releases.rs)独立于工具清单，固定公开更新源、无重定向、响应/超时上限、成功6小时与失败5分钟单飞缓存；过期结果明确标记。查询不下载执行程序或自动放行。错误诊断提供固定分类建议，模型生效提示明确工具结果/审批需在Accio确认。[定时检查工作流](../.github/workflows/accio-compatibility.yml)每6小时只读检查官方版本，未知版本报告失败；本地未部署不代表已运行。67项Rust、71项前端、3项脚本及15项SDK回归通过；原生取消与跨模型菜单验收仍另行处理。详见[边界与验证](../.agents/notes/implemented/feature/2026-10-30-accio-readiness-diagnostics.md)。
+Accio当前版本策略（取代下文历史验收中的精确版本门禁）：配置预检与Core启动复用[官方身份验证](../src-tauri/src/accio_work/installation.rs)，不再因未实测版本拒绝；工作台和工具管理的单项/批量入口一致放行未知版本，仅安装不可用仍禁用。历史实测列表只用于诊断，不是允许列表，不伪称新版本已验证。[官方版本查询](../src-tauri/src/accio_work/releases.rs)改为手动，保留固定源、无重定向、响应/超时上限及单飞缓存；取消周期查询和[仓库工作流](../.github/workflows/accio-compatibility.yml)定时触发，未知版本不作为检查失败。实际签名、路径、平台、账号和协议错误仍明确报告。原错误分类与原生证据保留，见[取消版本门禁](../.agents/notes/implemented/simplification/2026-11-01-accio-remove-version-gate.md)及[历史预警记录](../.agents/notes/implemented/feature/2026-10-30-accio-readiness-diagnostics.md)。
 
 2026-10-31原生补验：沿用已授权网络的测试Core验证Accio0.37.1原生停止（官方aborted、活跃连接0）及同会话恢复ready；菜单Astra→luna→Astra选择生效，付费请求仅Astra，未声称跨模型推理通过。新P0 Core因新权限弹窗未完成UI联网验收。发现未知上游流事件仍拒绝，补可读失败文本并保留错误字段/诊断编号，68项Rust回归与15项SDK解析通过，未放行未知事件。测试环境已恢复、临时进程0。
 

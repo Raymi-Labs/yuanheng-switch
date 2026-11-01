@@ -16,7 +16,7 @@ const status: YuanhengToolStatus = {
   message: null,
 };
 describe("AccioConnectionNotice", () => {
-  it("shows installed and verified versions before configuring an unknown version", () => {
+  it("shows unknown installed version without claiming verification or blocking use", () => {
     render(
       <AccioConnectionNotice
         status={{
@@ -30,8 +30,8 @@ describe("AccioConnectionNotice", () => {
       />,
     );
     expect(screen.getByText(/已安装 Accio：0.38.0/)).toBeVisible();
-    expect(screen.getByText(/元衡已验证版本：0.37.1/)).toBeVisible();
-    expect(screen.getByRole("alert")).toHaveTextContent("配置和启动暂不可用");
+    expect(screen.queryByText(/元衡已验证版本/)).not.toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
     expect(screen.getByText("official release check")).toBeVisible();
   });
   it("explains saved configuration, controlled launch and native model selection", () => {
@@ -41,14 +41,16 @@ describe("AccioConnectionNotice", () => {
     ).toBeInTheDocument();
     expect(screen.getByText(/Auto 使用该模型/)).toBeInTheDocument();
   });
-  it("keeps incompatibility visible before configuration or launch", () => {
+  it("keeps actual installation failures visible", () => {
     render(
       <AccioConnectionNotice
-        status={{ ...status, runtimeWarning: "此版本未验证，原配置未更改" }}
+        status={{ ...status, runtimeWarning: "官方身份或签名校验失败" }}
         dark
       />,
     );
-    expect(screen.getByRole("alert")).toHaveTextContent("此版本未验证");
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "官方身份或签名校验失败",
+    );
   });
   it("does not change other agents", () => {
     const { container } = render(

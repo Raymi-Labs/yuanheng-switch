@@ -8,13 +8,13 @@ spec.loader.exec_module(release)
 
 
 class ReleaseTests(unittest.TestCase):
-    source = 'pub(crate) const SUPPORTED_VERSIONS: &[&str] = &["0.35.3", "0.37.1"];'
+    source = 'pub(crate) const VERIFIED_VERSIONS: &[&str] = &["0.35.3", "0.37.1"];'
 
-    def test_known_and_unknown_versions_do_not_change_gate(self):
-        self.assertFalse(release.inspect(b"version: 0.37.1\nfiles: []", self.source)["requiresCompatibilityReview"])
+    def test_known_and_unknown_versions_never_block_configuration(self):
+        self.assertTrue(release.inspect(b"version: 0.37.1\nfiles: []", self.source)["hasNativeVerification"])
         result = release.inspect(b"version: 0.38.0", self.source)
-        self.assertTrue(result["requiresCompatibilityReview"])
-        self.assertFalse(result["gateChanged"])
+        self.assertFalse(result["hasNativeVerification"])
+        self.assertFalse(result["configurationBlocked"])
         self.assertFalse(result["applicationDownloaded"])
 
     def test_rejects_duplicate_malformed_and_oversized_metadata(self):
@@ -22,7 +22,7 @@ class ReleaseTests(unittest.TestCase):
             with self.subTest(data=data[:50]), self.assertRaises(ValueError):
                 release.inspect(data, self.source)
 
-    def test_missing_gate_fails_closed(self):
+    def test_missing_history_is_not_fabricated(self):
         with self.assertRaises(ValueError):
             release.inspect(b"version: 0.37.1", "const unrelated = [];")
 
