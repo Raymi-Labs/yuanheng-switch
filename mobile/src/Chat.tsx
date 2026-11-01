@@ -341,7 +341,7 @@ export function Chat({
           messages.map((m) => (
             <article key={m.id} className={`message ${m.role}`}>
               <div className="message-label">
-                {m.role === "user" ? "你" : "元衡 AI"}
+                {m.role === "user" ? "你" : "Meta API"}
               </div>
               {m.reasoning && (
                 <details>

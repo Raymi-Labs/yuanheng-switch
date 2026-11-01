@@ -669,7 +669,7 @@ export function OpenCodeFormFields({
                       handleHeaderValueChange(key, nextValue)
                     }
                     placeholder={t("opencode.headerValuePlaceholder", {
-                      defaultValue: "YuanHeng Switch",
+                      defaultValue: "Meta API",
                     })}
                     className="flex-1"
                   />

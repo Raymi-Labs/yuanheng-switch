@@ -1,6 +1,6 @@
 {
   "app": {
-    "title": "元衡桌面端",
+    "title": "Meta API",
     "description": "把元衡 API 项目接入本地 AI 编程工具"
   },
   "common": {
@@ -43,7 +43,7 @@
     "notSet": "未设置"
   },
   "firstRunNotice": {
-    "title": "欢迎使用元衡桌面端",
+    "title": "欢迎使用 Meta API",
     "bodyDefault": "这是元衡 API 的桌面接入端，用来把项目中的模型配置应用到 Claude Code、Codex 等本地工具。供应商、密钥、额度和可用模型统一在元衡控制台管理。",
     "bodyOfficial": "如果本机已经配置过这些工具，应用会保留并导入现有配置，方便平滑接入，不会覆盖或丢失原来的设置。",
     "confirm": "我知道了"
@@ -203,7 +203,7 @@
     "modeProxy": "需要路由",
     "modelMappingToggle": "需要模型映射",
     "modelMappingOffHint": "仅当供应商直接接受 Claude Desktop 可识别的三档角色 ID（claude-sonnet-* / claude-opus-* / claude-haiku-*）时才适用直连；其他模型名（含 claude-3-5-sonnet-… 等旧式 ID）请打开此开关走映射。",
-    "modelMappingOnHint": "Claude Desktop 只接受 claude-sonnet-* / claude-opus-* / claude-haiku-* 三档角色 ID。开启后 YuanHeng Switch 会把这三档映射到供应商的实际模型，并在使用期间保持本地路由开启。",
+    "modelMappingOnHint": "Claude Desktop 只接受 claude-sonnet-* / claude-opus-* / claude-haiku-* 三档角色 ID。开启后 Meta API 会把这三档映射到供应商的实际模型，并在使用期间保持本地路由开启。",
     "routeMapTitle": "模型映射",
     "routeMapHint": "为 Sonnet、Opus、Haiku 三档分别填写实际请求模型；菜单显示名可写 DeepSeek、Kimi 等品牌名。留空的档会自动沿用 Sonnet（或第一个已填档）的模型，确保子 agent 调用的 Haiku 始终可用。",
     "routeModelLabel": "模型角色",
@@ -244,7 +244,7 @@
     "codexRestartRequired": "切换成功，请重启客户端以生效",
     "grokBuildRestartRequired": "切换成功，请重启 Grok Build 以生效",
     "claudeDesktopRestartRequired": "切换成功，重启 Claude Desktop 后生效",
-    "claudeDesktopProxyRestartRequired": "切换成功，请保持 YuanHeng Switch 运行，并重启 Claude Desktop 后生效",
+    "claudeDesktopProxyRestartRequired": "切换成功，请保持 Meta API 运行，并重启 Claude Desktop 后生效",
     "addToConfigSuccess": "已添加到配置",
     "removeFromConfigSuccess": "已从配置移除",
     "switchFailedTitle": "切换失败",
@@ -288,7 +288,7 @@
     "deleteProvider": "删除供应商",
     "deleteProviderMessage": "确定要删除供应商 \"{{name}}\" 吗？此操作无法撤销。",
     "removeProvider": "移除供应商",
-    "removeProviderMessage": "确定要从配置中移除供应商 \"{{name}}\" 吗？\n\n移除后该供应商将不再生效，但配置数据会保留在 YuanHeng Switch 中，您可以随时重新添加。",
+    "removeProviderMessage": "确定要从配置中移除供应商 \"{{name}}\" 吗？\n\n移除后该供应商将不再生效，但配置数据会保留在 Meta API 中，您可以随时重新添加。",
     "proxy": {
       "title": "启用本地路由服务",
       "message": "本地路由是一项高级功能，启用前请确保您已了解其工作原理。\n\n建议先查阅相关文档或咨询您的供应商，以获取正确的配置方式。",
@@ -371,7 +371,7 @@
       },
       "globalProxy": {
         "title": "全局出站代理",
-        "description": "配置 YuanHeng Switch 访问外部 API 时使用的代理"
+        "description": "配置 Meta API 访问外部 API 时使用的代理"
       },
       "data": {
         "title": "数据管理",
@@ -442,7 +442,7 @@
     "themeDark": "深色",
     "themeSystem": "跟随系统",
     "importExport": "SQL 导入导出",
-    "importExportHint": "导入/导出数据库 SQL 备份（仅支持导入由 YuanHeng Switch 导出的备份），便于备份或迁移。",
+    "importExportHint": "导入/导出数据库 SQL 备份（仅支持导入由 Meta API 导出的备份），便于备份或迁移。",
     "exportConfig": "导出 SQL 备份",
     "selectConfigFile": "选择 SQL 文件",
     "noFileSelected": "尚未选择配置文件。",
@@ -680,7 +680,7 @@
     "windowBehavior": "窗口行为",
     "windowBehaviorHint": "配置窗口最小化与 Claude 插件联动策略。",
     "launchOnStartup": "开机自启",
-    "launchOnStartupDescription": "随系统启动自动运行 YuanHeng Switch",
+    "launchOnStartupDescription": "随系统启动自动运行 Meta API",
     "silentStartup": "静默启动",
     "silentStartupDescription": "程序启动时不显示主窗口，仅在系统托盘运行",
     "autoLaunchFailed": "设置开机自启失败",
@@ -740,10 +740,10 @@
     },
     "skillStorage": {
       "title": "Skills 存储位置",
-      "description": "选择 YuanHeng Switch 存放 Skills 主副本的目录",
-      "ccSwitch": "YuanHeng Switch",
+      "description": "选择 Meta API 存放 Skills 主副本的目录",
+      "ccSwitch": "Meta API",
       "unified": "~/.agents/skills",
-      "ccSwitchHint": "技能存储在 ~/.yuanheng-switch/skills/，由 YuanHeng Switch 统一管理并同步到各应用。",
+      "ccSwitchHint": "技能存储在 ~/.yuanheng-switch/skills/，由 Meta API 统一管理并同步到各应用。",
       "unifiedHint": "技能存储在 ~/.agents/skills/，遵循 Agent Skills 开放标准。兼容的工具（Claude Code、Codex、Gemini CLI 等）可直接发现此目录中的技能。",
       "confirmTitle": "迁移技能存储",
       "confirmMessage": "将移动 {{count}} 个技能到新位置，是否继续？",
@@ -790,8 +790,8 @@
     },
     "configDirectoryOverride": "配置目录覆盖（高级）",
     "configDirectoryDescription": "在 WSL 等环境使用 Claude Code 或 Codex 的时候，可手动指定为 WSL 里的配置目录，供应商数据与主环境保持一致。",
-    "appConfigDir": "YuanHeng Switch 配置目录",
-    "appConfigDirDescription": "自定义 YuanHeng Switch 的配置存储位置（指定到云同步文件夹即可云同步配置）",
+    "appConfigDir": "Meta API 配置目录",
+    "appConfigDirDescription": "自定义 Meta API 的配置存储位置（指定到云同步文件夹即可云同步配置）",
     "browsePlaceholderApp": "例如：C:\\Users\\Administrator\\.yuanheng-switch",
     "claudeConfigDir": "Claude Code 配置目录",
     "claudeConfigDirDescription": "覆盖 Claude 配置目录 (settings.json)。真正自定义目录会在目录内存放 Claude MCP 的 .claude.json；默认 ~/.claude 目录仍使用 Claude 默认的 ~/.claude.json。",
@@ -891,7 +891,7 @@
     "importFailedError": "导入配置失败：{{message}}",
     "exportFailedError": "导出配置失败:",
     "restartRequired": "需要重启应用",
-    "restartRequiredMessage": "修改 YuanHeng Switch 配置目录后需要重启应用才能生效，是否立即重启？",
+    "restartRequiredMessage": "修改 Meta API 配置目录后需要重启应用才能生效，是否立即重启？",
     "restartNow": "立即重启",
     "restartLater": "稍后重启",
     "restartFailed": "应用重启失败，请手动关闭后重新打开。",
@@ -1478,7 +1478,7 @@
     "headerName": "请求头",
     "headerValue": "值",
     "headerNamePlaceholder": "X-Title",
-    "headerValuePlaceholder": "YuanHeng Switch",
+    "headerValuePlaceholder": "Meta API",
     "removeHeader": "删除请求头",
     "noHeaders": "暂无自定义请求头",
     "extraOptions": "额外选项",
@@ -1863,7 +1863,7 @@
   },
   "dbUpgrade": {
     "title": "数据库版本过新",
-    "description": "当前数据库由更新版本的 YuanHeng Switch 创建，需要升级应用后才能继续使用。升级不会删除你的数据。",
+    "description": "当前数据库由更新版本的 Meta API 创建，需要升级应用后才能继续使用。升级不会删除你的数据。",
     "versionInfo": "数据库版本 v{{db}} · 应用支持 v{{supported}}",
     "dbPath": "数据库文件",
     "checking": "正在检查可用更新…",
@@ -1909,7 +1909,7 @@
       "deleteConfirm": "确定要删除服务器 \"{{id}}\" 吗？此操作无法撤销。",
       "noServers": "暂无服务器",
       "enabledApps": "启用的应用",
-      "noImportFound": "未发现需要导入的 MCP 服务器。所有服务器已在 YuanHeng Switch 统一管理中。",
+      "noImportFound": "未发现需要导入的 MCP 服务器。所有服务器已在 Meta API 统一管理中。",
       "importSuccess": "成功导入 {{count}} 个 MCP 服务器",
       "apps": {
         "claude": "Claude",
@@ -2594,10 +2594,10 @@
     "discover": "发现技能",
     "importCta": "导入已有技能",
     "import": "导入已有",
-    "importDescription": "选择要导入到 YuanHeng Switch 统一管理的技能",
+    "importDescription": "选择要导入到 Meta API 统一管理的技能",
     "importSuccess": "成功导入 {{count}} 个技能",
     "importSelected": "导入已选 ({{count}})",
-    "noUnmanagedFound": "未发现需要导入的技能。所有技能已在 YuanHeng Switch 统一管理中。",
+    "noUnmanagedFound": "未发现需要导入的技能。所有技能已在 Meta API 统一管理中。",
     "unmanagedAvailable": "发现可导入的技能",
     "foundIn": "发现于",
     "local": "本地",
@@ -2642,7 +2642,7 @@
   },
   "deeplink": {
     "confirmImport": "确认导入供应商配置",
-    "confirmImportDescription": "以下配置将导入到 YuanHeng Switch",
+    "confirmImportDescription": "以下配置将导入到 Meta API",
     "importPrompt": "导入提示词",
     "importPromptDescription": "请确认是否导入此系统提示词",
     "importMcp": "导入 MCP Servers",

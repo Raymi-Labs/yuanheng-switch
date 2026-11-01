@@ -71,7 +71,7 @@ class YuanhengPlugin(private val activity: Activity): Plugin(activity) {
             require(bytes.isNotEmpty() && bytes.size <= 32 * 1024 * 1024)
             val ext = when(args.mime) { "image/jpeg" -> "jpg"; "image/webp" -> "webp"; else -> "png" }
             val values = ContentValues().apply {
-                put(MediaStore.Images.Media.DISPLAY_NAME, "元衡-${System.currentTimeMillis()}.$ext")
+                put(MediaStore.Images.Media.DISPLAY_NAME, "Meta-API-${System.currentTimeMillis()}.$ext")
                 put(MediaStore.Images.Media.MIME_TYPE, args.mime)
                 put(MediaStore.Images.Media.RELATIVE_PATH, "Pictures/YuanHeng")
                 put(MediaStore.Images.Media.IS_PENDING, 1)

@@ -54,3 +54,7 @@ Content Rights 页面要求声明第三方内容是否具备必要使用权，�
 [iOS 1.0.0 候选 Release](https://github.com/nanashiwang/yuanheng-switch/releases/tag/ios-v1.0.0) 固定上述构建源提交，附 IPA、SHA256 和签名报告；标为 prerelease 且不替换桌面 latest。Apple 后台已选中 Build 2，版本状态仍是 Prepare for Submission；缺少的审核资料和真实功能验收不由 Release 代替。
 
 参考：[Apple 审核指南](https://developer.apple.com/app-store/review/guidelines/)、[Tauri iOS 签名](https://v2.tauri.app/distribute/sign/ios/)、[Apple 账号删除要求](https://developer.apple.com/help/app-review/guideline-reference/5-1-1-account-deletion)。
+
+## Meta API 应用改名（2026-11-01）
+
+源码的应用显示名现为 Meta API，下一次商店签名构建使用 1.0.0（3）；内部 ASCII 构建产品名与 Bundle ID 保留兼容。本次 GitHub 移动构建只验证开发归档和模拟器，不更新 App Store Connect 的条目名称，也不提交审核。既有 1.0.0（2）上传记录仍属于旧名称版本。

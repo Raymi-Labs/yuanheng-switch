@@ -45,7 +45,7 @@ class YuanhengPlugin: Plugin {
             invoke.reject("图片格式无效"); return
         }
         PHPhotoLibrary.requestAuthorization(for: .addOnly) { status in
-            guard status == .authorized || status == .limited else { invoke.reject("请允许元衡向相册添加图片"); return }
+            guard status == .authorized || status == .limited else { invoke.reject("请允许 Meta API 向相册添加图片"); return }
             PHPhotoLibrary.shared().performChanges({
                 PHAssetCreationRequest.forAsset().addResource(with: .photo, data: data, options: nil)
             }) { success, _ in

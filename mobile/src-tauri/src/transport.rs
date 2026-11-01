@@ -176,7 +176,7 @@ pub fn website_url(destination: &str) -> Result<String, String> {
         "terms" => "/user-agreement",
         _ => return Err("不支持的网页入口".into()),
     };
-    Ok(format!("{BASE}{path}"))
+    Ok(format!("https://meta-api.com{path}"))
 }
 
 pub fn check_website_access(destination: &str, ios: bool) -> Result<(), String> {
@@ -308,7 +308,7 @@ mod tests {
         }
         assert_eq!(
             website_url("topup").unwrap(),
-            "https://meta-api.vip/console/topup"
+            "https://meta-api.com/console/topup"
         );
         let (_, path) = api_route("models", &json!({"group":"x&token=secret"})).unwrap();
         assert!(path.contains("x%26token%3Dsecret"));

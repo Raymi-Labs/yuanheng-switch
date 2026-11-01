@@ -520,7 +520,7 @@ export const DESKTOP_EN: Record<string, string> = {
   声音克隆: "Voice Clone",
   连接与路由: "Connections & Routing",
   设置: "Settings",
-  元衡桌面端: "YuanHeng Desktop",
+  元衡桌面端: "Meta API",
   日常使用: "Daily",
   专业控制: "Advanced",
   元衡用户: "YuanHeng User",

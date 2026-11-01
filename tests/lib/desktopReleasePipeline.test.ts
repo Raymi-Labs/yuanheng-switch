@@ -45,7 +45,7 @@ afterEach(() => {
     rmSync(dir, { recursive: true, force: true });
 });
 
-function fixture(ctx: ReleaseContext = context) {
+function fixture(ctx: ReleaseContext = context, productName = "Meta API") {
   const dir = mkdtempSync(join(tmpdir(), "yh-release-test-"));
   temps.push(dir);
   const inputDir = join(dir, "download");
@@ -62,13 +62,13 @@ function fixture(ctx: ReleaseContext = context) {
     const arch = target.startsWith("aarch64") ? "aarch64" : "x64";
     const files = target.endsWith("darwin")
       ? [
-          "macos/YuanHeng Desktop.app.tar.gz",
-          "macos/YuanHeng Desktop.app.tar.gz.sig",
-          `dmg/YuanHeng Desktop_${version}_${arch}.dmg`,
+          `macos/${productName}.app.tar.gz`,
+          `macos/${productName}.app.tar.gz.sig`,
+          `dmg/${productName}_${version}_${arch}.dmg`,
         ]
       : [
-          `nsis/YuanHeng Desktop_${version}_x64-setup.exe`,
-          `nsis/YuanHeng Desktop_${version}_x64-setup.exe.sig`,
+          `nsis/${productName}_${version}_x64-setup.exe`,
+          `nsis/${productName}_${version}_x64-setup.exe.sig`,
         ];
     const paths = files.map((file) => {
       const path = join(bundle, file);
@@ -83,7 +83,7 @@ function fixture(ctx: ReleaseContext = context) {
     });
     // tauri-action reports the .app directory alongside its already-signed archive.
     if (target.endsWith("darwin")) {
-      const app = join(bundle, "macos/YuanHeng Desktop.app");
+      const app = join(bundle, `macos/${productName}.app`);
       mkdirSync(app);
       paths.push(app);
     }
@@ -94,7 +94,7 @@ function fixture(ctx: ReleaseContext = context) {
       artifactPaths: paths,
       appVersion: version,
       context: ctx,
-      productName: "YuanHeng Desktop",
+      productName,
     });
   }
   const outputDir = join(dir, "final");
@@ -103,7 +103,7 @@ function fixture(ctx: ReleaseContext = context) {
     inputDir,
     outputDir,
     context: ctx,
-    productName: "YuanHeng Desktop",
+    productName,
     feed,
   };
 }
@@ -188,6 +188,14 @@ function fakeGithub(
 }
 
 describe("parallel desktop release assembly", () => {
+  it("can recover historical bundles while new bundles retain public filenames", () => {
+    const old = fixture(context, "YuanHeng Desktop");
+    const renamed = fixture();
+    expect(assembleRelease(old).assets.map((asset) => asset.name)).toEqual(
+      assembleRelease(renamed).assets.map((asset) => asset.name),
+    );
+  });
+
   it("keeps architecture-specific bytes, names, signatures and both announcements", () => {
     const f = fixture();
     const plan = assembleRelease(f);
@@ -419,7 +427,7 @@ describe("release recovery provenance", () => {
       if (path.includes("/contents/")) {
         expect(path).toContain(`?ref=${context.sha}`);
         const data = path.includes("tauri.conf.json")
-          ? { version, productName: "YuanHeng Desktop" }
+          ? { version, productName: "Meta API" }
           : feed;
         return JSON.stringify({
           encoding: "base64",

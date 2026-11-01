@@ -238,7 +238,7 @@ export function Tokens({
         <div className="empty-card">
           <KeyRound size={30} />
           <h2>{loading ? "正在读取…" : "还没有令牌"}</h2>
-          <p>创建一个令牌，让你的工具连接元衡。</p>
+          <p>创建一个令牌，让你的工具连接 Meta API。</p>
         </div>
       )}
       {!!tokens.length && !visible.length && (
