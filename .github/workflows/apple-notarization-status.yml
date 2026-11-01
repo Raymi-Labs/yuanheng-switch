@@ -35,7 +35,7 @@ jobs:
           data = json.loads((Path(os.environ["RUNNER_TEMP"]) / "apple-notary-history.json").read_text())
           history = data["history"]
           assert isinstance(history, list), "Unexpected Apple history response"
-          entries = [entry for entry in history if entry.get("name") == "YuanHeng Desktop.zip"]
+          entries = [entry for entry in history if entry.get("name") in ("Meta API.zip", "YuanHeng Desktop.zip")]
           entries.sort(key=lambda entry: entry.get("createdDate", ""), reverse=True)
           # Report only this app's submission metadata, never credentials or other apps.
           report = [{key: entry.get(key) for key in ("id", "createdDate", "status")}

@@ -1,6 +1,6 @@
 <div align="center">
 
-# YuanHeng Desktop
+# Meta API
 
 ### Connect YuanHeng API projects to Claude Code, Codex, and other local AI coding tools
 
@@ -10,7 +10,7 @@
 
 ## Product Direction
 
-YuanHeng Desktop is not a catalog for manually adding and switching API providers.
+Meta API is not a catalog for manually adding and switching API providers.
 
 Providers, API keys, model access, quotas, and billing belong in the YuanHeng API console. The desktop app applies project configuration to local tools and provides local runtime status, project snapshots, MCP, Skills, prompts, and session workflows.
 

@@ -1,11 +1,13 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "YuanHeng Desktop Dev",
+  "productName": "Meta API Dev",
   "identifier": "com.nanashiwang.yuanhengswitch.dev",
   "plugins": {
     "deep-link": {
       "desktop": {
-        "schemes": ["yuanhengswitch-dev"]
+        "schemes": [
+          "yuanhengswitch-dev"
+        ]
       }
     }
   }

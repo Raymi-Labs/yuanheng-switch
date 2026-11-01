@@ -523,7 +523,7 @@ export const DESKTOP_JA: Record<string, string> = {
   声音克隆: "音声クローン",
   连接与路由: "接続とルーティング",
   设置: "設定",
-  元衡桌面端: "YuanHeng Desktop",
+  元衡桌面端: "Meta API",
   日常使用: "日常利用",
   专业控制: "詳細設定",
   元衡用户: "YuanHengユーザー",

@@ -121,7 +121,7 @@ async fn mobile_restore(app: AppHandle, state: State<'_, MobileState>) -> Result
         .timeout(Duration::from_secs(30))
         .send()
         .await
-        .map_err(|_| "无法连接元衡，请检查网络后重试")?;
+        .map_err(|_| "无法连接 Meta API，请检查网络后重试")?;
     let account = bounded_json(response, 2 * 1024 * 1024).await?;
     transport::ensure_success(&account)?;
     let mut login = state.login.lock().map_err(|_| "登录状态不可用")?;
@@ -160,7 +160,10 @@ async fn mobile_login(
             .ok_or("请重新输入账号密码")?;
         req = req.header(header::COOKIE, pending);
     }
-    let response = req.send().await.map_err(|_| "无法连接元衡，请稍后重试")?;
+    let response = req
+        .send()
+        .await
+        .map_err(|_| "无法连接 Meta API，请稍后重试")?;
     let cookie = cookie_from_headers(response.headers());
     let value = bounded_json(response, 1024 * 1024).await?;
     transport::ensure_success(&value)?;
@@ -540,7 +543,7 @@ pub fn run() {
             mobile_open_website
         ])
         .run(tauri::generate_context!())
-        .expect("启动元衡移动端失败");
+        .expect("启动 Meta API 失败");
 }
 
 #[cfg(test)]

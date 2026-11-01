@@ -4,7 +4,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "YuanHeng Desktop",
+        "title": "Meta API",
         "titleBarStyle": "Visible",
         "visible": false,
         "minWidth": 900,
@@ -13,10 +13,13 @@
     ]
   },
   "bundle": {
-    "targets": ["nsis"],
+    "targets": [
+      "nsis"
+    ],
     "windows": {
       "nsis": {
-        "installMode": "currentUser"
+        "installMode": "currentUser",
+        "template": "windows/installer.nsi"
       }
     }
   }

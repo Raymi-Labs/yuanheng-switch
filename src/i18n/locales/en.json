@@ -1,6 +1,6 @@
 {
   "app": {
-    "title": "YuanHeng Desktop",
+    "title": "Meta API",
     "description": "Connect YuanHeng API projects to local AI coding tools"
   },
   "common": {
@@ -43,7 +43,7 @@
     "notSet": "Not Set"
   },
   "firstRunNotice": {
-    "title": "Welcome to YuanHeng Desktop",
+    "title": "Welcome to Meta API",
     "bodyDefault": "This is the desktop companion for YuanHeng API. It applies your project's model configuration to local tools such as Claude Code and Codex, while providers, keys, quotas and model access stay managed in the YuanHeng console.",
     "bodyOfficial": "If these tools are already configured on this computer, the app preserves and imports the existing setup so you can connect without losing your previous settings.",
     "confirm": "Got it"
@@ -203,7 +203,7 @@
     "modeProxy": "Requires routing",
     "modelMappingToggle": "Needs model mapping",
     "modelMappingOffHint": "Direct mode works only when the provider accepts Claude Desktop's three role IDs (claude-sonnet-* / claude-opus-* / claude-haiku-*); for any other model name (including legacy IDs like claude-3-5-sonnet-…), enable this switch to use mapping.",
-    "modelMappingOnHint": "Claude Desktop only accepts the three role IDs claude-sonnet-* / claude-opus-* / claude-haiku-*. When enabled, YuanHeng Switch maps these three roles to your provider's actual models and keeps local routing running while in use.",
+    "modelMappingOnHint": "Claude Desktop only accepts the three role IDs claude-sonnet-* / claude-opus-* / claude-haiku-*. When enabled, Meta API maps these three roles to your provider's actual models and keeps local routing running while in use.",
     "routeMapTitle": "Model mapping",
     "routeMapHint": "Fill in the actual request model for each of the Sonnet, Opus, and Haiku tiers. Use the menu display name for branded models such as DeepSeek or Kimi. Any tier left blank inherits the Sonnet tier's model (or the first tier you filled in), so the Haiku that sub-agents call is always available.",
     "routeModelLabel": "Model role",
@@ -244,7 +244,7 @@
     "codexRestartRequired": "Switched successfully. Restart the client to apply changes.",
     "grokBuildRestartRequired": "Switched successfully. Restart Grok Build to apply changes.",
     "claudeDesktopRestartRequired": "Switched successfully. Restart Claude Desktop to apply changes.",
-    "claudeDesktopProxyRestartRequired": "Switched successfully. Keep YuanHeng Switch running and restart Claude Desktop to apply changes.",
+    "claudeDesktopProxyRestartRequired": "Switched successfully. Keep Meta API running and restart Claude Desktop to apply changes.",
     "addToConfigSuccess": "Added to config",
     "removeFromConfigSuccess": "Removed from config",
     "switchFailedTitle": "Switch failed",
@@ -288,7 +288,7 @@
     "deleteProvider": "Delete Provider",
     "deleteProviderMessage": "Are you sure you want to delete provider \"{{name}}\"? This action cannot be undone.",
     "removeProvider": "Remove Provider",
-    "removeProviderMessage": "Are you sure you want to remove provider \"{{name}}\" from the configuration?\n\nAfter removal, this provider will no longer be active, but the configuration data will be retained in YuanHeng Switch. You can re-add it at any time.",
+    "removeProviderMessage": "Are you sure you want to remove provider \"{{name}}\" from the configuration?\n\nAfter removal, this provider will no longer be active, but the configuration data will be retained in Meta API. You can re-add it at any time.",
     "proxy": {
       "title": "Enable Local Routing",
       "message": "Local routing is an advanced feature. Please make sure you understand how it works before enabling.\n\nWe recommend consulting the relevant documentation or your provider for proper configuration.",
@@ -371,7 +371,7 @@
       },
       "globalProxy": {
         "title": "Global Outbound Proxy",
-        "description": "Configure proxy for YuanHeng Switch to access external APIs"
+        "description": "Configure proxy for Meta API to access external APIs"
       },
       "data": {
         "title": "Data Management",
@@ -442,7 +442,7 @@
     "themeDark": "Dark",
     "themeSystem": "System",
     "importExport": "SQL Import/Export",
-    "importExportHint": "Import or export database SQL backups for migration or restore (import supports only backups exported by YuanHeng Switch).",
+    "importExportHint": "Import or export database SQL backups for migration or restore (import supports only backups exported by Meta API).",
     "exportConfig": "Export SQL Backup",
     "selectConfigFile": "Select SQL File",
     "noFileSelected": "No configuration file selected.",
@@ -680,7 +680,7 @@
     "windowBehavior": "Window Behavior",
     "windowBehaviorHint": "Configure window minimize and Claude plugin integration policies.",
     "launchOnStartup": "Launch on Startup",
-    "launchOnStartupDescription": "Automatically run YuanHeng Switch when system starts",
+    "launchOnStartupDescription": "Automatically run Meta API when system starts",
     "silentStartup": "Silent Startup",
     "silentStartupDescription": "Start in background mode without showing main window",
     "autoLaunchFailed": "Failed to set auto-launch",
@@ -740,8 +740,8 @@
     },
     "skillStorage": {
       "title": "Skill Storage Location",
-      "description": "Choose where YuanHeng Switch stores the master copies of your skills",
-      "ccSwitch": "YuanHeng Switch",
+      "description": "Choose where Meta API stores the master copies of your skills",
+      "ccSwitch": "Meta API",
       "unified": "~/.agents/skills",
       "ccSwitchHint": "Skills are stored in ~/.yuanheng-switch/skills/ and synced to each app via symlink or copy.",
       "unifiedHint": "Skills are stored in ~/.agents/skills/, the Agent Skills open standard. Compatible tools (Claude Code, Codex, Gemini CLI, etc.) discover skills here natively.",
@@ -790,8 +790,8 @@
     },
     "configDirectoryOverride": "Configuration Directory Override (Advanced)",
     "configDirectoryDescription": "When using Claude Code or Codex in environments like WSL, you can manually specify the configuration directory to the one in WSL to keep provider data consistent with the main environment.",
-    "appConfigDir": "YuanHeng Switch Configuration Directory",
-    "appConfigDirDescription": "Customize the storage location for YuanHeng Switch configuration (point to cloud sync folder to enable config sync)",
+    "appConfigDir": "Meta API Configuration Directory",
+    "appConfigDirDescription": "Customize the storage location for Meta API configuration (point to cloud sync folder to enable config sync)",
     "browsePlaceholderApp": "e.g., C:\\Users\\Administrator\\.yuanheng-switch",
     "claudeConfigDir": "Claude Code Configuration Directory",
     "claudeConfigDirDescription": "Override Claude configuration directory (settings.json). Custom directories store .claude.json (MCP) inside the directory; the default ~/.claude directory keeps Claude Code's split ~/.claude.json path.",
@@ -891,7 +891,7 @@
     "importFailedError": "Import config failed: {{message}}",
     "exportFailedError": "Export config failed:",
     "restartRequired": "Restart Required",
-    "restartRequiredMessage": "Modifying the YuanHeng Switch configuration directory requires restarting the application to take effect. Restart now?",
+    "restartRequiredMessage": "Modifying the Meta API configuration directory requires restarting the application to take effect. Restart now?",
     "restartNow": "Restart Now",
     "restartLater": "Restart Later",
     "restartFailed": "Application restart failed, please manually close and reopen.",
@@ -1478,7 +1478,7 @@
     "headerName": "Header",
     "headerValue": "Value",
     "headerNamePlaceholder": "X-Title",
-    "headerValuePlaceholder": "YuanHeng Switch",
+    "headerValuePlaceholder": "Meta API",
     "removeHeader": "Remove header",
     "noHeaders": "No custom headers configured",
     "extraOptions": "Extra Options",
@@ -1863,7 +1863,7 @@
   },
   "dbUpgrade": {
     "title": "Database version is too new",
-    "description": "This database was created by a newer version of YuanHeng Switch. Upgrade the app to continue. Upgrading will not delete your data.",
+    "description": "This database was created by a newer version of Meta API. Upgrade the app to continue. Upgrading will not delete your data.",
     "versionInfo": "Database v{{db}} · App supports v{{supported}}",
     "dbPath": "Database file",
     "checking": "Checking for available updates…",
@@ -1909,7 +1909,7 @@
       "deleteConfirm": "Are you sure you want to delete server \"{{id}}\"? This action cannot be undone.",
       "noServers": "No servers yet",
       "enabledApps": "Enabled Apps",
-      "noImportFound": "No MCP servers to import found. All servers are already managed by YuanHeng Switch.",
+      "noImportFound": "No MCP servers to import found. All servers are already managed by Meta API.",
       "importSuccess": "Successfully imported {{count}} MCP servers",
       "apps": {
         "claude": "Claude",
@@ -2594,10 +2594,10 @@
     "discover": "Discover Skills",
     "importCta": "Import existing skills",
     "import": "Import Existing",
-    "importDescription": "Select skills to import into YuanHeng Switch unified management",
+    "importDescription": "Select skills to import into Meta API unified management",
     "importSuccess": "Successfully imported {{count}} skills",
     "importSelected": "Import Selected ({{count}})",
-    "noUnmanagedFound": "No skills to import found. All skills are already managed by YuanHeng Switch.",
+    "noUnmanagedFound": "No skills to import found. All skills are already managed by Meta API.",
     "unmanagedAvailable": "Skills available to import",
     "foundIn": "Found in",
     "local": "Local",
@@ -2642,7 +2642,7 @@
   },
   "deeplink": {
     "confirmImport": "Confirm Import Provider",
-    "confirmImportDescription": "The following configuration will be imported from deep link into YuanHeng Switch",
+    "confirmImportDescription": "The following configuration will be imported from deep link into Meta API",
     "importPrompt": "Import Prompt",
     "importPromptDescription": "Please confirm whether to import this system prompt",
     "importMcp": "Import MCP Servers",

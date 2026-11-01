@@ -1039,7 +1039,7 @@ pub fn run() {
 
             // 构建托盘
             let mut tray_builder = TrayIconBuilder::with_id(tray::TRAY_ID)
-                .tooltip("YuanHeng Desktop") // 鼠标悬停提示
+                .tooltip("Meta API") // 鼠标悬停提示
                 .menu(&menu)
                 .on_menu_event(|app, event| {
                     tray::handle_tray_menu_event(app, &event.id.0);
@@ -2152,7 +2152,7 @@ fn show_migration_error_dialog(app: &tauri::AppHandle, error: &str) -> bool {
         format!(
             "从旧版本迁移配置时发生错误：\n\n{error}\n\n\
             您的数据尚未丢失，旧配置文件仍然保留。\n\
-            建议回退到旧版本 YuanHeng Switch 以保护数据。\n\n\
+            建议回退到旧版本 Meta API 以保护数据。\n\n\
             点击「重试」重新尝试迁移\n\
             点击「退出」关闭程序（可回退版本后重新打开）"
         )
@@ -2160,7 +2160,7 @@ fn show_migration_error_dialog(app: &tauri::AppHandle, error: &str) -> bool {
         format!(
             "An error occurred while migrating configuration:\n\n{error}\n\n\
             Your data is NOT lost - the old config file is still preserved.\n\
-            Consider rolling back to an older YuanHeng Switch version.\n\n\
+            Consider rolling back to an older Meta API version.\n\n\
             Click 'Retry' to attempt migration again\n\
             Click 'Exit' to close the program"
         )
@@ -2225,7 +2225,7 @@ fn show_database_init_error_dialog(
             Common causes include: newer database version, corrupted file, permission issues, or low disk space.\n\n\
             Suggestions:\n\
             1) Back up the entire config directory (including yuanheng-switch.db)\n\
-            2) If you see “database version is newer”, please upgrade YuanHeng Switch\n\
+            2) If you see “database version is newer”, please upgrade Meta API\n\
             3) If this happened right after upgrading, consider rolling back to export/backup then upgrade again\n\n\
             Click 'Retry' to attempt initialization again\n\
             Click 'Exit' to close the program",

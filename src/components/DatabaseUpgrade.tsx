@@ -148,7 +148,7 @@ export function DatabaseUpgrade({ payload }: DatabaseUpgradeProps) {
             <p className="text-sm text-muted-foreground">
               {t(
                 "dbUpgrade.description",
-                "当前数据库由更新版本的 YuanHeng Switch 创建，需要升级应用后才能继续使用。升级不会删除你的数据。",
+                "当前数据库由更新版本的 Meta API 创建，需要升级应用后才能继续使用。升级不会删除你的数据。",
               )}
             </p>
             {dbVersion != null && supportedVersion != null && (

@@ -1,7 +1,7 @@
 {
   "name": "yuanheng-switch",
-  "version": "0.1.121",
-  "description": "YuanHeng API desktop companion for local AI coding tools",
+  "version": "0.1.123",
+  "description": "Meta API desktop companion for local AI coding tools",
   "type": "module",
   "scripts": {
     "dev": "pnpm run prepare:core:dev && pnpm tauri dev --config src-tauri/tauri.dev.conf.json",
