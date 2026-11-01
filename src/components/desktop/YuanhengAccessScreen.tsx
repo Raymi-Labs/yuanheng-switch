@@ -1,3 +1,4 @@
+import { APP_NAME } from "@/config/yuanhengBrand";
 import {
   ArrowRight,
   ExternalLink,
@@ -50,7 +51,7 @@ export function YuanhengAccessScreen({
             </span>
             <div>
               <p className="font-display text-base font-semibold tracking-wide">
-                {dt("元衡桌面端")}
+                {APP_NAME}
               </p>
               <p className="text-[10px] uppercase tracking-[0.2em] text-emerald-200/45">
                 Yuanheng AI Workspace

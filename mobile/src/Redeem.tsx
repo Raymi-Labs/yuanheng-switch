@@ -106,7 +106,7 @@ export function Redeem({
           <form onSubmit={submit}>
             <div className="redeem-intro">
               <Gift size={32} />
-              <p>输入元衡兑换码，领取对应额度或权益。</p>
+              <p>输入 Meta API 兑换码，领取对应额度或权益。</p>
             </div>
             <label>
               兑换码

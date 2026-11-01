@@ -228,3 +228,7 @@ v0.1.115按[实验交付范围](../.agents/notes/implemented/feature/2026-10-27-
 2026-10-23复验进一步确认：10月21日502的记录是Core连接上游失败，不能当作模型返回的502。共享Responses链仅在Accio范围保留ProxyError类型，边界安全提示区分本地连接/超时/认证/转换与上游HTTP错误，不改其他Agent响应或自动重试。原VM产品Core配合官方0.35.3及鹈鹕王Astra完成同一会话的读取→计算→write→读回→edit→读回，独立磁盘核对total=73、marker一致、verified=true且input/guard未改；9条实际模型记录均为Astra成功。新v0.1.102实验Core已单独安装并受控启动，但原生复验被宿主锁屏阻断，不能将旧Core任务成功视为最新安装包完整验收。详情见[干净Mac报告](reviews/2026-10-19-accio-clean-macos-vm.md)。
 
 QA人工启动入口按2026-10-21用户授权启用剪贴板共享，并在guest用户域运行已核验的clipboard-only组件；隔离/自动入口继续禁用共享，音频/USB/宿主目录边界不变。重启、通道运行及GUI会话中的双向合成文字传输已核查，用户随后确认人工复制粘贴可用；CUA自动快捷键/坐标仍存在独立异常。此项不证明Accio走元衡，不属于元衡产品功能，见[剪贴板决定](../.agents/notes/implemented/testing/2026-10-21-qa-vm-clipboard-opt-in.md)。
+
+## Meta API 应用名称（2026-11-01）
+
+桌面登录页、侧栏、关于及系统托盘统一显示 Meta API，Android/iOS 主屏显示同名，官网为 meta-api.com。平台服务仍可称 YuanHeng API。桌面集中发布保留旧附件文件名，Windows 模板保留旧安装身份；手机包名、签名和凭据存储兼容。iOS 内部 ASCII 产品名保留，显示名来自 Info.plist。详见[品牌与升级兼容](../.agents/notes/implemented/process/2026-11-01-meta-api-brand.md)。

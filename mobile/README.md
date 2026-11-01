@@ -1,4 +1,4 @@
-# 元衡移动端
+# Meta API 移动端
 
 独立的 Android / iOS Tauri 2 客户端，Android 首版 `0.1.0-alpha.1`，iOS 商店首版 `1.0.0`。React 本地界面 + Rust 网络层 + Kotlin / Swift 原生安全存储和相册桥接；不是 SwiftUI/Kotlin 全原生界面。复用元衡账号、额度和模型服务，不包含桌面 Core、工具配置或本机代理。
 
@@ -44,7 +44,7 @@ pnpm ios:dev
 - iOS：CI 编译 iPhone 和 ARM64 模拟器 archive，并在模拟器安装启动、检查进程存活、保存截图。`*-device-unsigned.xcarchive.zip` **未签名，不能直接安装**；`*-simulator-adhoc.xcarchive.zip` 由 Xcode 生成模拟器 ad-hoc 签名与权限，仅用于 Xcode 模拟器。真机安装 / TestFlight / App Store 分发仍需有效的 iOS 开发者签名、匹配 `com.nanashiwang.yuanhengmobile` 的描述文件以及选定的发行渠道。现有 macOS Developer ID 证书不能替代这些条件。
 - iOS 正式分发使用 [iOS App Store](../.github/workflows/ios-app-store.yml)，独立配置 `tauri.ios.conf.json`，不改变 Android 版本。首发美区、免费客户端下载，不含购买入口；详见 [商店发布记录](app-store/README.md)。App Store 类型 IPA 只用于苹果分发，不能在官网下载后直接安装。
 
-官网安卓入口位于 `https://meta-api.vip/download#android`。已发布 APK 的分发复用 [Android website download delivery](../.github/workflows/mobile-delivery.yml)，手动输入 `0.1.0-alpha.1` 等已有版本；版本必须具有 `mobile/releases/<version>.json` 校验元数据。仅发布通过摘要与固定签名证书核对的 APK 和 SHA256 文件到 `download.meta-api.vip/mobile/releases/<version>/`，不改变桌面更新清单。新版本需在官网仓库明确更新入口，不能把普通构建视作已开放下载。
+官网安卓入口位于 `https://meta-api.com/download#android`。已发布 APK 的分发复用 [Android website download delivery](../.github/workflows/mobile-delivery.yml)，手动输入 `0.1.0-alpha.1` 等已有版本；版本必须具有 `mobile/releases/<version>.json` 校验元数据。仅发布通过摘要与固定签名证书核对的 APK 和 SHA256 文件到 `download.meta-api.vip/mobile/releases/<version>/`，不改变桌面更新清单。新版本需在官网仓库明确更新入口，不能把普通构建视作已开放下载。
 
 ## 接口与数据边界
 

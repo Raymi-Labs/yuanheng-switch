@@ -71,8 +71,8 @@ export function releaseContext(env, version) {
 
 function layout(target, version, productName) {
   check(TARGETS.includes(target), `未知发布目标：${target}`);
-  const stem = productName.replace(/ /g, ".");
-  check(/^[\w.-]+$/.test(stem), "产品名不能生成安全的附件名称");
+  const stem = "YuanHeng.Desktop"; // Stable public filenames used by existing download pages.
+  check(/^[\w .-]+$/.test(productName), "产品名不能生成安全的附件名称");
   if (target.endsWith("apple-darwin")) {
     const arch = target.startsWith("aarch64") ? "aarch64" : "x64";
     const archive = `${stem}_${version}_${arch}.app.tar.gz`;
@@ -420,7 +420,7 @@ export function prepareRecoveryContext({ runId, repo, gh = defaultGh }) {
 export function publishRelease({
   outputDir,
   context,
-  productName = "YuanHeng Desktop",
+  productName = "Meta API",
   gh = defaultGh,
 }) {
   const plan = json(join(outputDir, "release-plan.json"));
@@ -490,7 +490,7 @@ export function publishRelease({
       context.repo,
       "--draft",
       "--title",
-      `YuanHeng Desktop ${context.tag}`,
+      `${productName} ${context.tag}`,
       "--notes-file",
       notesFile,
     ];

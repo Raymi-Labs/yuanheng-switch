@@ -387,7 +387,7 @@ function Brand({ compact = false }: { compact?: boolean }) {
     <div className={`brand ${compact ? "compact" : ""}`}>
       <span className="brand-symbol">元</span>
       <div>
-        <strong>元衡</strong>
+        <strong>Meta API</strong>
         {!compact && <small>让灵感，随时发生。</small>}
       </div>
     </div>
@@ -455,7 +455,7 @@ function Login({
         <Brand />
         <h2>{twoFactor ? "验证你的身份" : "欢迎回来"}</h2>
         <p className="muted">
-          {twoFactor ? "输入验证器代码或备用码" : "使用你的元衡账号登录"}
+          {twoFactor ? "输入验证器代码或备用码" : "使用你的 Meta API 账号登录"}
         </p>
         <form onSubmit={submit}>
           {twoFactor ? (
@@ -499,7 +499,7 @@ function Login({
           )}
           <Notice text={message || error} />
           <button className="primary full" disabled={busy}>
-            {busy ? "正在验证…" : twoFactor ? "验证并登录" : "登录元衡"}
+            {busy ? "正在验证…" : twoFactor ? "验证并登录" : "登录 Meta API"}
             <ArrowUpRight size={18} />
           </button>
         </form>
@@ -574,7 +574,7 @@ function AccountPage({
   const [transferring, setTransferring] = useState(false);
   const affQuota = account.aff_quota || 0;
   const affLink = account.aff_code
-    ? `https://meta-api.vip/i/${account.aff_code}`
+    ? `https://meta-api.com/i/${account.aff_code}`
     : "";
   const copyAffLink = async () => {
     try {
@@ -614,7 +614,7 @@ function AccountPage({
     <div className="page account-page">
       <div className="page-heading">
         <span className="eyebrow">YOUR SPACE</span>
-        <h1>我的元衡</h1>
+        <h1>我的 Meta API</h1>
       </div>
       <div className="profile">
         <div className="avatar">
@@ -784,13 +784,14 @@ function AccountPage({
         </button>
       </div>
       <p className="footnote">
-        余额和消费以元衡后台记录为准。聊天历史仅保存在当前设备，退出后按账号隔离。
+        余额和消费以 Meta API
+        后台记录为准。聊天历史仅保存在当前设备，退出后按账号隔离。
       </p>
       <button className="secondary full" onClick={() => void logout()}>
         <LogOut size={17} />
         退出登录
       </button>
-      <p className="version">元衡移动端{version && ` · ${version}`}</p>
+      <p className="version">Meta API{version && ` · ${version}`}</p>
       {purchases && redeem && (
         <Redeem
           perUnit={perUnit}
@@ -824,8 +825,9 @@ function AiConsent({ onAccept }: { onAccept: () => Promise<void> }) {
       <ShieldCheck size={32} />
       <h1>使用 AI 前，请了解数据如何处理</h1>
       <p>
-        你发送的文字、对话上下文，以及主动选择并提交的参考图片，会通过元衡（meta-api.vip）转交给所选模型对应的第三方
-        AI 服务，用于生成回复或图片。
+        你发送的文字、对话上下文，以及主动选择并提交的参考图片，会通过 Meta
+        API（meta-api.vip）转交给所选模型对应的第三方 AI
+        服务，用于生成回复或图片。
       </p>
       <p>
         仅选择参考图片不会上传；点击发送或生成时才会提交内容。请勿提交未经授权的他人信息。生成结果可能不准确，请核实重要信息。

@@ -1,3 +1,4 @@
+import { APP_NAME } from "@/config/yuanhengBrand";
 import {
   Activity,
   Blocks,
@@ -117,7 +118,7 @@ export function DesktopSidebar({
         </div>
         <div className="min-w-0">
           <p className="font-display text-[15px] font-semibold tracking-wide">
-            {dt("元衡桌面端")}
+            {APP_NAME}
           </p>
           <p className="mt-0.5 text-[10px] tracking-[0.16em] text-slate-500">
             AI WORKSPACE

@@ -91,9 +91,9 @@ it("removes purchase and console navigation from the iOS account and login scree
   await waitFor(() =>
     expect(screen.getAllByText("2.00").length).toBeGreaterThan(0),
   );
-  expect(screen.getByText("元衡移动端 · 1.0.0")).toBeTruthy();
+  expect(screen.getByText("Meta API · 1.0.0")).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: "退出登录" }));
-  await screen.findByRole("button", { name: "登录元衡" });
+  await screen.findByRole("button", { name: "登录 Meta API" });
   expect(screen.queryByRole("button", { name: /前往官网注册/ })).toBeNull();
   expect(api.open).not.toHaveBeenCalled();
   expect(screen.queryByRole("button", { name: "划转到账户余额" })).toBeNull();
@@ -141,7 +141,7 @@ it("does not expose the app before two-factor authentication completes", async (
   fireEvent.change(screen.getByLabelText("密码"), {
     target: { value: "password" },
   });
-  fireEvent.click(screen.getByRole("button", { name: "登录元衡" }));
+  fireEvent.click(screen.getByRole("button", { name: "登录 Meta API" }));
   fireEvent.change(await screen.findByLabelText("两步验证码"), {
     target: { value: "123456" },
   });
@@ -260,7 +260,7 @@ it("keeps the login screen when an old balance request finishes after logout", a
   fireEvent.click(await screen.findByRole("button", { name: "刷新余额" }));
   fireEvent.click(screen.getByRole("button", { name: "我的" }));
   fireEvent.click(screen.getByRole("button", { name: "退出登录" }));
-  await screen.findByRole("button", { name: "登录元衡" });
+  await screen.findByRole("button", { name: "登录 Meta API" });
   await act(async () => {
     resolveAccount({ ...account, quota: 999999 });
   });

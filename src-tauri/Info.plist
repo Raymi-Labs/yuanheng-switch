@@ -7,7 +7,7 @@
   <array>
     <dict>
       <key>CFBundleURLName</key>
-      <string>YuanHeng Switch Deep Link</string>
+      <string>Meta API Deep Link</string>
       <key>CFBundleURLSchemes</key>
       <array>
         <string>yuanhengswitch</string>

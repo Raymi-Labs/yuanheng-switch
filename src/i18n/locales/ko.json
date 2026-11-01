@@ -1,6 +1,6 @@
 {
   "app": {
-    "title": "위안헝 데스크탑",
+    "title": "Meta API",
     "description": "YuanHeng API 프로젝트를 로컬 AI 코딩 도구와 연결하세요"
   },
   "common": {
@@ -43,7 +43,7 @@
     "notSet": "설정 안 됨"
   },
   "firstRunNotice": {
-    "title": "위안헝 데스크톱에 오신 것을 환영합니다",
+    "title": "Meta API에 오신 것을 환영합니다",
     "bodyDefault": "이것은 YuanHeng API의 데스크톱 동반자입니다. 프로젝트의 모델 구성을 Claude Code, Codex 같은 로컬 도구에 적용하며, 제공자, 키, 할당량, 모델 접근은 YuanHeng 콘솔에서 관리됩니다.",
     "bodyOfficial": "이 컴퓨터에서 이미 이 도구들이 설정되어 있다면, 앱이 기존 설정을 보존하고 불러와서 이전 설정을 잃지 않고 연결할 수 있습니다.",
     "confirm": "알겠어"
@@ -203,7 +203,7 @@
     "modeProxy": "라우팅이 필요합니다",
     "modelMappingToggle": "모델 매핑이 필요합니다",
     "modelMappingOffHint": "직접 모드는 제공자가 Claude Desktop의 세 가지 역할 ID(claude-sonnet-* / claude-opus-* / claude-haiku-*)를 수락할 때만 작동합니다; 다른 모델명(예: claude-3-5-sonnet-... 레거시 ID 포함)에 대해서는 이 스위치가 매핑을 사용하도록 활성화합니다.",
-    "modelMappingOnHint": "Claude Desktop은 claude-sonnet-* / claude-opus-* / claude-haiku-*라는 세 가지 역할 ID만 허용합니다. 활성화되면 YuanHeng Switch는 이 세 가지 역할을 실제 제공업체 모델에 매핑하여 사용 중에도 로컬 라우팅을 계속 유지합니다.",
+    "modelMappingOnHint": "Claude Desktop은 claude-sonnet-* / claude-opus-* / claude-haiku-*라는 세 가지 역할 ID만 허용합니다. 활성화되면 Meta API는 이 세 가지 역할을 실제 제공업체 모델에 매핑하여 사용 중에도 로컬 라우팅을 계속 유지합니다.",
     "routeMapTitle": "모델 매핑",
     "routeMapHint": "소네트, 오푸스, 하이쿠 각 단계별로 실제 요청 모델을 작성하세요. DeepSeek나 Kimi 같은 브랜드 모델의 경우 메뉴 표시명을 사용하세요. 빈칸이 남으면 소네트 티어의 모델(또는 처음 채운 티어)을 계승하므로, 서브 에이전트가 부르는 하이쿠는 항상 사용할 수 있습니다.",
     "routeModelLabel": "모델 역할",
@@ -244,7 +244,7 @@
     "codexRestartRequired": "성공적으로 전환했습니다. 클라이언트를 재시작해서 변경 사항을 적용하세요.",
     "grokBuildRestartRequired": "성공적으로 전환했습니다. 변경 사항을 적용하려면 Grok Build를 재시작하세요.",
     "claudeDesktopRestartRequired": "성공적으로 전환했습니다. 변경 사항을 적용하려면 Claude 데스크톱을 재시작하세요.",
-    "claudeDesktopProxyRestartRequired": "성공적으로 전환했습니다. YuanHeng Switch를 계속 실행하고 Claude Desktop을 재시작해서 변경 사항을 적용하세요.",
+    "claudeDesktopProxyRestartRequired": "성공적으로 전환했습니다. Meta API를 계속 실행하고 Claude Desktop을 재시작해서 변경 사항을 적용하세요.",
     "addToConfigSuccess": "설정에 추가됨",
     "removeFromConfigSuccess": "설정에서 삭제됨",
     "switchFailedTitle": "스위치 고장",
@@ -288,7 +288,7 @@
     "deleteProvider": "제공자 삭제",
     "deleteProviderMessage": "공급자 \"{{name}}\"을 삭제하고 싶은 게 확실한가요? 이 행동은 되돌릴 수 없습니다.",
     "removeProvider": "제공자 제거",
-    "removeProviderMessage": "설정에서 공급자 \"{{name}}\"을 제거하고 싶은 게 확실한가요?\n\n제거 후 이 제공업체는 더 이상 활성화되지 않지만, 구성 데이터는 YuanHeng 스위치에 보관됩니다. 언제든지 다시 추가할 수 있습니다.",
+    "removeProviderMessage": "설정에서 공급자 \"{{name}}\"을 제거하고 싶은 게 확실한가요?\n\n제거 후 이 제공업체는 더 이상 활성화되지 않지만, 구성 데이터는 Meta API에 보관됩니다. 언제든지 다시 추가할 수 있습니다.",
     "proxy": {
       "title": "로컬 라우팅 활성화",
       "message": "로컬 라우팅은 고급 기능입니다. 활성화하기 전에 작동 방식을 꼭 이해해 주세요.\n\n적절한 설정을 위해 관련 문서나 제공업체에 문의하시길 권장합니다.",
@@ -371,7 +371,7 @@
       },
       "globalProxy": {
         "title": "글로벌 아웃바운드 프록시",
-        "description": "YuanHeng 스위치용 프록시를 설정하여 외부 API에 접근하세요"
+        "description": "Meta API용 프록시를 설정하여 외부 API에 접근하세요"
       },
       "data": {
         "title": "데이터 관리",
@@ -442,7 +442,7 @@
     "themeDark": "다크",
     "themeSystem": "시스템",
     "importExport": "SQL 가져오기/내보내기",
-    "importExportHint": "마이그레이션 또는 복원을 위한 데이터베이스 SQL 백업을 가져오기 또는 내보내기 (가져오기는 YuanHeng Switch에서 내보내는 백업만 지원합니다).",
+    "importExportHint": "마이그레이션 또는 복원을 위한 데이터베이스 SQL 백업을 가져오기 또는 내보내기 (가져오기는 Meta API에서 내보내는 백업만 지원합니다).",
     "exportConfig": "SQL 백업 내보내기",
     "selectConfigFile": "SQL 파일 선택",
     "noFileSelected": "설정 파일이 선택되지 않았습니다.",
@@ -680,7 +680,7 @@
     "windowBehavior": "윈도우 동작",
     "windowBehaviorHint": "창 최소화와 Claude 플러그인 통합 정책을 설정하세요.",
     "launchOnStartup": "시작 시 출시",
-    "launchOnStartupDescription": "시스템이 시작되면 자동으로 위안헝 스위치를 실행하세요",
+    "launchOnStartupDescription": "시스템이 시작되면 자동으로 Meta API를 실행하세요",
     "silentStartup": "조용한 스타트업",
     "silentStartupDescription": "메인 창을 보여주지 않고 백그라운드 모드로 시작하세요",
     "autoLaunchFailed": "자동 발사 설정 실패",
@@ -740,8 +740,8 @@
     },
     "skillStorage": {
       "title": "스킬 저장 위치",
-      "description": "위안헝 스위치가 당신의 스킬 마스터 복사본을 보관하는 곳을 선택하세요",
-      "ccSwitch": "위안헝 스위치",
+      "description": "Meta API가 당신의 스킬 마스터 복사본을 보관하는 곳을 선택하세요",
+      "ccSwitch": "Meta API",
       "unified": "~/.agents/skills",
       "ccSwitchHint": "스킬은 ~/.yuanheng-switch/skills/에 저장되며, 심볼링크나 복사본을 통해 각 앱과 동기화됩니다.",
       "unifiedHint": "스킬은 에이전트 스킬 오픈 표준인 ~/.agents/skills/에 저장됩니다. 호환 가능한 도구들(Claude Code, Codex, Gemini CLI 등)은 이곳에서 기술을 기본적으로 발견합니다.",
@@ -790,8 +790,8 @@
     },
     "configDirectoryOverride": "구성 디렉터리 재정의(고급)",
     "configDirectoryDescription": "WSL과 같은 환경에서 Claude Code나 Codex를 사용할 때, 제공자 데이터가 메인 환경과 일치하도록 WSL 내 설정과 직접 지정할 수 있습니다.",
-    "appConfigDir": "위안헝 스위치 구성 디렉터리",
-    "appConfigDirDescription": "YuanHeng 스위치 설정의 저장 위치를 맞춤 설정하세요 (config sync를 활성화하려면 클라우드 동기화 폴더로 가리킴)",
+    "appConfigDir": "Meta API 구성 디렉터리",
+    "appConfigDirDescription": "Meta API 설정의 저장 위치를 맞춤 설정하세요 (config sync를 활성화하려면 클라우드 동기화 폴더로 가리킴)",
     "browsePlaceholderApp": "예: C:\\Users\\Administrator\\.yuanheng-switch",
     "claudeConfigDir": "Claude Code 구성 디렉터리",
     "claudeConfigDirDescription": "Claude 구성 디렉터리 (settings.json). 커스텀 디렉터리는 디렉터리 내에 .claude.json(MCP)를 저장합니다; 기본 ~/.claude 디렉터리는 Claude Code의 분할 ~/.claude.json 경로를 유지합니다.",
@@ -891,7 +891,7 @@
     "importFailedError": "설정 가져오기 실패: {{message}}",
     "exportFailedError": "내보내기 설정 실패:",
     "restartRequired": "재시작 필요",
-    "restartRequiredMessage": "YuanHeng 스위치 구성 디렉터리를 수정하려면 애플리케이션을 재시작해야 효력이 발생합니다. 지금 다시 시작할까요?",
+    "restartRequiredMessage": "Meta API 구성 디렉터리를 수정하려면 애플리케이션을 재시작해야 효력이 발생합니다. 지금 다시 시작할까요?",
     "restartNow": "지금 재시작",
     "restartLater": "나중에 재시작",
     "restartFailed": "애플리케이션 재시작에 실패했습니다. 수동으로 종료 및 재실행해 주세요.",
@@ -1478,7 +1478,7 @@
     "headerName": "헤더",
     "headerValue": "가치",
     "headerNamePlaceholder": "X-타이틀",
-    "headerValuePlaceholder": "위안헝 스위치",
+    "headerValuePlaceholder": "Meta API",
     "removeHeader": "헤더 제거",
     "noHeaders": "커스텀 헤더가 설정되어 있지 않습니다",
     "extraOptions": "추가 옵션",
@@ -1863,7 +1863,7 @@
   },
   "dbUpgrade": {
     "title": "데이터베이스 버전은 너무 새롭습니다",
-    "description": "이 데이터베이스는 최신 버전의 YuanHeng Switch에서 만들어졌습니다. 앱을 업그레이드해서 계속 진행하세요. 업그레이드해도 데이터가 삭제되지 않습니다.",
+    "description": "이 데이터베이스는 최신 버전의 Meta API에서 만들어졌습니다. 앱을 업그레이드해서 계속 진행하세요. 업그레이드해도 데이터가 삭제되지 않습니다.",
     "versionInfo": "데이터베이스 v{{db}} · 앱은 v{{supported}}를 지원합니다",
     "dbPath": "데이터베이스 파일",
     "checking": "이용 가능한 업데이트를 확인 중...",
@@ -1909,7 +1909,7 @@
       "deleteConfirm": "서버 \"{{id}}\"을 삭제하고 싶은 게 확실한가요? 이 행동은 되돌릴 수 없습니다.",
       "noServers": "아직 서버는 없습니다",
       "enabledApps": "활성화된 앱",
-      "noImportFound": "가져올 MCP 서버가 없었습니다. 모든 서버는 이미 YuanHeng Switch가 관리하고 있습니다.",
+      "noImportFound": "가져올 MCP 서버가 없었습니다. 모든 서버는 이미 Meta API가 관리하고 있습니다.",
       "importSuccess": "MCP 서버를 성공적으로 가져오기{{count}}",
       "apps": {
         "claude": "클로드",
@@ -2594,7 +2594,7 @@
     "discover": "기술 발견",
     "importCta": "기존 기술 도입",
     "import": "기존 임포트",
-    "importDescription": "위안헝 스위치 통합 경영에 도입할 기술 선택",
+    "importDescription": "Meta API 통합 경영에 도입할 기술 선택",
     "importSuccess": "{{count}} 기술을 성공적으로 도입",
     "importSelected": "선택 항목 가져오기({{count}})",
     "noUnmanagedFound": "가져올 기술도 없고요. 모든 기술은 이미 원항 스위치가 관리하고 있습니다.",
@@ -2642,7 +2642,7 @@
   },
   "deeplink": {
     "confirmImport": "공급자 가져오기 확인",
-    "confirmImportDescription": "다음 구성은 딥링크에서 위안헝 스위치로 가져올 예정입니다",
+    "confirmImportDescription": "다음 구성은 딥링크에서 Meta API로 가져올 예정입니다",
     "importPrompt": "가져오기 프롬프트",
     "importPromptDescription": "이 시스템 프롬프트를 가져오는지 확인해 주세요",
     "importMcp": "MCP 서버 가져오기",
