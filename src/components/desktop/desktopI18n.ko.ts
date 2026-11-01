@@ -1,6 +1,9 @@
 // ko translations for the desktop Simplified Chinese source strings.
 import { MEDIA_KO } from "./mediaStudioTranslations";
 export const DESKTOP_KO: Record<string, string> = {
+  与官方价格一致: "공식 요금과 동일",
+  "比官方价格低 {{percent}}%": "공식 요금보다 {{percent}}% 저렴",
+  "比官方价格高 {{percent}}%": "공식 요금보다 {{percent}}% 비쌈",
   "正在查询 Accio 官方版本…": "Accio 공식 버전 확인 중…",
   "官方版本查询失败，不影响配置和启动。请稍后重试。":
     "공식 버전 조회에 실패했습니다. 설정과 실행에는 영향이 없습니다. 나중에 다시 시도하세요.",

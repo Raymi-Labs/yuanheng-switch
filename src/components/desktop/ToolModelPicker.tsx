@@ -28,6 +28,19 @@ import {
 import { dt } from "./desktopI18n";
 
 const GROUP_KINDS = ["groups"] as const;
+
+function groupPriceLabel(ratio: number | null): string | null {
+  if (ratio == null || !Number.isFinite(ratio) || ratio < 0) return null;
+  if (ratio === 1) return dt("与官方价格一致");
+  const difference = Math.abs(1 - ratio) * 100;
+  if (!Number.isFinite(difference)) return null;
+  const percent = difference < 0.01 ? "<0.01" : Number(difference.toFixed(2));
+  return dt(
+    ratio < 1 ? "比官方价格低 {{percent}}%" : "比官方价格高 {{percent}}%",
+    { percent },
+  );
+}
+
 export interface ToolModelSelection {
   model: string;
   group: string;
@@ -107,6 +120,7 @@ export function ToolModelPicker({
         ? [
             {
               ...option,
+              priceLabel: groupPriceLabel(option.ratio),
               models: sortModelNames(visible, [model, recommended]).sort(
                 (a, b) =>
                   Number(modelFavorites.favorites.models.includes(b)) -
@@ -365,19 +379,30 @@ export function ToolModelPicker({
                               }}
                             >
                               <span className="min-w-0 flex-1">
-                                <span
-                                  className="block truncate text-[11px]"
-                                  title={entry.id}
-                                >
-                                  {entry.id}
+                                <span className="flex items-center gap-2">
+                                  <span
+                                    className="min-w-0 flex-1 truncate text-[11px]"
+                                    title={entry.id}
+                                  >
+                                    {entry.id}
+                                  </span>
+                                  {entry.priceLabel && (
+                                    <span className="shrink-0 text-[10px] text-muted-foreground">
+                                      {entry.ratio}×
+                                    </span>
+                                  )}
                                 </span>
-                                <span className="text-[10px] text-muted-foreground">
-                                  {entry.ratio != null
-                                    ? `${entry.ratio}x · `
-                                    : ""}
-                                  {dt("{{count}} 个模型", {
-                                    count: entry.models.length,
-                                  })}
+                                <span className="mt-1 flex flex-wrap items-center gap-x-1.5 gap-y-1">
+                                  {entry.priceLabel && (
+                                    <span className="max-w-full rounded bg-blue-50 px-1.5 py-0.5 text-[10px] leading-4 text-blue-700 dark:bg-blue-500/15 dark:text-blue-300">
+                                      {entry.priceLabel}
+                                    </span>
+                                  )}
+                                  <span className="text-[10px] text-muted-foreground">
+                                    {dt("{{count}} 个模型", {
+                                      count: entry.models.length,
+                                    })}
+                                  </span>
                                 </span>
                               </span>
                               <ChevronRight

@@ -1,6 +1,9 @@
 // Generated from the desktop Simplified Chinese source strings, then normalized for Taiwan terminology.
 import { MEDIA_ZH_TW } from "./mediaStudioTranslations";
 export const DESKTOP_ZH_TW: Record<string, string> = {
+  与官方价格一致: "與官方價格一致",
+  "比官方价格低 {{percent}}%": "比官方價格低 {{percent}}%",
+  "比官方价格高 {{percent}}%": "比官方價格高 {{percent}}%",
   "正在查询 Accio 官方版本…": "正在查詢 Accio 官方版本…",
   "官方版本查询失败，不影响配置和启动。请稍后重试。":
     "官方版本查詢失敗，不影響設定和啟動。請稍後重試。",

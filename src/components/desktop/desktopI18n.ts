@@ -7,6 +7,9 @@ import { DESKTOP_ZH_TW } from "./desktopI18n.zhTW";
 type Values = Record<string, string | number | null | undefined>;
 
 export const DESKTOP_EN: Record<string, string> = {
+  与官方价格一致: "Same as official pricing",
+  "比官方价格低 {{percent}}%": "{{percent}}% below official pricing",
+  "比官方价格高 {{percent}}%": "{{percent}}% above official pricing",
   "正在查询 Accio 官方版本…": "Checking the official Accio version…",
   "官方版本查询失败，不影响配置和启动。请稍后重试。":
     "Official version lookup failed. Configuration and launch are unaffected. Try again later.",
