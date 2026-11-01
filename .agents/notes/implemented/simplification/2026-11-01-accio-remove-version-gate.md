@@ -34,6 +34,10 @@ Status: implemented
 
 GUI/Core最终`cargo check --offline --locked --features accio-work-experimental --lib --bins`通过；相关Rust格式检查通过。Bun包装脚本因本机未安装Bun无法运行，使用Node执行同三份笔记校验器通过。未启动官方App、虚拟机或收费模型请求；所有测试/构建命令已退出，收尾无cargo/rustc/vitest/测试二进制/VM测试进程，用户原有GUI/Core保持原状。此记录为本地验证，不代表安装包已更新。
 
+## Signed candidate verification
+
+2026-11-01候选提交`13116c72`配合官方Accio0.37.2在Apple Silicon QA完成正式包升级、GUI钥匙串交互恢复、同分组Astra配置保存、GUI受控启动、6条真实模型请求及read/write/read/edit/read、原生停止。输入和保护文件未改，随机marker匹配、total=83、verified=true。安装时profile完全保留；后续显式GUI保存同步平台模型目录，owner/group/model不变，不能将目录更新写成整个配置不变。首次Intel候选因Apple票据校验网络断开失败并重跑；不降低门槛。测试进程0、VM正常关机。详情与摘要见[签名候选回归](../../../../docs/reviews/2026-11-01-release121-native-regression.md)，候选成功不等于正式发布。
+
 ## Consequences
 
 允许尝试不保证官方新协议可用；真实失败仍需诊断修复。历史JSON状态字段保留兼容旧诊断读取，新界面不可据其未实测状态禁用按钮。旧安装包需更新才能获得新行为。
