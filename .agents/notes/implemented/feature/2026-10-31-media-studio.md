@@ -2,6 +2,8 @@
 
 Status: implemented
 
+GPT Image参考图数量、格式及文件大小由[官方多图适配](2026-11-02-gpt-image-multiple-references.md)部分取代：支持最多16图及WebP，每张小于50MB；粘贴追加，切换较小容量型号保留草稿并要求调整。此前GPT单图限制为历史实现，其他能力边界不变。
+
 Muse的时长、多图及大视频下载边界由[长片适配](2026-10-31-muse-long-multireference.md)更新；此前单图/30秒/所有成品64MB是初版边界，不代表当前文档规格。
 
 后续[服务兼容修复](../../implemented/bug-fix/2026-10-31-media-service-compatibility.md)将视频提交等待改为600秒，禁用Veo Lite与Omni720p，并替代本篇图片“只处理内嵌、不接URL”的限制。其余任务、账号和不重放约束保留。

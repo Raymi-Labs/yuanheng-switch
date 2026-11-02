@@ -16,6 +16,11 @@ import { Textarea } from "@/components/ui/textarea";
 import { mediaStudioApi, type MediaRecord } from "@/lib/api/media-studio";
 import { useYuanhengConnection } from "@/lib/query/yuanheng";
 import { extractErrorMessage } from "@/utils/errorUtils";
+import {
+  mediaReferencePolicy,
+  referenceBytes,
+  referencesFit,
+} from "@/lib/mediaReferences";
 import { PageHeader } from "./PageHeader";
 import { dt } from "./desktopI18n";
 
@@ -81,7 +86,10 @@ export function MediaStudioContent({ scope }: { scope: string }) {
   const available = (models.data ?? []).filter((m) => m.kind === kind);
   const selected = available.find((m) => m.id === model);
   const isMuse = model === "muse-video";
+  const isGptImage = model.startsWith("gpt-image-");
+  const referencePolicy = mediaReferencePolicy(model);
   const referenceList = reference ? [reference, ...extraReferences] : [];
+  const referencesValid = referencesFit(model, referenceList);
   const promptLimit = isMuse ? 4000 : 8000;
   const referenceVideoModels = (models.data ?? []).filter(
     (m) => m.kind === "video" && m.reference !== "none",
@@ -114,16 +122,19 @@ export function MediaStudioContent({ scope }: { scope: string }) {
       setReference(stagedReference.current.data);
       setExtraReferences([]);
       stagedReference.current = null;
-    } else if (!selected || selected.reference === "none") {
+    } else if (selected?.reference === "none") {
       if (reference)
         setMessage(
           dt("此模型不支持参考图，已移除图片。生成前请确认使用方式。"),
         );
       setReference(null);
       setExtraReferences([]);
-    } else if (model !== "muse-video" && extraReferences.length) {
-      setExtraReferences([]);
-      setMessage(dt("此模型仅接受一张参考图，已保留首图并移除其他图片。"));
+    } else if (selected && !referencesFit(model, referenceList)) {
+      setMessage(
+        dt(
+          "参考图不符合当前模型的数量、格式或大小要求，请调整后再生成；原图已保留。",
+        ),
+      );
     }
     setReading(false);
     readLock.current = false;
@@ -192,36 +203,40 @@ export function MediaStudioContent({ scope }: { scope: string }) {
     )
       return;
     const sequence = ++readSequence.current;
-    const existing = isMuse ? referenceList : [];
-    if (files.length + existing.length > (isMuse ? 4 : 1)) {
-      setMessage(dt("Muse最多4张参考图，其他模型最多1张。"));
+    const existing = referencePolicy.maxCount > 1 ? referenceList : [];
+    if (files.length + existing.length > referencePolicy.maxCount) {
+      setMessage(
+        dt("当前模型最多支持 {{count}} 张参考图。", {
+          count: referencePolicy.maxCount,
+        }),
+      );
       return;
     }
-    const allowed = isMuse
-      ? ["image/png", "image/jpeg", "image/webp"]
-      : ["image/png", "image/jpeg"];
+    const allowed = referencePolicy.mimeTypes;
     if (
       files.some(
-        (file) => !allowed.includes(file.type) || file.size > 10 * 1024 * 1024,
+        (file) =>
+          !allowed.includes(file.type) ||
+          (referencePolicy.exclusiveBytes
+            ? file.size >= referencePolicy.maxBytes
+            : file.size > referencePolicy.maxBytes),
       )
     ) {
       setMessage(
         dt(
-          isMuse
-            ? "Muse支持PNG、JPEG、WebP，单张最多10MB，总计最多24MB。"
-            : "请选择不超过 10 MB 的 PNG 或 JPEG 参考图",
+          isGptImage
+            ? "GPT Image最多16张PNG、JPEG或WebP参考图，每张须小于50MB。"
+            : isMuse
+              ? "Muse支持PNG、JPEG、WebP，单张最多10MB，总计最多24MB。"
+              : "请选择不超过 10 MB 的 PNG 或 JPEG 参考图",
         ),
       );
       return;
     }
-    const existingSize = existing.reduce((total, raw) => {
-      const data = raw.split(",")[1] ?? "";
-      return (
-        total +
-        (data.length * 3) / 4 -
-        (data.endsWith("==") ? 2 : data.endsWith("=") ? 1 : 0)
-      );
-    }, 0);
+    const existingSize = existing.reduce(
+      (total, raw) => total + referenceBytes(raw),
+      0,
+    );
     if (
       isMuse &&
       existingSize + files.reduce((n, f) => n + f.size, 0) > 24 * 1024 * 1024
@@ -286,6 +301,7 @@ export function MediaStudioContent({ scope }: { scope: string }) {
       !prompt.trim() ||
       Array.from(prompt).length > promptLimit ||
       (kind === "video" && !selected.durations.includes(duration ?? 0)) ||
+      !referencesValid ||
       readLock.current ||
       reading ||
       models.isError
@@ -307,10 +323,8 @@ export function MediaStudioContent({ scope }: { scope: string }) {
         prompt: prompt.trim(),
         size,
         duration: kind === "video" ? duration : null,
-        reference: isMuse && referenceList.length > 1 ? null : reference,
-        ...(isMuse && referenceList.length > 1
-          ? { images: referenceList }
-          : {}),
+        reference: referenceList.length > 1 ? null : reference,
+        ...(referenceList.length > 1 ? { images: referenceList } : {}),
       });
       if (!alive.current) return;
       update(record);
@@ -547,12 +561,8 @@ export function MediaStudioContent({ scope }: { scope: string }) {
               <input
                 ref={fileInput}
                 type="file"
-                accept={
-                  isMuse
-                    ? "image/png,image/jpeg,image/webp"
-                    : "image/png,image/jpeg"
-                }
-                multiple={isMuse}
+                accept={referencePolicy.mimeTypes.join(",")}
+                multiple={referencePolicy.maxCount > 1}
                 className="hidden"
                 aria-label={dt("选择参考图")}
                 onChange={(e) => {
@@ -580,14 +590,29 @@ export function MediaStudioContent({ scope }: { scope: string }) {
                   "也可在此表单按 ⌘V / Ctrl+V 粘贴复制的图片或截图，点击生成后才会上传。",
                 )}
               </p>
+              {isGptImage && (
+                <p className="text-xs text-muted-foreground">
+                  {dt(
+                    "GPT Image最多16张PNG、JPEG或WebP参考图，每张须小于50MB。",
+                  )}
+                </p>
+              )}
+              {!referencesValid && (
+                <p role="alert" className="text-sm text-destructive">
+                  {dt(
+                    "参考图不符合当前模型的数量、格式或大小要求，请调整后再生成；原图已保留。",
+                  )}
+                </p>
+              )}
               {referenceList.map((raw, index) => (
                 <div
                   key={`${index}-${raw.slice(-16)}`}
                   className="flex flex-wrap items-start gap-2"
                 >
-                  {isMuse && (
+                  {referencePolicy.maxCount > 1 && (
                     <span className="text-xs">
-                      {index + 1} · {dt(index === 0 ? "首帧" : "参考图")}
+                      {index + 1} ·{" "}
+                      {dt(isMuse && index === 0 ? "首帧" : "参考图")}
                     </span>
                   )}
                   <img
@@ -756,6 +781,7 @@ export function MediaStudioContent({ scope }: { scope: string }) {
             disabled={
               busy ||
               !!action ||
+              !referencesValid ||
               reading ||
               !selected ||
               !prompt.trim() ||

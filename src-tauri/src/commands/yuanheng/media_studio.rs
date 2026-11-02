@@ -9,6 +9,8 @@ use tauri_plugin_dialog::DialogExt;
 const GROUP: &str = "生图和视频";
 const MAX_MEDIA: usize = 64 * 1024 * 1024;
 const MAX_REFERENCE: usize = 10 * 1024 * 1024;
+const MAX_GPT_REFERENCE: usize = 50 * 1024 * 1024;
+const MAX_GPT_REFERENCES: usize = 16;
 const MAX_MUSE_REFERENCES: usize = 24 * 1024 * 1024;
 const MAX_VIDEO: u64 = 256 * 1024 * 1024;
 const VIDEO_SUBMIT_TIMEOUT: Duration = Duration::from_secs(600);
@@ -215,15 +217,33 @@ fn reference(raw: &str) -> Result<(&'static str, Vec<u8>), String> {
     reference_with_webp(raw, false)
 }
 fn reference_with_webp(raw: &str, allow_webp: bool) -> Result<(&'static str, Vec<u8>), String> {
-    if raw.len() > MAX_REFERENCE * 4 / 3 + 128 {
-        return Err("参考图不能超过 10 MB".into());
+    reference_with_limit(raw, allow_webp, MAX_REFERENCE)
+}
+fn request_reference(model: &str, raw: &str) -> Result<(&'static str, Vec<u8>), String> {
+    if model.starts_with("gpt-image-") {
+        reference_with_limit(raw, true, MAX_GPT_REFERENCE - 1)
+    } else {
+        reference_with_webp(raw, model == "muse-video")
+    }
+}
+fn reference_with_limit(
+    raw: &str,
+    allow_webp: bool,
+    max_bytes: usize,
+) -> Result<(&'static str, Vec<u8>), String> {
+    if raw.len() > max_bytes.div_ceil(3) * 4 + 128 {
+        return Err("参考图超过当前模型的单图大小上限".into());
     }
     let (header, value) = raw.split_once(',').ok_or("参考图格式无效")?;
     let bytes = B64.decode(value).map_err(|_| "参考图编码无效")?;
     let mime = image_mime(&bytes)
         .filter(|m| allow_webp || *m != "image/webp")
-        .ok_or("参考图仅支持 PNG 或 JPEG")?;
-    if bytes.len() > MAX_REFERENCE || header != format!("data:{mime};base64") {
+        .ok_or(if allow_webp {
+            "参考图仅支持 PNG、JPEG 或 WebP"
+        } else {
+            "参考图仅支持 PNG 或 JPEG"
+        })?;
+    if bytes.len() > max_bytes || header != format!("data:{mime};base64") {
         return Err("参考图类型或大小无效".into());
     }
     decode_reference(&bytes)?;
@@ -300,16 +320,22 @@ fn validate(request: &MediaRequest) -> Result<MediaModel, String> {
         return Err("该模型不支持所选尺寸或时长".into());
     }
     if !request.images.is_empty() {
-        if request.model != "muse-video" || request.reference.is_some() || request.images.len() > 4
-        {
-            return Err(
-                "Muse最多4张参考图，images不能与单图reference同时提交；其他模型不支持多图".into(),
-            );
+        let max_count = if request.model.starts_with("gpt-image-") {
+            MAX_GPT_REFERENCES
+        } else if request.model == "muse-video" {
+            4
+        } else {
+            return Err("当前模型不支持多图参考".into());
+        };
+        if request.reference.is_some() || request.images.len() > max_count {
+            return Err(format!(
+                "当前模型最多支持{max_count}张参考图，images不能与reference同时提交"
+            ));
         }
         let mut total = 0;
         for raw in &request.images {
-            total += reference_with_webp(raw, true)?.1.len();
-            if total > MAX_MUSE_REFERENCES {
+            total += request_reference(&request.model, raw)?.1.len();
+            if request.model == "muse-video" && total > MAX_MUSE_REFERENCES {
                 return Err("Muse参考图总大小不能超过24MB".into());
             }
         }
@@ -321,7 +347,7 @@ fn validate(request: &MediaRequest) -> Result<MediaModel, String> {
         if p.reference == "none" {
             return Err("此模型当前不支持参考图".into());
         }
-        reference_with_webp(raw, request.model == "muse-video")?;
+        request_reference(&request.model, raw)?;
     }
     Ok(p)
 }
@@ -423,6 +449,18 @@ fn json_payload(request: &MediaRequest, p: &MediaModel) -> Value {
     v
 }
 
+fn submission_endpoint(request: &MediaRequest, p: &MediaModel) -> String {
+    if p.kind == "video" {
+        "/v1/videos".into()
+    } else if request.model.starts_with("gemini-") {
+        format!("/v1beta/models/{}:generateContent", request.model)
+    } else if request.reference.is_some() || !request.images.is_empty() {
+        "/v1/images/edits".into()
+    } else {
+        "/v1/images/generations".into()
+    }
+}
+
 fn multipart(request: &MediaRequest) -> Result<(String, Vec<u8>), String> {
     let boundary = format!("yh{}", uuid::Uuid::new_v4().simple());
     let mut out = Vec::new();
@@ -439,10 +477,33 @@ fn multipart(request: &MediaRequest) -> Result<(String, Vec<u8>), String> {
         )
         .map_err(|_| "无法构建图片请求")?;
     }
-    let (mime, bytes) = reference(request.reference.as_deref().ok_or("缺少参考图")?)?;
-    write!(out, "--{boundary}\r\nContent-Disposition: form-data; name=\"image\"; filename=\"reference.{}\"\r\nContent-Type: {mime}\r\n\r\n", if mime == "image/png" { "png" } else { "jpg" }).map_err(|_| "无法构建图片请求")?;
-    out.extend_from_slice(&bytes);
-    write!(out, "\r\n--{boundary}--\r\n").map_err(|_| "无法构建图片请求")?;
+    let references: Vec<&str> = request
+        .reference
+        .as_deref()
+        .into_iter()
+        .chain(request.images.iter().map(String::as_str))
+        .collect();
+    if references.is_empty()
+        || references.len() > MAX_GPT_REFERENCES
+        || (request.reference.is_some() && !request.images.is_empty())
+    {
+        return Err("图片编辑需要1至16张参考图，不能混用reference和images".into());
+    }
+    let multiple = references.len() > 1;
+    for (index, raw) in references.into_iter().enumerate() {
+        let (mime, bytes) = request_reference(&request.model, raw)?;
+        let field = if multiple { "image[]" } else { "image" };
+        let extension = media_extension(mime)?;
+        let filename = if multiple {
+            format!("reference-{}.{}", index + 1, extension)
+        } else {
+            format!("reference.{extension}")
+        };
+        write!(out, "--{boundary}\r\nContent-Disposition: form-data; name=\"{field}\"; filename=\"{filename}\"\r\nContent-Type: {mime}\r\n\r\n").map_err(|_| "无法构建图片请求")?;
+        out.extend_from_slice(&bytes);
+        out.extend_from_slice(b"\r\n");
+    }
+    write!(out, "--{boundary}--\r\n").map_err(|_| "无法构建图片请求")?;
     Ok((format!("multipart/form-data; boundary={boundary}"), out))
 }
 fn image_result(value: &Value) -> Result<Vec<u8>, String> {
@@ -759,15 +820,7 @@ pub async fn submit_media_studio(
         token_id: Some(token_id),
     };
     persist(&state, &session.owner, &record, true)?;
-    let endpoint = if p.kind == "video" {
-        "/v1/videos".into()
-    } else if request.model.starts_with("gemini-") {
-        format!("/v1beta/models/{}:generateContent", request.model)
-    } else if request.reference.is_some() {
-        "/v1/images/edits".into()
-    } else {
-        "/v1/images/generations".into()
-    };
+    let endpoint = submission_endpoint(&request, &p);
     let mut builder = submission_builder(&client, &endpoint, &key, &p);
     if endpoint == "/v1/images/edits" {
         let (content_type, bytes) = multipart(&request)?;
@@ -1254,10 +1307,10 @@ mod tests {
         r.model = "gpt-image-2".into();
         r.size = "1024x1024".into();
         r.duration = None;
-        assert!(validate(&r).is_err());
+        assert!(validate(&r).is_ok());
         r.reference = None;
         r.images = vec![first];
-        assert!(validate(&r).is_err());
+        assert!(validate(&r).is_ok());
     }
     #[test]
     fn muse_total_reference_limit_counts_decoded_bytes() {
@@ -1654,6 +1707,52 @@ mod tests {
         assert!(text.contains("name=\"model\"\r\n\r\ngpt-image-2"));
         assert!(!text.contains("data:image"));
         assert!(!text.contains("/Users/"));
+    }
+    #[test]
+    fn gpt_multiple_references_follow_official_count_and_edit_wire_contract() {
+        let mut webp = std::io::Cursor::new(Vec::new());
+        image::DynamicImage::new_rgb8(2, 2)
+            .write_to(&mut webp, image::ImageFormat::WebP)
+            .unwrap();
+        let webp = format!("data:image/webp;base64,{}", B64.encode(webp.into_inner()));
+        for model in ["gpt-image-2.5-sunburst", "gpt-image-2.5-flare"] {
+            let mut r = request(model);
+            assert_eq!(
+                submission_endpoint(&r, &validate(&r).unwrap()),
+                "/v1/images/generations"
+            );
+            r.images = vec![png(); 16];
+            r.images[1] = webp.clone();
+            assert_eq!(
+                submission_endpoint(&r, &validate(&r).unwrap()),
+                "/v1/images/edits"
+            );
+            let (_, payload) = multipart(&r).unwrap();
+            let text = String::from_utf8_lossy(&payload);
+            assert_eq!(text.matches("name=\"image[]\"").count(), 16);
+            assert!(text.find("reference-1.png").unwrap() < text.find("reference-2.webp").unwrap());
+            assert!(text.contains("reference-16.png"));
+            assert!(!text.contains("data:image"));
+            r.images.push(png());
+            assert!(validate(&r).is_err());
+            r.images.pop();
+            r.reference = Some(png());
+            assert!(validate(&r).is_err());
+            r.reference = None;
+            r.images[0] = "data:image/png;base64,bm90LWltYWdl".into();
+            assert!(validate(&r).is_err());
+        }
+    }
+    #[test]
+    fn gpt_reference_size_does_not_inherit_muse_limits() {
+        let mut bytes = B64.decode(png().split_once(',').unwrap().1).unwrap();
+        bytes.resize(13 * 1024 * 1024, 0);
+        let raw = format!("data:image/png;base64,{}", B64.encode(bytes));
+        let mut r = request("gpt-image-2.5-sunburst");
+        r.images = vec![raw.clone(), raw];
+        assert!(validate(&r).is_ok()); // 26MB exceeds Muse total; each exceeds old 10MB.
+        assert!(reference_with_limit(&png(), true, 1).is_err());
+        assert_eq!(MAX_GPT_REFERENCE, 50 * 1024 * 1024);
     }
     #[test]
     fn image_results_reject_urls_html_empty_and_accept_both_protocols() {
