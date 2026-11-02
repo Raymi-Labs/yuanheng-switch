@@ -125,6 +125,253 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
+function clipboardImage(value: string, type = "image/png") {
+  const file = new File([value], "clipboard.png", { type });
+  Object.defineProperty(file, "arrayBuffer", {
+    value: vi.fn(async () => new TextEncoder().encode(value).buffer),
+    configurable: true,
+  });
+  return file;
+}
+function pasteImages(files: File[], itemsOnly = false) {
+  return fireEvent.paste(screen.getByRole("textbox"), {
+    clipboardData: {
+      files: itemsOnly ? [] : files,
+      items: files.map((file) => ({
+        kind: "file",
+        type: file.type,
+        getAsFile: () => file,
+      })),
+    },
+  });
+}
+
+describe("reference image paste", () => {
+  it("appends GPT clipboard images and submits only on Generate", async () => {
+    mount();
+    await screen.findByRole("button", { name: "上传参考图（可选）" });
+    fireEvent.change(screen.getByRole("textbox"), {
+      target: { value: "existing prompt" },
+    });
+    expect(pasteImages([clipboardImage("first")])).toBe(false);
+    expect(await screen.findByRole("img", { name: "参考图" })).toHaveAttribute(
+      "src",
+      `data:image/png;base64,${btoa("first")}`,
+    );
+    pasteImages([clipboardImage("second")], true);
+    await waitFor(() =>
+      expect(screen.getByRole("img", { name: "参考图 2" })).toHaveAttribute(
+        "src",
+        `data:image/png;base64,${btoa("second")}`,
+      ),
+    );
+    expect(screen.getByRole("textbox")).toHaveValue("existing prompt");
+    expect(mocks.submit).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "生成" }));
+    await waitFor(() => expect(mocks.submit).toHaveBeenCalledTimes(1));
+    expect(mocks.submit.mock.calls[0][0]).toMatchObject({
+      reference: null,
+      images: [
+        `data:image/png;base64,${btoa("first")}`,
+        `data:image/png;base64,${btoa("second")}`,
+      ],
+    });
+  });
+  it("accepts sixteen GPT references via upload/paste and retains them when switching to Muse", async () => {
+    mount();
+    await screen.findByRole("button", { name: "上传参考图（可选）" });
+    const files = Array.from({ length: 15 }, (_, i) =>
+      clipboardImage(String(i)),
+    );
+    fireEvent.change(screen.getByLabelText("选择参考图"), {
+      target: { files },
+    });
+    await screen.findByRole("img", { name: "参考图 15" });
+    pasteImages([clipboardImage("last", "image/webp")]);
+    await screen.findByRole("img", { name: "参考图 16" });
+    const rejected = clipboardImage("seventeenth");
+    pasteImages([rejected]);
+    expect(rejected.arrayBuffer).not.toHaveBeenCalled();
+    expect(screen.getByRole("status")).toHaveTextContent("16");
+    fireEvent.change(screen.getByRole("textbox"), {
+      target: { value: "scene" },
+    });
+    fireEvent.click(screen.getByRole("tab", { name: "视频生成" }));
+    await screen.findByRole("option", { name: "muse-video" });
+    await waitFor(() =>
+      expect(screen.getByLabelText("选择参考图")).toHaveAttribute(
+        "accept",
+        "image/png,image/jpeg,image/webp",
+      ),
+    );
+    expect(screen.getByRole("img", { name: "参考图 16" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "生成" })).toBeDisabled();
+    expect(screen.getByRole("alert")).toHaveTextContent("原图已保留");
+    fireEvent.click(screen.getByRole("tab", { name: "图片生成" }));
+    await screen.findByRole("button", { name: "上传参考图（可选）" });
+    fireEvent.click(screen.getAllByRole("button", { name: "前移" })[0]);
+    fireEvent.click(screen.getByRole("button", { name: "生成" }));
+    await waitFor(() => expect(mocks.submit).toHaveBeenCalledTimes(1));
+    expect(mocks.submit.mock.calls[0][0].images).toHaveLength(16);
+    expect(mocks.submit.mock.calls[0][0].images[0]).toBe(
+      `data:image/png;base64,${btoa("1")}`,
+    );
+  });
+  it("leaves text and HTML-only clipboard events to the editor", async () => {
+    mount();
+    await screen.findByRole("button", { name: "上传参考图（可选）" });
+    expect(
+      fireEvent.paste(screen.getByRole("textbox"), {
+        clipboardData: {
+          files: [],
+          items: [{ kind: "string", type: "text/html" }],
+          getData: () => '<img src="https://example.com/image.png">',
+        },
+      }),
+    ).toBe(true);
+    expect(
+      screen.queryByRole("img", { name: "参考图" }),
+    ).not.toBeInTheDocument();
+    expect(mocks.submit).not.toHaveBeenCalled();
+  });
+  it("appends Muse clipboard images in order, without duplicating files and items", async () => {
+    mount();
+    await screen.findByRole("button", { name: "上传参考图（可选）" });
+    fireEvent.click(screen.getByRole("tab", { name: "视频生成" }));
+    await screen.findByRole("option", { name: "muse-video" });
+    await waitFor(() =>
+      expect(screen.getByLabelText("选择参考图")).toHaveAttribute(
+        "accept",
+        "image/png,image/jpeg,image/webp",
+      ),
+    );
+    pasteImages([clipboardImage("one")]);
+    await screen.findByRole("img", { name: "参考图" });
+    pasteImages([clipboardImage("two", "image/webp"), clipboardImage("three")]);
+    await screen.findByRole("img", { name: "参考图 3" });
+    expect(
+      screen.queryByRole("img", { name: "参考图 4" }),
+    ).not.toBeInTheDocument();
+    const excess = clipboardImage("excess");
+    pasteImages([excess, excess]);
+    expect(screen.getByRole("status")).toHaveTextContent("最多支持 4 张");
+    expect(excess.arrayBuffer).not.toHaveBeenCalled();
+    fireEvent.change(screen.getByRole("textbox"), {
+      target: { value: "move" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "生成" }));
+    await waitFor(() => expect(mocks.submit).toHaveBeenCalledTimes(1));
+    expect(mocks.submit.mock.calls[0][0].images).toEqual([
+      `data:image/png;base64,${btoa("one")}`,
+      `data:image/webp;base64,${btoa("two")}`,
+      `data:image/png;base64,${btoa("three")}`,
+    ]);
+  });
+  it("preserves the draft on unsupported formats or oversize clipboard images", async () => {
+    mount();
+    await screen.findByRole("button", { name: "上传参考图（可选）" });
+    pasteImages([clipboardImage("keep")]);
+    await screen.findByRole("img", { name: "参考图" });
+    const invalid = clipboardImage("bad", "image/gif");
+    const large = clipboardImage("large");
+    Object.defineProperty(large, "size", { value: 50 * 1024 * 1024 });
+    for (const file of [invalid, large]) {
+      pasteImages([file]);
+      expect(screen.getByRole("status")).toHaveTextContent("50MB");
+      expect(file.arrayBuffer).not.toHaveBeenCalled();
+      expect(screen.getByRole("img", { name: "参考图" })).toHaveAttribute(
+        "src",
+        `data:image/png;base64,${btoa("keep")}`,
+      );
+    }
+  });
+  it("blocks paste for text-only models and during submission", async () => {
+    mount();
+    await screen.findByRole("button", { name: "上传参考图（可选）" });
+    fireEvent.change(screen.getByRole("combobox", { name: "生成模型" }), {
+      target: { value: "grok-imagine-image" },
+    });
+    const image = clipboardImage("blocked");
+    pasteImages([image]);
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "当前模型无法添加参考图",
+    );
+    fireEvent.change(screen.getByRole("combobox", { name: "生成模型" }), {
+      target: { value: "gpt-image-2.5-sunburst" },
+    });
+    fireEvent.change(screen.getByRole("textbox"), {
+      target: { value: "test" },
+    });
+    let finish!: (record: MediaRecord) => void;
+    mocks.submit.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "生成" }));
+    pasteImages([image]);
+    expect(image.arrayBuffer).not.toHaveBeenCalled();
+    await act(async () => finish(item({ status: "failed" })));
+  });
+  it("does not cancel an in-flight read on rapid paste and recovers after read failure", async () => {
+    mount();
+    await screen.findByRole("button", { name: "上传参考图（可选）" });
+    let reject!: (reason: Error) => void;
+    const slow = clipboardImage("slow");
+    Object.defineProperty(slow, "arrayBuffer", {
+      value: () =>
+        new Promise((_resolve, fail) => {
+          reject = fail;
+        }),
+    });
+    pasteImages([slow]);
+    const next = clipboardImage("next");
+    pasteImages([next]);
+    expect(next.arrayBuffer).not.toHaveBeenCalled();
+    await act(async () => reject(new Error("unreadable")));
+    expect(screen.getByRole("status")).toHaveTextContent("读取参考图失败");
+    pasteImages([next]);
+    await screen.findByRole("img", { name: "参考图" });
+  });
+  it.each(["account", "model"])(
+    "discards a delayed clipboard read after changing %s",
+    async (change) => {
+      const view = mount();
+      await screen.findByRole("button", { name: "上传参考图（可选）" });
+      let resolve!: (data: ArrayBuffer) => void;
+      const slow = clipboardImage("slow");
+      Object.defineProperty(slow, "arrayBuffer", {
+        value: () =>
+          new Promise((done) => {
+            resolve = done;
+          }),
+      });
+      pasteImages([slow]);
+      if (change === "account") {
+        mocks.account = { ...mocks.account, userId: "two" };
+        view.rerender(
+          <QueryClientProvider client={client}>
+            <MediaStudioPage />
+          </QueryClientProvider>,
+        );
+        await screen.findByRole("button", { name: "上传参考图（可选）" });
+      } else {
+        fireEvent.change(screen.getByRole("combobox", { name: "生成模型" }), {
+          target: { value: "grok-imagine-image" },
+        });
+      }
+      await act(async () =>
+        resolve(new TextEncoder().encode("old-account").buffer),
+      );
+      expect(
+        screen.queryByRole("img", { name: "参考图" }),
+      ).not.toBeInTheDocument();
+      expect(mocks.submit).not.toHaveBeenCalled();
+    },
+  );
+});
+
 describe("media creation workflow", () => {
   it("saves videos through an MP4 dialog and cancellation never exports", async () => {
     mocks.history.mockResolvedValue([item({ status: "completed" })]);
@@ -257,7 +504,7 @@ describe("media creation workflow", () => {
     fireEvent.change(screen.getByLabelText("选择参考图"), {
       target: { files: Array(5).fill(file) },
     });
-    expect(screen.getByRole("status")).toHaveTextContent("最多4张");
+    expect(screen.getByRole("status")).toHaveTextContent("最多支持 4 张");
     expect(read).not.toHaveBeenCalled();
     Object.defineProperty(file, "size", { value: 9 * 1024 * 1024 });
     fireEvent.change(screen.getByLabelText("选择参考图"), {

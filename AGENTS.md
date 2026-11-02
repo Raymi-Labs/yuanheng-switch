@@ -16,3 +16,9 @@ Read README.md and the existing architecture/build documentation relevant to the
 - Update affected capability-map entries and notes alongside code. Run `bash .agents/verify-notes.sh` plus the existing checks required for the change. Existing architecture, language, build, release and subdirectory rules remain in force.
 
 Project-specific context: pnpm remains the application package manager. Existing Tauri/Rust checks and signed release workflows remain unchanged.
+
+## 模型能力按官方规格开放
+
+- 适配模型时先核对该型号的官方文档及现有服务端协议，按有依据的数量、格式和参数范围开放；不能仅因未做真实生成验收就把官方多图缩成单图或任意收窄。
+- 实际出现不兼容后，再依据具体型号、供应商和失败证据针对性修正；不静默截断用户输入、不自动回退或重发收费请求。
+- 文件真实性、凭据权限和本机解码资源保护继续保留；必须区分官方限制、客户端资源保护和尚未验收范围，不把它们混称模型能力。

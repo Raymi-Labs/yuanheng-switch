@@ -2,6 +2,8 @@
 
 Status: implemented
 
+GPT Image参考图数量、格式及文件大小由[官方多图适配](2026-11-02-gpt-image-multiple-references.md)部分取代：支持最多16图及WebP，每张小于50MB；粘贴追加，切换较小容量型号保留草稿并要求调整。此前GPT单图限制为历史实现，其他能力边界不变。
+
 [Muse多图扩展](2026-10-31-muse-long-multireference.md)允许Muse原始WebP及最多4图，切离Muse仍仅保留首图并提示；作品转草稿PNG处理保持。
 
 后续用户确认后，[Omni720p恢复文生视频](2026-10-31-enable-omni-720p.md)；本篇对此型号的未开放描述为当时边界，图生视频限制不变。

@@ -1,6 +1,41 @@
 // Chinese source, English, Japanese, Korean and Traditional Chinese.
 const rows = [
   [
+    "当前模型最多支持 {{count}} 张参考图。",
+    "This model supports up to {{count}} reference images.",
+    "このモデルは最大{{count}}枚の参照画像に対応します。",
+    "이 모델은 참조 이미지를 최대 {{count}}장 지원합니다.",
+    "目前模型最多支援 {{count}} 張參考圖。",
+  ],
+  [
+    "GPT Image最多16张PNG、JPEG或WebP参考图，每张须小于50MB。",
+    "GPT Image supports up to 16 PNG, JPEG or WebP references, each under 50 MB.",
+    "GPT ImageはPNG/JPEG/WebPの参照画像を最大16枚、各50MB未満で使用できます。",
+    "GPT Image는 장당 50MB 미만의 PNG/JPEG/WebP 참조 이미지를 최대 16장 지원합니다.",
+    "GPT Image最多16張PNG、JPEG或WebP參考圖，每張須小於50MB。",
+  ],
+  [
+    "参考图不符合当前模型的数量、格式或大小要求，请调整后再生成；原图已保留。",
+    "References exceed this model’s count, format or size limits. Adjust them before generating; your images have been kept.",
+    "参照画像がモデルの枚数・形式・サイズ要件を満たしていません。画像は保持されています。調整後に生成してください。",
+    "참조 이미지가 모델의 개수·형식·크기 조건에 맞지 않습니다. 이미지는 유지되며 조정 후 생성할 수 있습니다.",
+    "參考圖不符合目前模型的數量、格式或大小要求，請調整後再生成；原圖已保留。",
+  ],
+  [
+    "也可在此表单按 ⌘V / Ctrl+V 粘贴复制的图片或截图，点击生成后才会上传。",
+    "Paste a copied image or screenshot into this form with ⌘V / Ctrl+V. It uploads only when you click Generate.",
+    "このフォームで ⌘V / Ctrl+V を押して画像やスクリーンショットを貼り付けられます。「生成」を押すまでアップロードされません。",
+    "이 양식에서 ⌘V / Ctrl+V로 복사한 이미지나 스크린샷을 붙여 넣으세요. 생성 버튼을 눌러야 업로드됩니다.",
+    "也可在此表單按 ⌘V / Ctrl+V 貼上複製的圖片或截圖，點擊生成後才會上傳。",
+  ],
+  [
+    "当前模型无法添加参考图，请先选择支持参考图的模型。",
+    "Choose a model that supports reference images before adding an image.",
+    "参照画像に対応するモデルを選択してから画像を追加してください。",
+    "참조 이미지를 지원하는 모델을 먼저 선택하세요.",
+    "目前模型無法新增參考圖，請先選擇支援參考圖的模型。",
+  ],
+  [
     "多图参考为实验功能：已测样本主要采纳首图，第2–4张的效果不保证。",
     "Multiple references are experimental: tested output mainly followed the first image; images 2–4 may not be reflected.",
     "複数参照は実験機能です。検証例は主に最初の画像を反映し、2〜4枚目の効果は保証できません。",
