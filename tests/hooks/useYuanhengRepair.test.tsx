@@ -3,7 +3,10 @@ import { QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { yuanhengApi } from "@/lib/api";
-import { useRepairYuanheng } from "@/lib/query/yuanheng";
+import {
+  useRepairYuanheng,
+  useRotateYuanhengCredential,
+} from "@/lib/query/yuanheng";
 import { createTestQueryClient } from "../utils/testQueryClient";
 
 function wrapper({ children }: { children: ReactNode }) {
@@ -69,17 +72,30 @@ describe("Yuanheng credential repair", () => {
     ]);
   });
 
-  it("repairs configured tool keys without switching official Codex back to relay", async () => {
+  it("does not reconfigure working tools for a generic credential warning", async () => {
     const rotate = vi.spyOn(yuanhengApi, "rotateDeviceToken");
     const { result } = renderHook(() => useRepairYuanheng(), { wrapper });
     await act(async () => {
       await result.current.mutateAsync(["repair_credentials"]);
     });
-    expect(yuanhengApi.configureTools).toHaveBeenCalledWith([
-      "claude",
-      "gemini",
-    ]);
+    expect(yuanhengApi.configureTools).not.toHaveBeenCalled();
     expect(rotate).not.toHaveBeenCalled();
+  });
+
+  it("saves an explicitly selected credential group without touching tool routes", async () => {
+    const status = await yuanhengApi.refresh();
+    const rotate = vi
+      .spyOn(yuanhengApi, "rotateDeviceToken")
+      .mockResolvedValue(status);
+    const { result } = renderHook(() => useRotateYuanhengCredential(), {
+      wrapper,
+    });
+    await act(async () => {
+      await result.current.mutateAsync({ group: "premium", userId: "test" });
+    });
+    expect(rotate).toHaveBeenCalledWith("premium", "test");
+    expect(yuanhengApi.configureTools).not.toHaveBeenCalled();
+    expect(yuanhengApi.getToolStatuses).not.toHaveBeenCalled();
   });
 
   it("does not report success for a partially failed repair", async () => {

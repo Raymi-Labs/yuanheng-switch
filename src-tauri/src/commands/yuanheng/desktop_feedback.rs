@@ -346,11 +346,29 @@ mod tests {
         let state = AppState::new(Arc::new(Database::memory().unwrap()));
         assert!(feedback_session(&state, "42").is_err());
         let status = YuanhengConnectionStatus::default();
-        credential_session::persist(&state, "session=one", "42", "sk-test", 1, &status).unwrap();
+        credential_session::persist(
+            &state,
+            "session=one",
+            "42",
+            "sk-test",
+            1,
+            &status,
+            "default",
+        )
+        .unwrap();
         let session = feedback_session(&state, "42").unwrap();
         assert!(feedback_session(&state, "43").is_err());
         assert!(ensure_session_current(&state, &session).is_ok());
-        credential_session::persist(&state, "session=two", "42", "sk-test", 1, &status).unwrap();
+        credential_session::persist(
+            &state,
+            "session=two",
+            "42",
+            "sk-test",
+            1,
+            &status,
+            "default",
+        )
+        .unwrap();
         assert!(ensure_session_current(&state, &session).is_err());
         assert!(feedback_session(&state, "42").is_ok());
         credential_session::clear(&state).unwrap();

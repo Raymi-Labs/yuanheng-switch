@@ -291,8 +291,11 @@ export const yuanhengApi = {
     return invoke("refresh_yuanheng_connection");
   },
 
-  rotateDeviceToken(): Promise<YuanhengConnectionStatus> {
-    return invoke("rotate_yuanheng_device_token");
+  rotateDeviceToken(
+    group: string,
+    expectedUserId: string,
+  ): Promise<YuanhengConnectionStatus> {
+    return invoke("rotate_yuanheng_device_token", { group, expectedUserId });
   },
 
   signOut(): Promise<boolean> {

@@ -7,6 +7,37 @@ import { DESKTOP_ZH_TW } from "./desktopI18n.zhTW";
 type Values = Record<string, string | number | null | undefined>;
 
 export const DESKTOP_EN: Record<string, string> = {
+  部分检查未通过: "Some checks need attention",
+  配置或修复通用凭据: "Configure or repair general credentials",
+  选择通用凭据分组: "Choose a group for general credentials",
+  通用凭据分组: "General credential group",
+  验证并保存通用凭据: "Verify and save general credentials",
+  "当前没有可用分组，未创建凭据，请联系管理员":
+    "No groups are available. No credential was created. Contact your administrator.",
+  "读取可用分组失败，未创建凭据":
+    "Could not load available groups. No credential was created.",
+  "修复后仍有检查项未通过，请查看详情":
+    "Some checks still need attention after repair. See the details.",
+  "凭据保存后复验未通过，请查看详情；未修改工具配置":
+    "Credential recheck did not pass after saving. See the details. Tool configuration was not changed.",
+  "通用凭据验证通过，工具配置保持不变":
+    "General credentials verified. Tool configuration is unchanged.",
+  "将为通用功能使用所选分组，实际请求按该分组计费；现有工具分组和旧令牌保持不变。是否继续？":
+    "General features will use the selected group and its pricing. Existing tool groups and old tokens stay unchanged. Continue?",
+  "用于声音克隆等通用功能；不改变已配置工具的分组。列表来自当前账号，提交时会再次验证权限。":
+    "Used for general features such as voice cloning. Existing tool groups stay unchanged. Groups come from your current account and permissions are checked again on submission.",
+  "通用凭据未配置（可选）": "General credentials not configured (optional)",
+  "工具使用各自的分组凭据；声音克隆等功能需要时，请选择分组配置通用凭据。":
+    "Tools use their own group credentials. Choose a group for general credentials when needed for features such as voice cloning.",
+  通用凭据分组需要重新选择: "Choose an available general credential group",
+  "原分组已不在当前可用列表中，或旧配置未记录分组；正常工具配置保持不变。":
+    "The previous group is unavailable or was not recorded. Working tool configuration is unchanged.",
+  "通用凭据访问被拒绝（403）": "General credential access denied (403)",
+  "通用凭据认证失败（401）": "General credential authentication failed (401)",
+  "请核对分组权限或网关限制；403 不代表令牌过期。工具分组凭据单独检查，正常配置保持不变。":
+    "Check group permissions or gateway restrictions. A 403 does not prove token expiration. Tool credentials are checked separately; working configurations stay unchanged.",
+  "通用凭据未通过认证，请选择有效分组重新配置；正常工具配置保持不变。":
+    "General credentials failed authentication. Choose an available group to configure them again. Working tools stay unchanged.",
   与官方价格一致: "Same as official pricing",
   "比官方价格低 {{percent}}%": "{{percent}}% below official pricing",
   "比官方价格高 {{percent}}%": "{{percent}}% above official pricing",

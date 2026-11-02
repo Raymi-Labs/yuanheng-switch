@@ -339,9 +339,7 @@ export function useRepairYuanheng() {
         .filter(
           (item) =>
             item.needsUpdate ||
-            ((actions.includes("repair_tools") ||
-              actions.includes("repair_credentials")) &&
-              item.configured),
+            (actions.includes("repair_tools") && item.configured),
         )
         .map((item) => item.app);
       if (apps.length > 0) {
@@ -367,34 +365,21 @@ export function useRepairYuanheng() {
 export function useRotateYuanhengCredential() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async () => {
-      const connection = await yuanhengApi.rotateDeviceToken();
-      const statuses = await yuanhengApi.getToolStatuses();
-      const codexMode = await yuanhengApi.getCodexAccountMode();
-      const apps = statuses
-        .filter(
-          (item) =>
-            !(
-              codexMode.mode === "official" &&
-              (item.app === "codex" || item.app === "chatgpt-desktop")
-            ),
-        )
-        .filter((item) => item.needsUpdate || item.configured)
-        .map((item) => item.app);
-      if (apps.length > 0) {
-        const results = await yuanhengApi.configureTools(apps);
-        const failed = results.filter((item) => !item.configured);
-        if (failed.length)
-          throw new Error(
-            failed.map((item) => item.error || item.app).join("；"),
-          );
-      }
-      return { connection, updatedTools: apps };
+    mutationFn: async ({
+      group,
+      userId,
+    }: {
+      group: string;
+      userId: string;
+    }) => {
+      const connection = await yuanhengApi.rotateDeviceToken(group, userId);
+      return { connection };
     },
-    onSuccess: ({ connection }) => {
+    onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: platformPricingKey });
       queryClient.invalidateQueries({ queryKey: usageKeys.all });
-      queryClient.setQueryData(yuanhengKeys.connection, connection);
+      // A reply from an earlier account must not repopulate the current cache.
+      queryClient.invalidateQueries({ queryKey: yuanhengKeys.connection });
       queryClient.invalidateQueries({ queryKey: yuanhengKeys.tools });
       queryClient.invalidateQueries({ queryKey: yuanhengKeys.diagnostics });
     },
