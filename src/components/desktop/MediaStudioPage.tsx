@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ClipboardEvent } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Download,
@@ -75,6 +75,7 @@ export function MediaStudioContent({ scope }: { scope: string }) {
   const submitLock = useRef(false);
   const actionLock = useRef(false);
   const readSequence = useRef(0);
+  const readLock = useRef(false);
   const stagedReference = useRef<{ model: string; data: string } | null>(null);
   const activeUrl = useRef<string | null>(null);
   const available = (models.data ?? []).filter((m) => m.kind === kind);
@@ -125,6 +126,7 @@ export function MediaStudioContent({ scope }: { scope: string }) {
       setMessage(dt("此模型仅接受一张参考图，已保留首图并移除其他图片。"));
     }
     setReading(false);
+    readLock.current = false;
     readSequence.current++;
     if (fileInput.current) fileInput.current.value = "";
   }, [model]);
@@ -180,8 +182,16 @@ export function MediaStudioContent({ scope }: { scope: string }) {
   }, [waiting, scope]);
 
   const pick = async (files: File[]) => {
+    if (
+      !files.length ||
+      readLock.current ||
+      submitLock.current ||
+      actionLock.current ||
+      !selected ||
+      selected.reference === "none"
+    )
+      return;
     const sequence = ++readSequence.current;
-    if (!files.length) return;
     const existing = isMuse ? referenceList : [];
     if (files.length + existing.length > (isMuse ? 4 : 1)) {
       setMessage(dt("Muse最多4张参考图，其他模型最多1张。"));
@@ -219,6 +229,7 @@ export function MediaStudioContent({ scope }: { scope: string }) {
       setMessage(dt("Muse支持PNG、JPEG、WebP，单张最多10MB，总计最多24MB。"));
       return;
     }
+    readLock.current = true;
     setReading(true);
     try {
       const next = [...existing];
@@ -237,8 +248,34 @@ export function MediaStudioContent({ scope }: { scope: string }) {
       if (alive.current && readSequence.current === sequence)
         setMessage(dt("读取参考图失败"));
     } finally {
-      if (alive.current && readSequence.current === sequence) setReading(false);
+      if (alive.current && readSequence.current === sequence) {
+        readLock.current = false;
+        setReading(false);
+      }
     }
+  };
+
+  const pasteReference = (event: ClipboardEvent<HTMLFormElement>) => {
+    // Only consume images explicitly pasted into the creation form. Text and
+    // copied URLs retain their normal editing behavior; never fetch HTML images.
+    const files = Array.from(event.clipboardData.files).filter((file) =>
+      file.type.startsWith("image/"),
+    );
+    if (!files.length) {
+      for (const item of Array.from(event.clipboardData.items)) {
+        if (item.kind !== "file" || !item.type.startsWith("image/")) continue;
+        const file = item.getAsFile();
+        if (file) files.push(file);
+      }
+    }
+    if (!files.length) return;
+    event.preventDefault();
+    if (readLock.current || submitLock.current || actionLock.current) return;
+    if (!selected || selected.reference === "none") {
+      setMessage(dt("当前模型无法添加参考图，请先选择支持参考图的模型。"));
+      return;
+    }
+    void pick(files);
   };
 
   const generate = async () => {
@@ -249,6 +286,7 @@ export function MediaStudioContent({ scope }: { scope: string }) {
       !prompt.trim() ||
       Array.from(prompt).length > promptLimit ||
       (kind === "video" && !selected.durations.includes(duration ?? 0)) ||
+      readLock.current ||
       reading ||
       models.isError
     )
@@ -421,6 +459,7 @@ export function MediaStudioContent({ scope }: { scope: string }) {
       <div className="grid gap-5 xl:grid-cols-[minmax(280px,1fr)_minmax(300px,1.3fr)]">
         <form
           ref={formRef}
+          onPaste={pasteReference}
           className="space-y-4 rounded-2xl border bg-card p-5"
           onSubmit={(e) => {
             e.preventDefault();
@@ -536,6 +575,11 @@ export function MediaStudioContent({ scope }: { scope: string }) {
                     : "上传参考图（可选）",
                 )}
               </Button>
+              <p className="text-xs text-muted-foreground">
+                {dt(
+                  "也可在此表单按 ⌘V / Ctrl+V 粘贴复制的图片或截图，点击生成后才会上传。",
+                )}
+              </p>
               {referenceList.map((raw, index) => (
                 <div
                   key={`${index}-${raw.slice(-16)}`}

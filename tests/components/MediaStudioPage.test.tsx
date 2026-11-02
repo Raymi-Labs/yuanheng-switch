@@ -125,6 +125,203 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
+function clipboardImage(value: string, type = "image/png") {
+  const file = new File([value], "clipboard.png", { type });
+  Object.defineProperty(file, "arrayBuffer", {
+    value: vi.fn(async () => new TextEncoder().encode(value).buffer),
+    configurable: true,
+  });
+  return file;
+}
+function pasteImages(files: File[], itemsOnly = false) {
+  return fireEvent.paste(screen.getByRole("textbox"), {
+    clipboardData: {
+      files: itemsOnly ? [] : files,
+      items: files.map((file) => ({
+        kind: "file",
+        type: file.type,
+        getAsFile: () => file,
+      })),
+    },
+  });
+}
+
+describe("reference image paste", () => {
+  it("stages clipboard images, replaces single references, and submits only on Generate", async () => {
+    mount();
+    await screen.findByRole("option", { name: "gpt-image-2.5-sunburst" });
+    fireEvent.change(screen.getByRole("textbox"), {
+      target: { value: "existing prompt" },
+    });
+    expect(pasteImages([clipboardImage("first")])).toBe(false);
+    expect(await screen.findByRole("img", { name: "参考图" })).toHaveAttribute(
+      "src",
+      `data:image/png;base64,${btoa("first")}`,
+    );
+    pasteImages([clipboardImage("second")], true);
+    await waitFor(() =>
+      expect(screen.getByRole("img", { name: "参考图" })).toHaveAttribute(
+        "src",
+        `data:image/png;base64,${btoa("second")}`,
+      ),
+    );
+    expect(screen.getByRole("textbox")).toHaveValue("existing prompt");
+    expect(mocks.submit).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "生成" }));
+    await waitFor(() => expect(mocks.submit).toHaveBeenCalledTimes(1));
+    expect(mocks.submit.mock.calls[0][0].reference).toBe(
+      `data:image/png;base64,${btoa("second")}`,
+    );
+  });
+  it("leaves text and HTML-only clipboard events to the editor", async () => {
+    mount();
+    await screen.findByRole("option", { name: "gpt-image-2.5-sunburst" });
+    expect(
+      fireEvent.paste(screen.getByRole("textbox"), {
+        clipboardData: {
+          files: [],
+          items: [{ kind: "string", type: "text/html" }],
+          getData: () => '<img src="https://example.com/image.png">',
+        },
+      }),
+    ).toBe(true);
+    expect(
+      screen.queryByRole("img", { name: "参考图" }),
+    ).not.toBeInTheDocument();
+    expect(mocks.submit).not.toHaveBeenCalled();
+  });
+  it("appends Muse clipboard images in order, without duplicating files and items", async () => {
+    mount();
+    await screen.findByRole("option", { name: "gpt-image-2.5-sunburst" });
+    fireEvent.click(screen.getByRole("tab", { name: "视频生成" }));
+    await screen.findByRole("option", { name: "muse-video" });
+    pasteImages([clipboardImage("one")]);
+    await screen.findByRole("img", { name: "参考图" });
+    pasteImages([clipboardImage("two", "image/webp"), clipboardImage("three")]);
+    await screen.findByRole("img", { name: "参考图 3" });
+    expect(
+      screen.queryByRole("img", { name: "参考图 4" }),
+    ).not.toBeInTheDocument();
+    const excess = clipboardImage("excess");
+    pasteImages([excess, excess]);
+    expect(screen.getByRole("status")).toHaveTextContent("最多4张");
+    expect(excess.arrayBuffer).not.toHaveBeenCalled();
+    fireEvent.change(screen.getByRole("textbox"), {
+      target: { value: "move" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "生成" }));
+    await waitFor(() => expect(mocks.submit).toHaveBeenCalledTimes(1));
+    expect(mocks.submit.mock.calls[0][0].images).toEqual([
+      `data:image/png;base64,${btoa("one")}`,
+      `data:image/webp;base64,${btoa("two")}`,
+      `data:image/png;base64,${btoa("three")}`,
+    ]);
+  });
+  it("preserves the draft on unsupported formats or oversize clipboard images", async () => {
+    mount();
+    await screen.findByRole("option", { name: "gpt-image-2.5-sunburst" });
+    pasteImages([clipboardImage("keep")]);
+    await screen.findByRole("img", { name: "参考图" });
+    const invalid = clipboardImage("bad", "image/gif");
+    const large = clipboardImage("large");
+    Object.defineProperty(large, "size", { value: 10 * 1024 * 1024 + 1 });
+    for (const file of [invalid, large]) {
+      pasteImages([file]);
+      expect(screen.getByRole("status")).toHaveTextContent("10 MB");
+      expect(file.arrayBuffer).not.toHaveBeenCalled();
+      expect(screen.getByRole("img", { name: "参考图" })).toHaveAttribute(
+        "src",
+        `data:image/png;base64,${btoa("keep")}`,
+      );
+    }
+  });
+  it("blocks paste for text-only models and during submission", async () => {
+    mount();
+    await screen.findByRole("option", { name: "gpt-image-2.5-sunburst" });
+    fireEvent.change(screen.getByRole("combobox", { name: "生成模型" }), {
+      target: { value: "grok-imagine-image" },
+    });
+    const image = clipboardImage("blocked");
+    pasteImages([image]);
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "当前模型无法添加参考图",
+    );
+    fireEvent.change(screen.getByRole("combobox", { name: "生成模型" }), {
+      target: { value: "gpt-image-2.5-sunburst" },
+    });
+    fireEvent.change(screen.getByRole("textbox"), {
+      target: { value: "test" },
+    });
+    let finish!: (record: MediaRecord) => void;
+    mocks.submit.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "生成" }));
+    pasteImages([image]);
+    expect(image.arrayBuffer).not.toHaveBeenCalled();
+    await act(async () => finish(item({ status: "failed" })));
+  });
+  it("does not cancel an in-flight read on rapid paste and recovers after read failure", async () => {
+    mount();
+    await screen.findByRole("option", { name: "gpt-image-2.5-sunburst" });
+    let reject!: (reason: Error) => void;
+    const slow = clipboardImage("slow");
+    Object.defineProperty(slow, "arrayBuffer", {
+      value: () =>
+        new Promise((_resolve, fail) => {
+          reject = fail;
+        }),
+    });
+    pasteImages([slow]);
+    const next = clipboardImage("next");
+    pasteImages([next]);
+    expect(next.arrayBuffer).not.toHaveBeenCalled();
+    await act(async () => reject(new Error("unreadable")));
+    expect(screen.getByRole("status")).toHaveTextContent("读取参考图失败");
+    pasteImages([next]);
+    await screen.findByRole("img", { name: "参考图" });
+  });
+  it.each(["account", "model"])(
+    "discards a delayed clipboard read after changing %s",
+    async (change) => {
+      const view = mount();
+      await screen.findByRole("option", { name: "gpt-image-2.5-sunburst" });
+      let resolve!: (data: ArrayBuffer) => void;
+      const slow = clipboardImage("slow");
+      Object.defineProperty(slow, "arrayBuffer", {
+        value: () =>
+          new Promise((done) => {
+            resolve = done;
+          }),
+      });
+      pasteImages([slow]);
+      if (change === "account") {
+        mocks.account = { ...mocks.account, userId: "two" };
+        view.rerender(
+          <QueryClientProvider client={client}>
+            <MediaStudioPage />
+          </QueryClientProvider>,
+        );
+        await screen.findByRole("option", { name: "gpt-image-2.5-sunburst" });
+      } else {
+        fireEvent.change(screen.getByRole("combobox", { name: "生成模型" }), {
+          target: { value: "grok-imagine-image" },
+        });
+      }
+      await act(async () =>
+        resolve(new TextEncoder().encode("old-account").buffer),
+      );
+      expect(
+        screen.queryByRole("img", { name: "参考图" }),
+      ).not.toBeInTheDocument();
+      expect(mocks.submit).not.toHaveBeenCalled();
+    },
+  );
+});
+
 describe("media creation workflow", () => {
   it("saves videos through an MP4 dialog and cancellation never exports", async () => {
     mocks.history.mockResolvedValue([item({ status: "completed" })]);

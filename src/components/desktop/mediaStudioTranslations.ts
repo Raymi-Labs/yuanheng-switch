@@ -1,6 +1,20 @@
 // Chinese source, English, Japanese, Korean and Traditional Chinese.
 const rows = [
   [
+    "也可在此表单按 ⌘V / Ctrl+V 粘贴复制的图片或截图，点击生成后才会上传。",
+    "Paste a copied image or screenshot into this form with ⌘V / Ctrl+V. It uploads only when you click Generate.",
+    "このフォームで ⌘V / Ctrl+V を押して画像やスクリーンショットを貼り付けられます。「生成」を押すまでアップロードされません。",
+    "이 양식에서 ⌘V / Ctrl+V로 복사한 이미지나 스크린샷을 붙여 넣으세요. 생성 버튼을 눌러야 업로드됩니다.",
+    "也可在此表單按 ⌘V / Ctrl+V 貼上複製的圖片或截圖，點擊生成後才會上傳。",
+  ],
+  [
+    "当前模型无法添加参考图，请先选择支持参考图的模型。",
+    "Choose a model that supports reference images before adding an image.",
+    "参照画像に対応するモデルを選択してから画像を追加してください。",
+    "참조 이미지를 지원하는 모델을 먼저 선택하세요.",
+    "目前模型無法新增參考圖，請先選擇支援參考圖的模型。",
+  ],
+  [
     "多图参考为实验功能：已测样本主要采纳首图，第2–4张的效果不保证。",
     "Multiple references are experimental: tested output mainly followed the first image; images 2–4 may not be reflected.",
     "複数参照は実験機能です。検証例は主に最初の画像を反映し、2〜4枚目の効果は保証できません。",
