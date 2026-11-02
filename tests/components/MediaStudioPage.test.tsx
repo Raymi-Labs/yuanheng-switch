@@ -149,7 +149,7 @@ function pasteImages(files: File[], itemsOnly = false) {
 describe("reference image paste", () => {
   it("appends GPT clipboard images and submits only on Generate", async () => {
     mount();
-    await screen.findByRole("option", { name: "gpt-image-2.5-sunburst" });
+    await screen.findByRole("button", { name: "上传参考图（可选）" });
     fireEvent.change(screen.getByRole("textbox"), {
       target: { value: "existing prompt" },
     });
@@ -179,7 +179,7 @@ describe("reference image paste", () => {
   });
   it("accepts sixteen GPT references via upload/paste and retains them when switching to Muse", async () => {
     mount();
-    await screen.findByRole("option", { name: "gpt-image-2.5-sunburst" });
+    await screen.findByRole("button", { name: "上传参考图（可选）" });
     const files = Array.from({ length: 15 }, (_, i) =>
       clipboardImage(String(i)),
     );
@@ -198,11 +198,17 @@ describe("reference image paste", () => {
     });
     fireEvent.click(screen.getByRole("tab", { name: "视频生成" }));
     await screen.findByRole("option", { name: "muse-video" });
+    await waitFor(() =>
+      expect(screen.getByLabelText("选择参考图")).toHaveAttribute(
+        "accept",
+        "image/png,image/jpeg,image/webp",
+      ),
+    );
     expect(screen.getByRole("img", { name: "参考图 16" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "生成" })).toBeDisabled();
     expect(screen.getByRole("alert")).toHaveTextContent("原图已保留");
     fireEvent.click(screen.getByRole("tab", { name: "图片生成" }));
-    await screen.findByRole("option", { name: "gpt-image-2.5-sunburst" });
+    await screen.findByRole("button", { name: "上传参考图（可选）" });
     fireEvent.click(screen.getAllByRole("button", { name: "前移" })[0]);
     fireEvent.click(screen.getByRole("button", { name: "生成" }));
     await waitFor(() => expect(mocks.submit).toHaveBeenCalledTimes(1));
@@ -213,7 +219,7 @@ describe("reference image paste", () => {
   });
   it("leaves text and HTML-only clipboard events to the editor", async () => {
     mount();
-    await screen.findByRole("option", { name: "gpt-image-2.5-sunburst" });
+    await screen.findByRole("button", { name: "上传参考图（可选）" });
     expect(
       fireEvent.paste(screen.getByRole("textbox"), {
         clipboardData: {
@@ -230,9 +236,15 @@ describe("reference image paste", () => {
   });
   it("appends Muse clipboard images in order, without duplicating files and items", async () => {
     mount();
-    await screen.findByRole("option", { name: "gpt-image-2.5-sunburst" });
+    await screen.findByRole("button", { name: "上传参考图（可选）" });
     fireEvent.click(screen.getByRole("tab", { name: "视频生成" }));
     await screen.findByRole("option", { name: "muse-video" });
+    await waitFor(() =>
+      expect(screen.getByLabelText("选择参考图")).toHaveAttribute(
+        "accept",
+        "image/png,image/jpeg,image/webp",
+      ),
+    );
     pasteImages([clipboardImage("one")]);
     await screen.findByRole("img", { name: "参考图" });
     pasteImages([clipboardImage("two", "image/webp"), clipboardImage("three")]);
@@ -257,7 +269,7 @@ describe("reference image paste", () => {
   });
   it("preserves the draft on unsupported formats or oversize clipboard images", async () => {
     mount();
-    await screen.findByRole("option", { name: "gpt-image-2.5-sunburst" });
+    await screen.findByRole("button", { name: "上传参考图（可选）" });
     pasteImages([clipboardImage("keep")]);
     await screen.findByRole("img", { name: "参考图" });
     const invalid = clipboardImage("bad", "image/gif");
@@ -275,7 +287,7 @@ describe("reference image paste", () => {
   });
   it("blocks paste for text-only models and during submission", async () => {
     mount();
-    await screen.findByRole("option", { name: "gpt-image-2.5-sunburst" });
+    await screen.findByRole("button", { name: "上传参考图（可选）" });
     fireEvent.change(screen.getByRole("combobox", { name: "生成模型" }), {
       target: { value: "grok-imagine-image" },
     });
@@ -304,7 +316,7 @@ describe("reference image paste", () => {
   });
   it("does not cancel an in-flight read on rapid paste and recovers after read failure", async () => {
     mount();
-    await screen.findByRole("option", { name: "gpt-image-2.5-sunburst" });
+    await screen.findByRole("button", { name: "上传参考图（可选）" });
     let reject!: (reason: Error) => void;
     const slow = clipboardImage("slow");
     Object.defineProperty(slow, "arrayBuffer", {
@@ -326,7 +338,7 @@ describe("reference image paste", () => {
     "discards a delayed clipboard read after changing %s",
     async (change) => {
       const view = mount();
-      await screen.findByRole("option", { name: "gpt-image-2.5-sunburst" });
+      await screen.findByRole("button", { name: "上传参考图（可选）" });
       let resolve!: (data: ArrayBuffer) => void;
       const slow = clipboardImage("slow");
       Object.defineProperty(slow, "arrayBuffer", {
@@ -343,7 +355,7 @@ describe("reference image paste", () => {
             <MediaStudioPage />
           </QueryClientProvider>,
         );
-        await screen.findByRole("option", { name: "gpt-image-2.5-sunburst" });
+        await screen.findByRole("button", { name: "上传参考图（可选）" });
       } else {
         fireEvent.change(screen.getByRole("combobox", { name: "生成模型" }), {
           target: { value: "grok-imagine-image" },
