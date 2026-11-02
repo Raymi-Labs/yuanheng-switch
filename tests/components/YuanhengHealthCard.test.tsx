@@ -1,29 +1,41 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { YuanhengHealthCard } from "@/components/desktop/YuanhengHealthCard";
-const { diagnostics, api, clipboard, toast, account } = vi.hoisted(() => ({
-  diagnostics: {
-    data: undefined as any,
-    isLoading: false,
-    isError: false,
-    isFetching: false,
-    refetch: vi.fn(),
-  },
-  api: {
-    getDiagnosticSnapshot: vi.fn(),
-    exportDiagnostics: vi.fn(),
-    saveFileDialog: vi.fn(),
-  },
-  clipboard: vi.fn(),
-  toast: { success: vi.fn(), error: vi.fn(), warning: vi.fn(), info: vi.fn() },
-  account: { userId: "user-one", lastSyncedAt: 1, connected: true },
-}));
+const { diagnostics, api, clipboard, toast, account, rotate, repair } =
+  vi.hoisted(() => ({
+    rotate: vi.fn(),
+    repair: vi.fn(),
+    diagnostics: {
+      data: undefined as any,
+      isLoading: false,
+      isError: false,
+      isFetching: false,
+      refetch: vi.fn(),
+    },
+    api: {
+      getDiagnosticSnapshot: vi.fn(),
+      exportDiagnostics: vi.fn(),
+      saveFileDialog: vi.fn(),
+      refresh: vi.fn(),
+    },
+    clipboard: vi.fn(),
+    toast: {
+      success: vi.fn(),
+      error: vi.fn(),
+      warning: vi.fn(),
+      info: vi.fn(),
+    },
+    account: { userId: "user-one", lastSyncedAt: 1, connected: true },
+  }));
 vi.mock("@/lib/query/yuanheng", () => ({
   useYuanhengConnection: () => ({ data: account }),
   useYuanhengDiagnostics: () => diagnostics,
-  useRepairYuanheng: () => ({ isPending: false }),
+  useRepairYuanheng: () => ({ isPending: false, mutateAsync: repair }),
   useRollbackYuanhengTools: () => ({ isPending: false }),
-  useRotateYuanhengCredential: () => ({ isPending: false }),
+  useRotateYuanhengCredential: () => ({
+    isPending: false,
+    mutateAsync: rotate,
+  }),
 }));
 vi.mock("@/lib/api", () => ({ yuanhengApi: api, settingsApi: api }));
 vi.mock("@/lib/clipboard", () => ({ copyText: clipboard }));
@@ -62,6 +74,11 @@ describe("diagnostic snapshots", () => {
     api.getDiagnosticSnapshot.mockResolvedValue(safe);
     api.exportDiagnostics.mockResolvedValue("/tmp/report.json");
     api.saveFileDialog.mockResolvedValue("/tmp/report.json");
+    api.refresh.mockResolvedValue({
+      userId: "user-one",
+      groups: [{ id: "premium", description: "优质" }],
+    });
+    rotate.mockResolvedValue({ connection: account });
   });
   it("the nearby diagnostic entry never presents repair/rotation/rollback actions", async () => {
     diagnostics.data.status = "error";
@@ -80,7 +97,7 @@ describe("diagnostic snapshots", () => {
       screen.queryByRole("button", { name: "一键修复" }),
     ).not.toBeInTheDocument();
     expect(
-      screen.queryByRole("button", { name: "重新生成本机凭据" }),
+      screen.queryByRole("button", { name: "配置或修复通用凭据" }),
     ).not.toBeInTheDocument();
     expect(
       screen.queryByRole("button", { name: "恢复接管前配置" }),
@@ -125,5 +142,61 @@ describe("diagnostic snapshots", () => {
     fireEvent.click(screen.getByRole("button", { name: "重新检查" }));
     await waitFor(() => expect(toast.warning).toHaveBeenCalled());
     expect(toast.success).not.toHaveBeenCalled();
+  });
+
+  it("requires explicit live group choice and never reports success for a failed recheck", async () => {
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    render(<YuanhengHealthCard initiallyExpanded />);
+    fireEvent.click(screen.getByRole("button", { name: "配置或修复通用凭据" }));
+    const select = await screen.findByRole("combobox", {
+      name: "通用凭据分组",
+    });
+    expect(
+      screen.getByRole("button", { name: "验证并保存通用凭据" }),
+    ).toBeDisabled();
+    expect(
+      screen.queryByRole("option", { name: /default/ }),
+    ).not.toBeInTheDocument();
+    fireEvent.change(select, { target: { value: "premium" } });
+    fireEvent.click(screen.getByRole("button", { name: "验证并保存通用凭据" }));
+    await waitFor(() =>
+      expect(rotate).toHaveBeenCalledWith({
+        group: "premium",
+        userId: "user-one",
+      }),
+    );
+    await waitFor(() => expect(toast.warning).toHaveBeenCalled());
+    expect(toast.success).not.toHaveBeenCalled();
+    expect(repair).not.toHaveBeenCalled();
+  });
+
+  it("failed group refresh does not use cached groups or create a credential", async () => {
+    api.refresh.mockRejectedValue(new Error("网络暂不可用"));
+    render(<YuanhengHealthCard initiallyExpanded />);
+    fireEvent.click(screen.getByRole("button", { name: "配置或修复通用凭据" }));
+    await waitFor(() => expect(toast.error).toHaveBeenCalled());
+    expect(screen.queryByRole("combobox")).not.toBeInTheDocument();
+    expect(rotate).not.toHaveBeenCalled();
+  });
+
+  it("discard group choices when the account changes while loading", async () => {
+    let resolve!: (value: unknown) => void;
+    api.refresh.mockReturnValue(
+      new Promise((done) => {
+        resolve = done;
+      }),
+    );
+    const view = render(<YuanhengHealthCard initiallyExpanded />);
+    fireEvent.click(screen.getByRole("button", { name: "配置或修复通用凭据" }));
+    account.userId = "user-two";
+    view.rerender(<YuanhengHealthCard initiallyExpanded />);
+    resolve({ userId: "user-one", groups: [{ id: "premium" }] });
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: "配置或修复通用凭据" }),
+      ).not.toBeDisabled(),
+    );
+    expect(screen.queryByRole("combobox")).not.toBeInTheDocument();
+    expect(rotate).not.toHaveBeenCalled();
   });
 });

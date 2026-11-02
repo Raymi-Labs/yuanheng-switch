@@ -110,8 +110,9 @@ pub(super) fn persist(
     api_token: &str,
     api_token_id: i64,
     status: &YuanhengConnectionStatus,
+    group: &str,
 ) -> Result<(), String> {
-    if [session_cookie, user_id, api_token]
+    if [session_cookie, user_id]
         .iter()
         .any(|value| value.is_empty())
     {
@@ -139,12 +140,6 @@ pub(super) fn persist(
     status.user_id = Some(user_id.into());
     status.session_only = !persisted;
     let cached = serde_json::to_string(&status).map_err(|_| "无法保存账号状态")?;
-    let group = status
-        .account
-        .as_ref()
-        .map(|a| a.group.trim())
-        .filter(|s| !s.is_empty())
-        .unwrap_or("default");
     let token_id = api_token_id.to_string();
     let mut changes = vec![
         (SELECTOR, Some(selected)),

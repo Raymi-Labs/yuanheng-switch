@@ -3,6 +3,7 @@ mod account_http;
 #[cfg(any(target_os = "macos", test))]
 pub(crate) mod credential_session;
 mod desktop_feedback;
+mod device_credentials;
 mod dsh;
 mod imagegen;
 mod imagegen_connection;
@@ -520,7 +521,7 @@ pub(crate) fn migrate_legacy_yuanheng_secrets(state: &AppState) -> Result<(), St
 }
 
 /// 读取认证凭据，并兼容尚未执行启动迁移的旧安装。
-fn get_yuanheng_secret(state: &AppState, key: &str) -> Result<Option<String>, String> {
+pub(super) fn get_yuanheng_secret(state: &AppState, key: &str) -> Result<Option<String>, String> {
     #[cfg(any(target_os = "macos", test))]
     {
         if key == PENDING_SESSION_COOKIE_KEY {
@@ -1277,6 +1278,7 @@ fn tool_uses_legacy_endpoint(state: &AppState, app_name: &str, model: &str) -> b
 }
 
 async fn ensure_device_api_token(
+    state: &AppState,
     client: &reqwest::Client,
     session_cookie: &str,
     user_id: &str,
@@ -1284,58 +1286,27 @@ async fn ensure_device_api_token(
 ) -> Result<(String, i64), String> {
     let detected_name = crate::services::sync_protocol::detect_system_device_name();
     let token_name = device_token_name(detected_name.as_deref());
-    ensure_named_api_token(client, session_cookie, user_id, group, &token_name).await
+    ensure_named_api_token(state, client, session_cookie, user_id, group, &token_name).await
 }
 
 async fn ensure_named_api_token(
+    state: &AppState,
     client: &reqwest::Client,
     session_cookie: &str,
     user_id: &str,
     group: &str,
     token_name: &str,
 ) -> Result<(String, i64), String> {
-    let list_url = format!("{BASE_URL}/api/token/?p=1&size=100");
-    let mut list = fetch_json(client, &list_url, Some(session_cookie), Some(user_id)).await?;
-    ensure_api_success(&list, "读取元衡工具凭据失败")?;
-    let now = chrono::Utc::now().timestamp();
-    let token_id = if let Some(id) = find_device_token_id(&list, token_name, group, now) {
-        id
-    } else {
-        let (created, _) = post_json(
-            client,
-            &format!("{BASE_URL}/api/token/"),
-            &json!({
-                "name": token_name,
-                "expired_time": -1,
-                "remain_quota": 0,
-                "unlimited_quota": true,
-                "model_limits_enabled": false,
-                "group": group
-            }),
-            Some(session_cookie),
-            Some(user_id),
-        )
-        .await?;
-        ensure_api_success(&created, "创建本机工具凭据失败")?;
-        list = fetch_json(client, &list_url, Some(session_cookie), Some(user_id)).await?;
-        ensure_api_success(&list, "读取新建工具凭据失败")?;
-        find_device_token_id(&list, token_name, group, now)
-            .ok_or_else(|| "本机工具凭据已创建，但未能读取凭据编号".to_string())?
-    };
-
-    let key_value = fetch_json(
+    device_credentials::ensure_at(
+        state,
         client,
-        &format!("{BASE_URL}/api/token/{token_id}/key"),
-        Some(session_cookie),
-        Some(user_id),
+        BASE_URL,
+        session_cookie,
+        user_id,
+        group,
+        token_name,
     )
-    .await?;
-    ensure_api_success(&key_value, "读取本机工具凭据失败")?;
-    let key = key_value
-        .pointer("/data/key")
-        .and_then(Value::as_str)
-        .ok_or_else(|| "元衡工具凭据响应缺少 key".to_string())?;
-    Ok((normalize_api_token(key)?, token_id))
+    .await
 }
 
 fn fallback_reasoning_levels(model: &str) -> Vec<String> {
@@ -1393,24 +1364,14 @@ async fn sync_connection(
         collect_model_names(pricing, &mut model_names);
     }
 
-    let groups_result = fetch_json(
+    let groups = fetch_json(
         client,
         &format!("{BASE_URL}/api/user/self/groups"),
         Some(session_cookie),
         Some(user_id),
     )
     .await
-    .and_then(|value| parse_user_groups(&value));
-    if let Err(error) = &groups_result {
-        log::warn!("元衡账号分组同步失败，使用当前分组回退: {error}");
-    }
-    let groups = groups_result.unwrap_or_else(|_| {
-        vec![YuanhengGroupOption {
-            id: account.group.clone(),
-            description: "当前账号分组".to_string(),
-            ratio: None,
-        }]
-    });
+    .and_then(|value| parse_user_groups(&value))?;
 
     match fetch_user_models(client, session_cookie, user_id, None).await {
         Ok(models) if !models.is_empty() => {
@@ -1485,6 +1446,7 @@ async fn sync_connection(
     })
 }
 
+#[cfg(test)]
 fn persist_connection(
     state: &AppState,
     session_cookie: &str,
@@ -1492,6 +1454,31 @@ fn persist_connection(
     api_token: &str,
     api_token_id: i64,
     status: &YuanhengConnectionStatus,
+) -> Result<(), String> {
+    let group = status
+        .account
+        .as_ref()
+        .map(|a| a.group.as_str())
+        .unwrap_or("");
+    persist_connection_for_group(
+        state,
+        session_cookie,
+        user_id,
+        api_token,
+        api_token_id,
+        status,
+        group,
+    )
+}
+
+fn persist_connection_for_group(
+    state: &AppState,
+    session_cookie: &str,
+    user_id: &str,
+    api_token: &str,
+    api_token_id: i64,
+    status: &YuanhengConnectionStatus,
+    api_token_group: &str,
 ) -> Result<(), String> {
     imagegen_connection::account_will_change(&state.db, user_id)?;
     let preserve_accio = match crate::accio_work::load(&state.db) {
@@ -1511,16 +1498,11 @@ fn persist_connection(
             api_token,
             api_token_id,
             status,
+            api_token_group,
         )
     }
     #[cfg(not(any(target_os = "macos", test)))]
     {
-        let api_token_group = status
-            .account
-            .as_ref()
-            .map(|account| account.group.trim())
-            .filter(|group| !group.is_empty())
-            .unwrap_or("default");
         for (key, value) in [
             (SESSION_COOKIE_KEY, session_cookie),
             (USER_ID_KEY, user_id),
@@ -1559,23 +1541,38 @@ async fn finish_authenticated_session(
     client: &reqwest::Client,
     session_cookie: &str,
     user_id: &str,
+    preserve_credential: bool,
 ) -> Result<YuanhengConnectionStatus, String> {
     let status = sync_connection(state, client, session_cookie, user_id).await?;
-    let group = status
-        .account
-        .as_ref()
-        .map(|account| account.group.trim())
-        .filter(|group| !group.is_empty())
-        .unwrap_or("default");
-    let (api_token, api_token_id) =
-        ensure_device_api_token(client, session_cookie, user_id, group).await?;
-    persist_connection(
+    // Login establishes a session, not permission to choose a paid routing group.
+    // Fresh login must not read an old macOS Keychain item before replacing it.
+    let (api_token, api_token_id, group) = if preserve_credential {
+        device_credentials::check_owner(state, session_cookie, user_id)?;
+        (
+            get_yuanheng_secret(state, API_TOKEN_KEY)?.unwrap_or_default(),
+            state
+                .db
+                .get_setting(API_TOKEN_ID_KEY)
+                .map_err(|e| e.to_string())?
+                .and_then(|id| id.parse().ok())
+                .unwrap_or(0),
+            state
+                .db
+                .get_setting(API_TOKEN_GROUP_KEY)
+                .map_err(|e| e.to_string())?
+                .unwrap_or_default(),
+        )
+    } else {
+        (String::new(), 0, String::new())
+    };
+    persist_connection_for_group(
         state,
         session_cookie,
         user_id,
         &api_token,
         api_token_id,
         &status,
+        &group,
     )?;
     #[cfg(any(target_os = "macos", test))]
     {
@@ -1613,7 +1610,8 @@ async fn login_with_credentials(
         });
     }
     let user_id = user_id.ok_or_else(|| "元衡登录响应缺少用户 ID".to_string())?;
-    let status = finish_authenticated_session(state, &client, &session_cookie, &user_id).await?;
+    let status =
+        finish_authenticated_session(state, &client, &session_cookie, &user_id, false).await?;
     Ok(YuanhengAuthResult {
         requires_two_factor: false,
         connection: Some(status),
@@ -1626,9 +1624,8 @@ fn read_cached_status(state: &AppState) -> Result<YuanhengConnectionStatus, Stri
         return Ok(normalize_cached_status(status));
     }
     let session = get_yuanheng_secret(state, SESSION_COOKIE_KEY)?;
-    let token = get_yuanheng_secret(state, API_TOKEN_KEY)?;
     let user_id = get_yuanheng_secret(state, USER_ID_KEY)?;
-    if [session.as_deref(), token.as_deref(), user_id.as_deref()]
+    if [session.as_deref(), user_id.as_deref()]
         .into_iter()
         .any(|value| value.unwrap_or_default().is_empty())
     {
@@ -4811,34 +4808,50 @@ async fn diagnose_yuanheng_inner(state: &AppState) -> Result<YuanhengDiagnosticR
     if api_token.is_empty() {
         checks.push(YuanhengDiagnosticCheck {
             id: "credential".to_string(),
-            status: "error".to_string(),
-            title: "本机凭据缺失".to_string(),
-            message: "可以自动重新创建本机工具凭据。".to_string(),
-            action: Some("repair_credentials".to_string()),
+            status: "ok".to_string(),
+            title: "通用凭据未配置（可选）".to_string(),
+            message: "工具使用各自的分组凭据；声音克隆等功能需要时，请选择分组配置通用凭据。"
+                .to_string(),
+            action: None,
         });
     } else {
-        match verify_api_token(&client, &api_token).await {
-            Ok(()) => checks.push(YuanhengDiagnosticCheck {
-                id: "credential".to_string(),
-                status: "ok".to_string(),
-                title: "API 连接正常".to_string(),
-                message: "本机凭据可访问模型接口。".to_string(),
-                action: None,
-            }),
-            Err(error) if !is_token_rejected(&error) => checks.push(YuanhengDiagnosticCheck {
-                id: "credential".to_string(),
-                status: "warning".to_string(),
-                title: "凭据检查暂未完成".to_string(),
-                message: "网络或模型目录响应异常，不能据此认定令牌失效。".to_string(),
-                action: None,
-            }),
-            Err(_) => checks.push(YuanhengDiagnosticCheck {
-                id: "credential".to_string(),
-                status: "error".to_string(),
-                title: "本机凭据已失效".to_string(),
-                message: "可以自动重新同步本机工具凭据。".to_string(),
-                action: Some("repair_credentials".to_string()),
-            }),
+        let group = state
+            .db
+            .get_setting(API_TOKEN_GROUP_KEY)
+            .map_err(|e| e.to_string())?
+            .unwrap_or_default();
+        let available =
+            device_credentials::groups_at(&client, BASE_URL, &session_cookie, &user_id).await;
+        let group_unavailable = available
+            .as_ref()
+            .is_ok_and(|groups| !groups.iter().any(|item| item.id == group));
+        if group_unavailable {
+            checks.push(YuanhengDiagnosticCheck {
+                id: "credential".into(),
+                status: "warning".into(),
+                title: "通用凭据分组需要重新选择".into(),
+                message: "原分组已不在当前可用列表中，或旧配置未记录分组；正常工具配置保持不变。"
+                    .into(),
+                action: Some("repair_credentials".into()),
+            });
+        } else {
+            match verify_api_token(&client, &api_token).await {
+                Ok(()) => checks.push(YuanhengDiagnosticCheck {
+                    id: "credential".to_string(),
+                    status: "ok".to_string(),
+                    title: "API 连接正常".to_string(),
+                    message: "本机凭据可访问模型接口。".to_string(),
+                    action: None,
+                }),
+                Err(error) if !is_token_rejected(&error) => checks.push(YuanhengDiagnosticCheck {
+                    id: "credential".to_string(),
+                    status: "warning".to_string(),
+                    title: "凭据检查暂未完成".to_string(),
+                    message: "网络或模型目录响应异常，不能据此认定令牌失效。".to_string(),
+                    action: None,
+                }),
+                Err(error) => checks.push(device_credentials::rejected_check(&error)),
+            }
         }
     }
 
@@ -5417,9 +5430,6 @@ pub async fn configure_yuanheng_tools(
     } else {
         None
     };
-    let _control_token = get_yuanheng_secret(&state, API_TOKEN_KEY)?
-        .filter(|value| !value.is_empty())
-        .ok_or_else(|| "请先连接元衡账号".to_string())?;
     let session_cookie = get_yuanheng_secret(&state, SESSION_COOKIE_KEY)?
         .filter(|value| !value.is_empty())
         .ok_or_else(|| "元衡登录状态缺失，请重新登录".to_string())?;
@@ -5580,7 +5590,8 @@ pub async fn configure_yuanheng_tools(
         let token = if let Some(token) = token_cache.get(&group) {
             token.clone()
         } else {
-            match ensure_device_api_token(&client, &session_cookie, &user_id, &group).await {
+            match ensure_device_api_token(&state, &client, &session_cookie, &user_id, &group).await
+            {
                 Ok((token, _)) => {
                     token_cache.insert(group.clone(), token.clone());
                     token
@@ -5622,6 +5633,7 @@ pub async fn configure_yuanheng_tools(
                 continue;
             }
         }
+        device_credentials::check_owner(&state, &session_cookie, &user_id)?;
         if !is_workbuddy
             && matches!(&app, AppType::ClaudeDesktop | AppType::Codex)
             && !state.proxy_service.is_running().await
@@ -5795,7 +5807,8 @@ pub async fn verify_yuanheng_two_factor(
     let session_cookie = extract_cookie(&headers, "session")
         .ok_or_else(|| "两步验证成功，但未返回有效会话".to_string())?;
     let user_id = user_id.ok_or_else(|| "元衡登录响应缺少用户 ID".to_string())?;
-    let status = finish_authenticated_session(&state, &client, &session_cookie, &user_id).await?;
+    let status =
+        finish_authenticated_session(&state, &client, &session_cookie, &user_id, false).await?;
     Ok(YuanhengAuthResult {
         requires_two_factor: false,
         connection: Some(status),
@@ -5813,9 +5826,10 @@ pub async fn refresh_yuanheng_connection(
         .filter(|value| !value.is_empty())
         .ok_or_else(|| "元衡用户 ID 缺失".to_string())?;
     let client = yuanheng_client()?;
-    match finish_authenticated_session(&state, &client, &session_cookie, &user_id).await {
+    match finish_authenticated_session(&state, &client, &session_cookie, &user_id, true).await {
         Ok(status) => Ok(status),
         Err(error) if is_yuanheng_session_auth_error(&error) => {
+            device_credentials::check_owner(&state, &session_cookie, &user_id)?;
             log::warn!("元衡登录会话已失效，清理本机会话缓存: {error}");
             invalidate_yuanheng_session(&state)?;
             Err("元衡登录会话已过期，请重新登录后再同步".to_string())
@@ -5827,6 +5841,8 @@ pub async fn refresh_yuanheng_connection(
 #[tauri::command]
 pub async fn rotate_yuanheng_device_token(
     state: State<'_, AppState>,
+    group: String,
+    expected_user_id: String,
 ) -> Result<YuanhengConnectionStatus, String> {
     let session_cookie = get_yuanheng_secret(&state, SESSION_COOKIE_KEY)?
         .filter(|value| !value.is_empty())
@@ -5834,72 +5850,23 @@ pub async fn rotate_yuanheng_device_token(
     let user_id = get_yuanheng_secret(&state, USER_ID_KEY)?
         .filter(|value| !value.is_empty())
         .ok_or_else(|| "元衡用户 ID 缺失".to_string())?;
-    let previous_token_id = state
-        .db
-        .get_setting(API_TOKEN_ID_KEY)
-        .map_err(|e| e.to_string())?
-        .and_then(|value| value.parse::<i64>().ok());
+    if user_id != expected_user_id {
+        return Err("账号已切换，请重新选择分组".into());
+    }
     let client = yuanheng_client()?;
     let status = sync_connection(&state, &client, &session_cookie, &user_id).await?;
-    let group = status
-        .account
-        .as_ref()
-        .map(|account| account.group.trim())
-        .filter(|group| !group.is_empty())
-        .unwrap_or("default");
     let detected_name = crate::services::sync_protocol::detect_system_device_name();
     let token_name = device_token_name(detected_name.as_deref());
-    let (created, _) = post_json(
-        &client,
-        &format!("{BASE_URL}/api/token/"),
-        &json!({
-            "name": token_name.as_str(),
-            "expired_time": -1,
-            "remain_quota": 0,
-            "unlimited_quota": true,
-            "model_limits_enabled": false,
-            "group": group
-        }),
-        Some(&session_cookie),
-        Some(&user_id),
-    )
-    .await?;
-    ensure_api_success(&created, "重新创建本机凭据失败")?;
-
-    let list = fetch_json(
-        &client,
-        &format!("{BASE_URL}/api/token/?p=1&size=100"),
-        Some(&session_cookie),
-        Some(&user_id),
-    )
-    .await?;
-    ensure_api_success(&list, "读取新建凭据失败")?;
-    let now = chrono::Utc::now().timestamp();
-    let token_id = find_device_token_id(&list, &token_name, group, now)
-        .filter(|id| Some(*id) != previous_token_id)
-        .ok_or_else(|| "本机凭据已创建，但未能读取新凭据编号".to_string())?;
-    let key_value = fetch_json(
-        &client,
-        &format!("{BASE_URL}/api/token/{token_id}/key"),
-        Some(&session_cookie),
-        Some(&user_id),
-    )
-    .await?;
-    ensure_api_success(&key_value, "读取新建凭据失败")?;
-    let key = key_value
-        .pointer("/data/key")
-        .and_then(Value::as_str)
-        .ok_or_else(|| "元衡工具凭据响应缺少 key".to_string())?;
-    let api_token = normalize_api_token(key)?;
-    verify_api_token(&client, &api_token).await?;
-    persist_connection(
+    device_credentials::repair_at(
         &state,
-        &session_cookie,
-        &user_id,
-        &api_token,
-        token_id,
+        &client,
+        BASE_URL,
+        (&session_cookie, &user_id),
+        &group,
+        &token_name,
         &status,
-    )?;
+    )
+    .await?;
 
     // 旧 key 可能仍被 CLI、其他分组配置或离线设备引用。在所有消费者确认
     // 切换之前禁止撤销；不能依赖前端随后发起的重配命令充当跨端事务。
@@ -6867,7 +6834,7 @@ mod tests {
         assert!(feed.announcements.is_empty());
     }
 
-    struct TestHome {
+    pub(super) struct TestHome {
         _dir: tempfile::TempDir,
         previous_test_home: Option<std::ffi::OsString>,
     }
@@ -6895,7 +6862,7 @@ mod tests {
         }
     }
 
-    fn isolated_state() -> (TestHome, AppState) {
+    pub(super) fn isolated_state() -> (TestHome, AppState) {
         let home = TestHome::new();
         let db = Arc::new(Database::memory().expect("in-memory database"));
         (home, AppState::new(db))

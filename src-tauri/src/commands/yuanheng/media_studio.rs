@@ -779,6 +779,7 @@ pub async fn submit_media_studio(
     }
     let account = yuanheng_client()?;
     let (key, token_id) = ensure_named_api_token(
+        &state,
         &account,
         &session.cookie,
         &session.user,

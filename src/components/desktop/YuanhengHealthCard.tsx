@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   AlertTriangle,
   CheckCircle2,
@@ -69,7 +69,7 @@ const STATUS_META = {
     background: "bg-amber-500/10",
   },
   error: {
-    title: "当前不可用",
+    title: "部分检查未通过",
     description: "检查结果中有需要处理的问题。",
     icon: ShieldAlert,
     tone: "text-red-600 dark:text-red-400",
@@ -93,6 +93,19 @@ export function YuanhengHealthCard({
   const [expanded, setExpanded] = useState(initiallyExpanded);
   const [previewOpen, setPreviewOpen] = useState(false);
   const [sharing, setSharing] = useState(false);
+  const [credentialChoice, setCredentialChoice] = useState<{
+    userId: string;
+    groups: { id: string; description: string }[];
+  } | null>(null);
+  const [credentialGroup, setCredentialGroup] = useState("");
+  const [credentialLoading, setCredentialLoading] = useState(false);
+  const credentialBusy = useRef(false);
+  const currentUser = useRef(connection?.userId);
+  currentUser.current = connection?.userId;
+  useEffect(() => {
+    setCredentialChoice(null);
+    setCredentialGroup("");
+  }, [connection?.userId, connection?.connected]);
   useEffect(() => {
     setPreviewOpen(false);
   }, [
@@ -117,6 +130,10 @@ export function YuanhengHealthCard({
     }
     if (!connection?.connected || actions.has("login")) {
       onOpenConnection?.();
+      return;
+    }
+    if (actions.has("repair_credentials")) {
+      await openCredentialChoice();
       return;
     }
     if (actions.has("configure_tools") && !actions.has("repair_credentials")) {
@@ -152,7 +169,11 @@ export function YuanhengHealthCard({
       const result = await repair.mutateAsync(
         [...actions].filter(Boolean) as string[],
       );
-      await diagnostics.refetch();
+      const checked = await diagnostics.refetch();
+      if (checked.isError || checked.data?.status !== "ok") {
+        toast.warning(dt("修复后仍有检查项未通过，请查看详情"));
+        return;
+      }
       toast.success(
         result.repairedTools.length > 0
           ? dt("已修复 {{v0}} 个工具配置", { v0: result.repairedTools.length })
@@ -179,28 +200,70 @@ export function YuanhengHealthCard({
     }
   };
 
+  const openCredentialChoice = async () => {
+    if (
+      credentialBusy.current ||
+      repair.isPending ||
+      rotateCredential.isPending
+    )
+      return;
+    credentialBusy.current = true;
+    setCredentialLoading(true);
+    const userId = currentUser.current;
+    try {
+      const fresh = await yuanhengApi.refresh();
+      if (!userId || fresh.userId !== userId || currentUser.current !== userId)
+        return;
+      if (!fresh.groups.length)
+        throw new Error(dt("当前没有可用分组，未创建凭据，请联系管理员"));
+      setCredentialGroup("");
+      setCredentialChoice({ userId, groups: fresh.groups });
+    } catch (error) {
+      toast.error(
+        extractErrorMessage(error) || dt("读取可用分组失败，未创建凭据"),
+      );
+    } finally {
+      credentialBusy.current = false;
+      setCredentialLoading(false);
+    }
+  };
+
   const rotateDeviceCredential = async () => {
     if (
+      credentialBusy.current ||
+      !credentialChoice ||
+      !credentialGroup ||
+      currentUser.current !== credentialChoice.userId
+    )
+      return;
+    if (
       !window.confirm(
-        dt(
-          "将重新生成当前设备凭据并更新工具配置；旧令牌会保留，避免中断其他工具，是否继续？",
-        ),
+        `${dt("将为通用功能使用所选分组，实际请求按该分组计费；现有工具分组和旧令牌保持不变。是否继续？")}\n${credentialGroup}`,
       )
     ) {
       return;
     }
+    credentialBusy.current = true;
     try {
-      const result = await rotateCredential.mutateAsync();
-      await diagnostics.refetch();
-      toast.success(
-        result.updatedTools.length > 0
-          ? dt("凭据已更新，并同步到 {{v0}} 个工具", {
-              v0: result.updatedTools.length,
-            })
-          : dt("本机凭据已重新生成"),
+      await rotateCredential.mutateAsync({
+        group: credentialGroup,
+        userId: credentialChoice.userId,
+      });
+      if (currentUser.current !== credentialChoice.userId) return;
+      setCredentialChoice(null);
+      const checked = await diagnostics.refetch();
+      const credential = checked.data?.checks?.find(
+        (check) => check.id === "credential",
       );
+      if (checked.isError || credential?.status !== "ok") {
+        toast.warning(dt("凭据保存后复验未通过，请查看详情；未修改工具配置"));
+      } else {
+        toast.success(dt("通用凭据验证通过，工具配置保持不变"));
+      }
     } catch (error) {
       toast.error(extractErrorMessage(error) || dt("重新生成凭据失败"));
+    } finally {
+      credentialBusy.current = false;
     }
   };
 
@@ -403,15 +466,19 @@ export function YuanhengHealthCard({
               variant="ghost"
               size="sm"
               className="w-full text-[11px]"
-              disabled={rotateCredential.isPending}
-              onClick={() => void rotateDeviceCredential()}
+              disabled={
+                credentialLoading ||
+                rotateCredential.isPending ||
+                repair.isPending
+              }
+              onClick={() => void openCredentialChoice()}
             >
               {rotateCredential.isPending ? (
                 <Loader2 className="h-3.5 w-3.5 animate-spin" />
               ) : (
                 <RotateCw className="h-3.5 w-3.5" />
               )}
-              {dt("重新生成本机凭据")}
+              {dt("配置或修复通用凭据")}
             </Button>
           )}
           {!checkOnly && connection?.connected && report.readyTools > 0 && (
@@ -432,6 +499,43 @@ export function YuanhengHealthCard({
           )}
         </div>
       )}
+      <Dialog
+        open={!!credentialChoice}
+        onOpenChange={(open) => {
+          if (!open && !rotateCredential.isPending) setCredentialChoice(null);
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{dt("选择通用凭据分组")}</DialogTitle>
+            <DialogDescription>
+              {dt(
+                "用于声音克隆等通用功能；不改变已配置工具的分组。列表来自当前账号，提交时会再次验证权限。",
+              )}
+            </DialogDescription>
+          </DialogHeader>
+          <select
+            aria-label={dt("通用凭据分组")}
+            className="w-full rounded-md border bg-background p-2"
+            value={credentialGroup}
+            onChange={(e) => setCredentialGroup(e.target.value)}
+            disabled={rotateCredential.isPending}
+          >
+            <option value="">{dt("请选择分组")}</option>
+            {credentialChoice?.groups.map((group) => (
+              <option key={group.id} value={group.id}>
+                {group.description || group.id} ({group.id})
+              </option>
+            ))}
+          </select>
+          <Button
+            disabled={!credentialGroup || rotateCredential.isPending}
+            onClick={() => void rotateDeviceCredential()}
+          >
+            {dt("验证并保存通用凭据")}
+          </Button>
+        </DialogContent>
+      </Dialog>
       {report?.supportJson && (
         <Dialog open={previewOpen} onOpenChange={setPreviewOpen}>
           <DialogContent className="max-w-[800px] overflow-hidden" zIndex="top">

@@ -277,12 +277,9 @@ pub async fn generate_yuanheng_voice_clone(
     request: VoiceCloneRequest,
 ) -> Result<VoiceCloneResult, String> {
     let request = validate_voice_clone_request(request)?;
-    let api_token = state
-        .db
-        .get_setting(API_TOKEN_SETTING_KEY)
-        .map_err(|error| error.to_string())?
+    let api_token = super::yuanheng::get_yuanheng_secret(&state, API_TOKEN_SETTING_KEY)?
         .filter(|token| !token.trim().is_empty())
-        .ok_or_else(|| "元衡登录凭据不可用，请重新登录".to_string())?;
+        .ok_or_else(|| "请先在连接诊断中选择支持声音模型的分组，配置通用凭据".to_string())?;
 
     let client = reqwest::Client::builder()
         .connect_timeout(Duration::from_secs(20))
