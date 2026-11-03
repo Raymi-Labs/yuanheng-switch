@@ -109,7 +109,7 @@ OpenCode    ─ 读 ─┤        + 同步账本            ├─ 写 ─ OpenC
 - 前端：会话页工具栏"带过来"菜单与目录级同步按钮共用 [SessionSyncDialog](../../../../src/components/sessions/SessionSyncDialog.tsx)；同步副本显示"来自 X"角标，详情页提供"撤销同步"。五种语言文案齐全。
 - 已核验：Claude Code 目录编码为"非字母数字替换为 `-`"，本机 6 个注册项目中 5 个命中，未命中的是一个含空格且已不存在的旧目录；写适配器的真实输出经本机 `claude -p --resume` 与 `codex exec resume` 续聊，均正确回忆合成内容，测试会话已清理。
 - 测试：隔离 HOME 端到端覆盖双向写入、扫描器识别、不回传、幂等、源文件不被修改、目标续聊后分叉不覆盖、撤销已续聊副本只解链；前端覆盖弹窗与撤销流程。
-- 仍未核验：Codex Desktop 列表在首次 resume 前是否显示同步线程；Claude Desktop 内置 Claude Code 模式是否读同一目录。移入 M3。
+- 仍未核验：Claude Desktop 内置 Claude Code 模式是否读同一目录。Codex Desktop 列表可见性已在 M3 解决。
 
 ### M2（2026-11-03 完成）
 
@@ -118,11 +118,22 @@ OpenCode    ─ 读 ─┤        + 同步账本            ├─ 写 ─ OpenC
 - 全局 [SessionSyncLaunchPrompt](../../../../src/components/sessions/SessionSyncLaunchPrompt.tsx) 三个按钮：带过来并启动、直接启动、这个项目不再提醒。检测失败、同步失败、关闭弹窗都放行启动。设置 → 桌面体验新增总开关与"恢复提醒"。
 - 性能（本机真实数据，release 构建）：130 个会话中对 Claude 冷检测约 1.8 秒，主要是逐条读文件数轮次；加入按源指纹的进程内轮次缓存后热检测约 0.11 秒。启动时只检查一个目录，实际开销更小。
 
+### M3（2026-11-03 完成，已安装真实客户端验收）
+
+本机用 Meta API 同款命令安装 Gemini CLI 0.66.0（npm）与 Grok Build 1.0.70（官方 npm 包 `@xai-official/grok`；官方远程安装脚本被本机权限策略拦截，未执行）。验收都在隔离 HOME / CODEX_HOME 中进行，用户真实目录只放过临时探针，均已删除。
+
+- **Codex Desktop 列表可见性（原 M1 遗留）**：只写文件时 `codex resume` 可续聊，但索引库 `state_5.sqlite` 没有登记，`thread/list` 返回空，桌面列表看不到。`codex migrate-rollouts` 对未登记文件报"missing its SQLite metadata"，不能用。Codex 自带 `externalAgentConfig/import` 可从 Claude Code 导入，但只接受它自己检测到的会话，且源文件变化后不再导入，满足不了增量同步。最终方案：写适配器对齐官方导入产物的结构（`session_meta` + `task_started … task_complete`，每条消息同时写 `event_msg` 与 `response_item`，`source` 为 `vscode`），写完后由 `register_threads` 启动 `codex app-server --stdio` 对每个线程发 `thread/read`，Codex 自己登记索引。隔离环境实测：登记 1/1，`thread/list` 可见，`codex exec resume` 回答正确暗号。仍不直接写 Codex 的数据库。
+- **Gemini CLI**：现有读取器只认旧版 `.json`，0.66 实际写 `.jsonl`（元数据行 + 消息行 + `$set`/`$rewindTo`/`$patch` 补丁行），本机会话列表读不到任何 Gemini 会话。已修复读取器，按 Gemini 自身 JSONL 累加器规则合并，并跳过 `<session_context>` 注入。写适配器按 Gemini 源码约定：`~/.gemini/tmp/<短标识>/.project_root` 标记项目、`chats/session-<时间>-<id前8位>.jsonl`、`projectHash = sha256(项目路径)`（与 Gemini 实测文件一致）。真实 `gemini --list-sessions` 列出同步会话；`gemini --resume` 发出的请求里带有同步历史（无可用 Gemini 凭据，未取得模型回答）。
+- **Grok Build**：目录为 `~/.grok/sessions/<URL 编码 cwd>/<id>/`。逐字段删减实测确认 `summary.json` 缺 `current_model_id` 时 `grok --resume` 报"Session does not exist"，ID 是 v5 还是 v7 无影响。写 `summary.json`、`updates.jsonl`、`chat_history.jsonl` 三个文件。用本地 OpenAI 兼容模拟服务验收：`grok sessions list` 可见，`grok --resume` 回答正确暗号，发给模型的历史里不含 Codex 注入的 AGENTS 指令。编码后超过 255 字节的路径 Grok 会改用未公开的哈希布局，此时拒绝写入。
+- **启动询问**：Gemini CLI 与 Grok Build 的启动也触发询问。首条消息不再重复拼接与标题相同的一段文字。
+- 仍未覆盖：OpenCode、Hermes、OpenClaw 作为同步目标（M4）；Gemini 与 Grok 的真实付费模型续聊未做，仅验证到"历史已随请求发出"。
+
 ## Alternatives considered
 
 - **归档中心 + MCP 让各客户端自行检索旧记录**（已删除的前版）— 不碰任何客户端格式，升级零风险。否决：记录不会出现在目标客户端的历史列表，用户还要在对话里主动调工具，违背"一键"诉求；仅适合没有本地文件的云端产品，本期不做。
 - **成对转换器（Codex→Claude、Claude→Codex…）** — 每对可做到最高保真。否决：客户端数 N 增长时转换器是 N×(N-1) 个，新增一个客户端要改所有已有的；用户已明确要全客户端互通。星形架构下保真度损失在于中间格式只留文本，而探针证明文本足以续聊。
-- **直接写各客户端的索引数据库（如 Codex `state_5.sqlite`）让列表立即可见** — 可见性最好。否决：这些库带迁移版本、触发器、外键，升级随时破坏；Codex 探针证明 resume 时自行登记。仅在核验发现列表确实不显示时，对单个客户端评估最小列插入。
+- **直接写各客户端的索引数据库（如 Codex `state_5.sqlite`）让列表立即可见** — 可见性最好。否决：这些库带迁移版本、触发器、外键，升级随时破坏。M3 实测 Codex 列表确实不显示未登记文件，改为调用 Codex 自己的 app-server `thread/read` 让它登记，仍不碰数据库。
+- **用 Codex 官方 `externalAgentConfig/import` 导入** — 官方能力，格式最稳。否决：只接受它自己从 `~/.claude/projects` 检测到的会话，源文件更新后不会再次导入，也不支持其他来源客户端；只借鉴其产物结构。
 - **启动时静默全量同步，不弹窗** — 更无感。否决：续聊转换后的长会话会整段重发历史并计费，用户应知情，且可能不想让某些聊天出现在另一边；一次性弹窗 + 总开关是最小打扰。
 - **原样复制文件再改字段，不做中间格式** — 保真最高。否决：格式差异大，会带入工具专属的 thinking、快照、请求 blob，既膨胀又可能被目标拒绝，且无法推广到 N 个客户端。
 

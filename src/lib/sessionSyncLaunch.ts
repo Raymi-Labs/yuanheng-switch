@@ -14,6 +14,8 @@ export const SESSION_SYNC_TARGET_BY_TOOL: Record<string, string> = {
   claude: "claude",
   codex: "codex",
   "chatgpt-desktop": "codex",
+  gemini: "gemini",
+  grokbuild: "grokbuild",
 };
 
 export interface LaunchSyncRequest {

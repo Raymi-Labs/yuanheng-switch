@@ -3510,7 +3510,7 @@
     "mutedHint": "今後は確認しません。必要なら「セッションと使用量」から手動で同期できます",
     "runFailedContinue": "同期が完了しなかったため、そのまま起動します：{{error}}",
     "settingTitle": "起動時にアプリ間のチャット履歴の同期を提案する",
-    "settingDescription": "Claude Code や Codex の起動時に、このプロジェクトの未取り込みチャットが他のアプリにあれば一度確認します。",
+    "settingDescription": "Claude Code、Codex、Gemini CLI、Grok Build の起動時に、このプロジェクトの未取り込みチャットが他のアプリにあれば一度確認します。",
     "mutedCount": "{{count}} 件のプロジェクトを確認しない設定にしています",
     "clearMuted": "確認を再開"
   }

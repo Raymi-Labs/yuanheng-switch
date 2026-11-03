@@ -3510,7 +3510,7 @@
     "mutedHint": "다시 묻지 않습니다. 필요하면 「세션 및 사용량」에서 직접 동기화할 수 있습니다",
     "runFailedContinue": "동기화가 끝나지 않아 바로 실행합니다: {{error}}",
     "settingTitle": "실행할 때 앱 간 채팅 기록 동기화 제안",
-    "settingDescription": "Claude Code나 Codex를 실행할 때 다른 앱에 이 프로젝트의 가져오지 않은 채팅이 있으면 한 번 묻습니다.",
+    "settingDescription": "Claude Code, Codex, Gemini CLI, Grok Build를 실행할 때 다른 앱에 이 프로젝트의 가져오지 않은 채팅이 있으면 한 번 묻습니다.",
     "mutedCount": "{{count}}개 프로젝트를 다시 묻지 않도록 설정함",
     "clearMuted": "다시 묻기"
   }

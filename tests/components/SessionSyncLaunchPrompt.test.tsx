@@ -153,9 +153,19 @@ describe("launch-time session sync prompt", () => {
     setSessionSyncFixtures({ pending: pendingForClaude });
     mountPrompt();
     await yuanhengApi.launchTool("claude", true, "/Users/me/yuanheng");
-    await yuanhengApi.launchTool("gemini", false, "/Users/me/yuanheng");
+    await yuanhengApi.launchTool("opencode", false, "/Users/me/yuanheng");
     await waitFor(() => expect(launchCount()).toBe(1));
     expect(getSessionSyncState().launchChecks).toEqual([]);
+  });
+
+  it("asks before Gemini CLI and Grok Build launches too", async () => {
+    mountPrompt();
+    await yuanhengApi.launchTool("gemini", false, "/Users/me/a");
+    await yuanhengApi.launchTool("grokbuild", false, "/Users/me/b");
+    expect(getSessionSyncState().launchChecks).toEqual([
+      { targetProvider: "gemini", projectDir: "/Users/me/a" },
+      { targetProvider: "grokbuild", projectDir: "/Users/me/b" },
+    ]);
   });
 
   it("maps Codex Desktop launches to the shared Codex history", async () => {

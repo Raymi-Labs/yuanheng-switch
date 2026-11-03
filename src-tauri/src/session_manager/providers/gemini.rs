@@ -39,7 +39,11 @@ pub fn scan_sessions() -> Vec<SessionMeta> {
 
         for file_entry in chat_files.flatten() {
             let path = file_entry.path();
-            if path.extension().and_then(|e| e.to_str()) != Some("json") {
+            // Gemini CLI 0.6x+ 以 JSONL 记录会话；旧版为单个 JSON。两种都读。
+            if !matches!(
+                path.extension().and_then(|e| e.to_str()),
+                Some("json") | Some("jsonl")
+            ) {
                 continue;
             }
             if let Some(meta) = parse_session(&path) {
@@ -54,10 +58,88 @@ pub fn scan_sessions() -> Vec<SessionMeta> {
     sessions
 }
 
-pub fn load_messages(path: &Path) -> Result<Vec<SessionMessage>, String> {
+/// 把 JSONL 会话记录合并成与旧版 JSON 相同的对象：首个带 sessionId 的行为元数据，
+/// `$set` 行更新元数据，`$rewindTo` 截断其后的消息，`$patch` 改写已有消息，其余带 id 的
+/// 行是消息（同 id 后写覆盖先写）。与 Gemini CLI 自身的 JSONL 累加器规则一致。
+fn read_session_value(path: &Path) -> Result<Value, String> {
     let data = std::fs::read_to_string(path).map_err(|e| format!("Failed to read session: {e}"))?;
-    let value: Value =
-        serde_json::from_str(&data).map_err(|e| format!("Failed to parse session JSON: {e}"))?;
+    if path.extension().and_then(|e| e.to_str()) != Some("jsonl") {
+        return serde_json::from_str(&data)
+            .map_err(|e| format!("Failed to parse session JSON: {e}"));
+    }
+    let mut meta = serde_json::Map::new();
+    let mut order: Vec<String> = Vec::new();
+    let mut messages: std::collections::HashMap<String, Value> = std::collections::HashMap::new();
+    for line in data.lines() {
+        let Ok(record) = serde_json::from_str::<Value>(line) else {
+            continue;
+        };
+        let Some(obj) = record.as_object() else {
+            continue;
+        };
+        if let Some(set) = obj.get("$set").and_then(Value::as_object) {
+            for (k, v) in set {
+                meta.insert(k.clone(), v.clone());
+            }
+            continue;
+        }
+        if let Some(rewind) = obj.get("$rewindTo").and_then(Value::as_str) {
+            if let Some(idx) = order.iter().position(|id| id == rewind) {
+                for removed in order.drain(idx..) {
+                    messages.remove(&removed);
+                }
+            } else {
+                order.clear();
+                messages.clear();
+            }
+            continue;
+        }
+        if let Some(patch) = obj.get("$patch").and_then(Value::as_object) {
+            let mut updates: Vec<&serde_json::Map<String, Value>> = vec![patch];
+            if let Some(list) = patch.get("updates").and_then(Value::as_array) {
+                updates.extend(list.iter().filter_map(Value::as_object));
+            }
+            for update in updates {
+                let Some(id) = update.get("id").and_then(Value::as_str) else {
+                    continue;
+                };
+                if let (Some(existing), Some(content)) =
+                    (messages.get_mut(id), update.get("content"))
+                {
+                    existing["content"] = content.clone();
+                }
+            }
+            if let Some(ids) = patch.get("removeIds").and_then(Value::as_array) {
+                for id in ids.iter().filter_map(Value::as_str) {
+                    messages.remove(id);
+                    order.retain(|o| o != id);
+                }
+            }
+            continue;
+        }
+        if obj.contains_key("sessionId") && !obj.contains_key("type") {
+            for (k, v) in obj {
+                meta.insert(k.clone(), v.clone());
+            }
+            continue;
+        }
+        if let Some(id) = obj.get("id").and_then(Value::as_str) {
+            if !messages.contains_key(id) {
+                order.push(id.to_string());
+            }
+            messages.insert(id.to_string(), record.clone());
+        }
+    }
+    let list: Vec<Value> = order
+        .iter()
+        .filter_map(|id| messages.get(id).cloned())
+        .collect();
+    meta.insert("messages".to_string(), Value::Array(list));
+    Ok(Value::Object(meta))
+}
+
+pub fn load_messages(path: &Path) -> Result<Vec<SessionMessage>, String> {
+    let value = read_session_value(path)?;
 
     let messages = value
         .get("messages")
@@ -73,16 +155,11 @@ pub fn load_messages(path: &Path) -> Result<Vec<SessionMessage>, String> {
             Some(_) | None => continue,
         };
 
-        // Gemini content may be a plain string or an array of {text: ...} objects
-        let mut content = match msg.get("content") {
-            Some(Value::String(s)) => s.to_string(),
-            Some(Value::Array(items)) => items
-                .iter()
-                .filter_map(|item| item.get("text").and_then(Value::as_str))
-                .collect::<Vec<_>>()
-                .join("\n"),
-            _ => String::new(),
-        };
+        let mut content = content_text(msg.get("content"));
+        // Gemini CLI 注入的环境上下文不是用户发言
+        if role == "user" && content.trim_start().starts_with("<session_context>") {
+            continue;
+        }
 
         // Append tool call names from the optional toolCalls array
         if let Some(Value::Array(calls)) = msg.get("toolCalls") {
@@ -112,6 +189,19 @@ pub fn load_messages(path: &Path) -> Result<Vec<SessionMessage>, String> {
     Ok(result)
 }
 
+/// Gemini content may be a plain string or an array of {text: ...} objects
+fn content_text(content: Option<&Value>) -> String {
+    match content {
+        Some(Value::String(s)) => s.to_string(),
+        Some(Value::Array(items)) => items
+            .iter()
+            .filter_map(|item| item.get("text").and_then(Value::as_str))
+            .collect::<Vec<_>>()
+            .join("\n"),
+        _ => String::new(),
+    }
+}
+
 pub fn delete_session(_root: &Path, path: &Path, session_id: &str) -> Result<bool, String> {
     let meta = parse_session(path).ok_or_else(|| {
         format!(
@@ -138,8 +228,11 @@ pub fn delete_session(_root: &Path, path: &Path, session_id: &str) -> Result<boo
 }
 
 fn parse_session(path: &Path) -> Option<SessionMeta> {
-    let data = std::fs::read_to_string(path).ok()?;
-    let value: Value = serde_json::from_str(&data).ok()?;
+    let value = read_session_value(path).ok()?;
+    // 子代理会话不在用户的会话列表里
+    if value.get("kind").and_then(Value::as_str) == Some("subagent") {
+        return None;
+    }
 
     let session_id = value.get("sessionId").and_then(Value::as_str)?.to_string();
 
@@ -152,10 +245,16 @@ fn parse_session(path: &Path) -> Option<SessionMeta> {
         .and_then(Value::as_array)
         .and_then(|msgs| {
             msgs.iter()
-                .find(|m| m.get("type").and_then(Value::as_str) == Some("user"))
-                .and_then(|m| m.get("content").and_then(Value::as_str))
-                .filter(|s| !s.trim().is_empty())
-                .map(|s| truncate_summary(s, 160))
+                .filter(|m| m.get("type").and_then(Value::as_str) == Some("user"))
+                .map(|m| content_text(m.get("content")))
+                .find(|s| {
+                    let t = s.trim();
+                    !t.is_empty()
+                        && !t.starts_with("<session_context>")
+                        && !t.starts_with("<hook_context>")
+                        && !t.starts_with('/')
+                })
+                .map(|s| truncate_summary(&s, 160))
         });
 
     let source_path = path.to_string_lossy().to_string();

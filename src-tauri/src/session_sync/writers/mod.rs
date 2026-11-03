@@ -2,6 +2,8 @@
 
 pub mod claude;
 pub mod codex;
+pub mod gemini;
+pub mod grokbuild;
 
 use sha2::{Digest, Sha256};
 use std::path::Path;
@@ -25,9 +27,11 @@ pub trait SessionWriter: Send + Sync {
     /// 目标当前指纹；目标不存在返回 None。
     fn fingerprint(&self, target: &TargetRef) -> Option<String>;
     fn remove(&self, target: &TargetRef) -> Result<(), String>;
+    /// 一批写完后的收尾（例如让目标客户端登记索引）；默认无操作，失败不影响结果。
+    fn after_batch(&self, _written: &[TargetRef]) {}
 }
 
-const WRITABLE: &[&str] = &["claude", "codex"];
+const WRITABLE: &[&str] = &["claude", "codex", "gemini", "grokbuild"];
 const READABLE: &[&str] = &[
     "claude",
     "codex",
@@ -50,6 +54,8 @@ pub fn writer_for(provider_id: &str) -> Result<Box<dyn SessionWriter>, String> {
     match provider_id {
         "claude" => Ok(Box::new(claude::ClaudeWriter)),
         "codex" => Ok(Box::new(codex::CodexWriter)),
+        "gemini" => Ok(Box::new(gemini::GeminiWriter)),
+        "grokbuild" => Ok(Box::new(grokbuild::GrokBuildWriter)),
         other => Err(format!("Session sync target not supported yet: {other}")),
     }
 }

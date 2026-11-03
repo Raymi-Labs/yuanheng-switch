@@ -199,6 +199,18 @@ pub fn origin_title_prefix(provider_id: &str) -> &'static str {
     }
 }
 
+/// 用于"首条用户消息即标题"的客户端（Codex、Gemini）：给首条消息加上来源标记。
+/// 标题本就取自这条消息开头时只加前缀，避免列表里出现重复的一段话。
+pub fn label_first_user_message(session: &CanonicalSession, text: &str) -> String {
+    let prefix = origin_title_prefix(&session.origin_provider);
+    let title = session.title.trim_end_matches('…').trim();
+    if title.is_empty() || text.trim_start().starts_with(title) {
+        format!("{prefix}{text}")
+    } else {
+        format!("{prefix}{}\n\n{text}", session.title)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -259,6 +271,23 @@ mod tests {
         let s = from_messages(&meta(), &messages);
         assert_eq!(s.turns.len(), 2);
         assert_eq!(s.turns[0].role, "user");
+    }
+
+    #[test]
+    fn labels_first_message_without_repeating_title() {
+        let mut s = from_messages(
+            &meta(),
+            &[msg("user", "修复登录问题"), msg("assistant", "好")],
+        );
+        assert_eq!(
+            label_first_user_message(&s, "修复登录问题"),
+            "[Codex] 修复登录问题"
+        );
+        s.title = "自定义标题".into();
+        assert_eq!(
+            label_first_user_message(&s, "修复登录问题"),
+            "[Codex] 自定义标题\n\n修复登录问题"
+        );
     }
 
     #[test]

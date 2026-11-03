@@ -468,6 +468,7 @@ pub fn run_sync(
         target_provider: target_provider.to_string(),
         ..Default::default()
     };
+    let mut written: Vec<TargetRef> = Vec::new();
 
     for meta in candidates {
         let key = (
@@ -551,6 +552,7 @@ pub fn run_sync(
                 } else {
                     outcome.synced += 1;
                 }
+                written.push(target_ref);
             }
             Err(e) => {
                 outcome.failed += 1;
@@ -561,6 +563,9 @@ pub fn run_sync(
         }
     }
 
+    if !written.is_empty() && !cfg!(test) {
+        writer.after_batch(&written);
+    }
     Ok(outcome)
 }
 
@@ -916,7 +921,7 @@ mod e2e_tests {
         assert_eq!(check_before_launch(&db, "claude", None).unwrap().total, 1);
         // 不支持写入的目标静默返回空
         assert_eq!(
-            check_before_launch(&db, "gemini", Some(&dir))
+            check_before_launch(&db, "openclaw", Some(&dir))
                 .unwrap()
                 .total,
             0
@@ -963,6 +968,42 @@ mod e2e_tests {
                 .total,
             1
         );
+    }
+
+    #[test]
+    #[serial]
+    fn codex_to_gemini_is_scanned_back_as_a_gemini_session() {
+        let home = setup_home();
+        let project = home.path().join("proj-g");
+        std::fs::create_dir_all(&project).unwrap();
+        let project = project.canonicalize().unwrap();
+        write_codex_source(home.path(), &project);
+        let db = Database::memory().expect("db");
+
+        let out = run_sync(&db, "gemini", &SyncScope::default()).unwrap();
+        assert_eq!(out.synced, 1, "{out:?}");
+        let gemini: Vec<_> = crate::session_manager::scan_sessions()
+            .into_iter()
+            .filter(|s| s.provider_id == "gemini")
+            .collect();
+        assert_eq!(gemini.len(), 1);
+        assert_eq!(
+            gemini[0].project_dir.as_deref().map(str::trim),
+            Some(project.to_string_lossy().as_ref())
+        );
+        let marker = home.path().join(".gemini/tmp/proj-g/.project_root");
+        assert!(marker.exists());
+        // 生成的 Gemini 会话不回传给其他客户端
+        assert_eq!(
+            check_pending(&db, "claude", &SyncScope::default())
+                .unwrap()
+                .total,
+            1
+        );
+        assert!(undo_sync(&db, "gemini", &gemini[0].session_id).unwrap());
+        assert!(crate::session_manager::scan_sessions()
+            .iter()
+            .all(|s| s.provider_id != "gemini"));
     }
 
     #[test]
@@ -1049,6 +1090,18 @@ mod live_probe {
             ),
         )
         .unwrap();
+        let gemini_session = session("codex", "蓝色鲸鱼");
+        let gemini_dir =
+            writers::gemini::resolve_project_dir(&out.join("gemini-tmp"), &cwd).unwrap();
+        std::fs::create_dir_all(gemini_dir.join("chats")).unwrap();
+        std::fs::write(
+            gemini_dir.join("chats").join(writers::gemini::file_name(
+                gemini_session.created_at,
+                "0d9c5a7e-2222-5333-8444-555566667777",
+            )),
+            writers::gemini::render(&gemini_session, "0d9c5a7e-2222-5333-8444-555566667777"),
+        )
+        .unwrap();
         std::fs::write(
             out.join("codex.jsonl"),
             writers::codex::render(
@@ -1091,5 +1144,81 @@ mod perf_probe {
         let start = std::time::Instant::now();
         let all = session_manager::scan_sessions();
         println!("scan_sessions={} elapsed={:?}", all.len(), start.elapsed());
+    }
+}
+
+#[cfg(test)]
+mod install_probe {
+    //! 手动验收：`SYNC_E2E_HOME=<隔离HOME> SYNC_E2E_CWD=<项目> cargo test --lib install_probe -- --ignored`
+    //! 在隔离 HOME 里放一份 Codex 会话，用真实 `run_sync` 同步到 Gemini 与 Grok Build，
+    //! 之后由脚本调用已安装的 gemini / grok 续聊验收。
+    use super::*;
+
+    #[test]
+    #[ignore]
+    fn sync_codex_session_into_installed_clients() {
+        let home = PathBuf::from(std::env::var("SYNC_E2E_HOME").expect("SYNC_E2E_HOME"));
+        let cwd = std::env::var("SYNC_E2E_CWD").expect("SYNC_E2E_CWD");
+        std::env::set_var("YUANHENG_SWITCH_TEST_HOME", &home);
+        let dir = home.join(".codex/sessions/2026/11/03");
+        std::fs::create_dir_all(&dir).unwrap();
+        let id = "0199bbbb-0000-7000-8000-0000000000e2";
+        let now = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ");
+        std::fs::write(
+            dir.join(format!("rollout-2026-11-03T10-00-00-{id}.jsonl")),
+            format!(
+                "{{\"timestamp\":\"{now}\",\"type\":\"session_meta\",\"payload\":{{\"id\":\"{id}\",\"cwd\":\"{cwd}\"}}}}\n\
+                 {{\"timestamp\":\"{now}\",\"type\":\"response_item\",\"payload\":{{\"type\":\"message\",\"role\":\"user\",\"content\":[{{\"type\":\"input_text\",\"text\":\"# AGENTS.md instructions for x\"}}]}}}}\n\
+                 {{\"timestamp\":\"{now}\",\"type\":\"response_item\",\"payload\":{{\"type\":\"message\",\"role\":\"user\",\"content\":[{{\"type\":\"input_text\",\"text\":\"我们的暗号是：紫色山峰。记住它。\"}}]}}}}\n\
+                 {{\"timestamp\":\"{now}\",\"type\":\"response_item\",\"payload\":{{\"type\":\"message\",\"role\":\"assistant\",\"content\":[{{\"type\":\"output_text\",\"text\":\"好的，已记住。\"}}]}}}}\n"
+            ),
+        )
+        .unwrap();
+        // 先放一份 Claude Code 会话，供同步到 Codex
+        let claude_dir = home
+            .join(".claude/projects")
+            .join(writers::claude::encode_project_dir(&cwd));
+        std::fs::create_dir_all(&claude_dir).unwrap();
+        let cid = "5b1f0000-0000-4000-8000-0000000000e3";
+        std::fs::write(
+            claude_dir.join(format!("{cid}.jsonl")),
+            format!(
+                "{{\"type\":\"user\",\"sessionId\":\"{cid}\",\"cwd\":\"{cwd}\",\"timestamp\":\"{now}\",\"message\":{{\"role\":\"user\",\"content\":\"我们的暗号是：黄色彩虹。记住它。\"}}}}\n\
+                 {{\"type\":\"assistant\",\"sessionId\":\"{cid}\",\"cwd\":\"{cwd}\",\"timestamp\":\"{now}\",\"message\":{{\"role\":\"assistant\",\"content\":[{{\"type\":\"text\",\"text\":\"好的，已记住。\"}}]}}}}\n"
+            ),
+        )
+        .unwrap();
+        let db = Database::memory().unwrap();
+        let targets: Vec<String> = std::env::var("SYNC_E2E_TARGETS")
+            .unwrap_or_else(|_| "gemini,grokbuild".into())
+            .split(',')
+            .map(str::to_string)
+            .collect();
+        for target in &targets {
+            let out = run_sync(&db, target, &SyncScope::default()).unwrap();
+            println!(
+                "{target}: synced={} failed={} errors={:?}",
+                out.synced, out.failed, out.errors
+            );
+            if target == "codex" {
+                let ids: Vec<String> = db
+                    .list_session_sync_links()
+                    .unwrap()
+                    .into_iter()
+                    .filter(|l| l.target_provider == "codex")
+                    .map(|l| l.target_session_id)
+                    .collect();
+                println!(
+                    "codex registered={}",
+                    writers::codex::register_threads(&ids)
+                );
+            }
+        }
+        for link in db.list_session_sync_links().unwrap() {
+            println!(
+                "TARGET {} {} {}",
+                link.target_provider, link.target_session_id, link.target_ref
+            );
+        }
     }
 }

@@ -1,9 +1,13 @@
 //! Codex 写适配器（CLI 与 Codex Desktop 共用 `~/.codex`）。
 //!
 //! 目标：`~/.codex/sessions/<年>/<月>/<日>/rollout-<时间>-<id>.jsonl`。
-//! 格式取自 2026-11-03 探针：一行 `session_meta` + `response_item.message`，
-//! `codex resume <id>` 可续聊并回忆内容，Codex 会在首次 resume 时把线程登记进
-//! `state_5.sqlite`，本模块不写该库。
+//! 格式对齐 Codex 自己的 `externalAgentConfig/import`（从 Claude Code 导入会话）产物：
+//! `session_meta` + 一个 `task_started … task_complete` 轮次，每条消息同时写
+//! `event_msg`（桌面列表与预览读它）和 `response_item`（续聊发给模型的历史）。
+//!
+//! 只写文件时 `codex resume <id>` 已可续聊，但 Codex Desktop 列表要等索引库
+//! `state_5.sqlite` 登记后才显示（2026-11-03 实测）。登记由 [`register_threads`]
+//! 调用 Codex 自己的 app-server `thread/read` 完成，本模块不直接写该库。
 
 use std::path::{Path, PathBuf};
 
@@ -11,7 +15,7 @@ use serde_json::json;
 use toml_edit::DocumentMut;
 
 use super::{file_fingerprint, format_rfc3339_ms, write_atomic, SessionWriter, TargetRef};
-use crate::session_sync::canonical::origin_title_prefix;
+use crate::session_sync::canonical::label_first_user_message;
 use crate::session_sync::CanonicalSession;
 
 pub struct CodexWriter;
@@ -50,56 +54,204 @@ pub fn target_path(root: &Path, created_at_ms: i64, target_session_id: &str) -> 
 
 pub fn render(session: &CanonicalSession, target_session_id: &str, model_provider: &str) -> String {
     let created = format_rfc3339_ms(session.created_at);
-    let title = format!(
-        "{}{}",
-        origin_title_prefix(&session.origin_provider),
-        session.title
-    );
-    let mut lines = vec![json!({
-        "timestamp": created,
-        "type": "session_meta",
-        "payload": {
-            "id": target_session_id,
+    let started_s = session.created_at / 1000;
+    let turn_id = "meta-api-sync-turn-1";
+    let mut lines = vec![
+        json!({
             "timestamp": created,
-            "cwd": session.project_dir,
-            "originator": "meta-api-sync",
-            "cli_version": "meta-api-sync",
-            "source": "cli",
-            "model_provider": model_provider,
-            "instructions": null,
-        }
-    })
-    .to_string()];
+            "type": "session_meta",
+            "payload": {
+                "session_id": target_session_id,
+                "id": target_session_id,
+                "timestamp": created,
+                "cwd": session.project_dir,
+                "originator": "meta-api-sync",
+                "cli_version": "meta-api-sync",
+                // 与 Codex 官方导入一致；桌面列表默认展示该来源类别
+                "source": "vscode",
+                "model_provider": model_provider,
+            }
+        }),
+        json!({
+            "timestamp": created,
+            "type": "event_msg",
+            "payload": {
+                "type": "task_started",
+                "turn_id": turn_id,
+                "started_at": started_s,
+                "model_context_window": null,
+                "collaboration_mode_kind": "default",
+            }
+        }),
+    ];
 
-    // 把来源标题作为首条 user 行前的说明，Codex 列表用首条 user 文本当标题。
+    // 来源标题放在首条用户消息前，Codex 列表用首条用户文本当标题。
+    let mut last_ts = session.created_at;
     for (index, turn) in session.turns.iter().enumerate() {
         let ts = turn.ts.unwrap_or(session.created_at + index as i64);
+        last_ts = last_ts.max(ts);
+        let stamp = format_rfc3339_ms(ts);
         let text = if index == 0 && turn.role == "user" {
-            format!("{title}\n\n{}", turn.text)
+            label_first_user_message(session, &turn.text)
         } else {
             turn.text.clone()
         };
-        let (role, kind) = if turn.role == "user" {
-            ("user", "input_text")
+        if turn.role == "user" {
+            lines.push(json!({"timestamp": stamp, "type": "event_msg", "payload": {
+                "type": "user_message", "message": text,
+                "local_images": [], "local_audio": [], "text_elements": [],
+            }}));
+            lines.push(
+                json!({"timestamp": stamp, "type": "response_item", "payload": {
+                    "type": "message", "role": "user",
+                    "content": [{"type": "input_text", "text": text}],
+                }}),
+            );
         } else {
-            ("assistant", "output_text")
-        };
-        lines.push(
-            json!({
-                "timestamp": format_rfc3339_ms(ts),
-                "type": "response_item",
-                "payload": {
-                    "type": "message",
-                    "role": role,
-                    "content": [{"type": kind, "text": text}],
-                }
-            })
-            .to_string(),
-        );
+            lines.push(json!({"timestamp": stamp, "type": "event_msg", "payload": {
+                "type": "agent_message", "message": text,
+                "phase": null, "memory_citation": null,
+            }}));
+            lines.push(
+                json!({"timestamp": stamp, "type": "response_item", "payload": {
+                    "type": "message", "role": "assistant",
+                    "content": [{"type": "output_text", "text": text}],
+                }}),
+            );
+        }
     }
-    let mut out = lines.join("\n");
+    lines.push(json!({
+        "timestamp": format_rfc3339_ms(last_ts),
+        "type": "event_msg",
+        "payload": {
+            "type": "task_complete",
+            "turn_id": turn_id,
+            "last_agent_message": null,
+            "started_at": started_s,
+            "completed_at": last_ts / 1000,
+        }
+    }));
+
+    let mut out = lines
+        .iter()
+        .map(|l| l.to_string())
+        .collect::<Vec<_>>()
+        .join("\n");
     out.push('\n');
     out
+}
+
+/// 让 Codex 把新写入的线程登记进自己的索引库，使其出现在 Codex Desktop 列表。
+///
+/// 启动一次 `codex app-server --stdio`，对每个线程发 `thread/read`；Codex 读取时会自行
+/// 修复并登记元数据。尽力而为：找不到 codex、超时或失败都只少登记，文件本身已可续聊。
+pub fn register_threads(thread_ids: &[String]) -> usize {
+    use std::io::{BufRead, BufReader, Write};
+    use std::process::{Command, Stdio};
+    use std::time::{Duration, Instant};
+
+    if thread_ids.is_empty() {
+        return 0;
+    }
+    let Some(executable) = locate_codex() else {
+        log::info!("[session-sync] 未找到 codex，跳过桌面列表登记");
+        return 0;
+    };
+    let mut child = match Command::new(&executable)
+        .args(["app-server", "--stdio"])
+        .env("CODEX_HOME", crate::codex_config::get_codex_config_dir())
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+    {
+        Ok(child) => child,
+        Err(e) => {
+            log::warn!("[session-sync] 启动 codex app-server 失败: {e}");
+            return 0;
+        }
+    };
+    let (Some(mut stdin), Some(stdout)) = (child.stdin.take(), child.stdout.take()) else {
+        let _ = child.kill();
+        let _ = child.wait();
+        return 0;
+    };
+
+    let (tx, rx) = std::sync::mpsc::channel::<serde_json::Value>();
+    std::thread::spawn(move || {
+        for line in BufReader::new(stdout).lines().map_while(Result::ok) {
+            if let Ok(value) = serde_json::from_str::<serde_json::Value>(&line) {
+                if tx.send(value).is_err() {
+                    break;
+                }
+            }
+        }
+    });
+    let deadline = Instant::now() + Duration::from_secs(30);
+    let wait_for = |id: u64| -> Option<serde_json::Value> {
+        while Instant::now() < deadline {
+            match rx.recv_timeout(Duration::from_millis(200)) {
+                Ok(msg) if msg.get("id").and_then(|v| v.as_u64()) == Some(id) => return Some(msg),
+                Ok(_) | Err(std::sync::mpsc::RecvTimeoutError::Timeout) => continue,
+                Err(_) => return None,
+            }
+        }
+        None
+    };
+    let mut send = |value: serde_json::Value| -> bool {
+        writeln!(stdin, "{value}")
+            .and_then(|_| stdin.flush())
+            .is_ok()
+    };
+
+    let mut registered = 0;
+    let initialized = send(json!({"id": 1, "method": "initialize", "params": {
+        "clientInfo": {"name": "meta-api-session-sync", "version": env!("CARGO_PKG_VERSION")}
+    }})) && wait_for(1).is_some()
+        && send(json!({"method": "initialized"}));
+    if initialized {
+        for (offset, thread_id) in thread_ids.iter().enumerate() {
+            let id = 2 + offset as u64;
+            if !send(json!({"id": id, "method": "thread/read",
+                "params": {"threadId": thread_id, "includeTurns": false}}))
+            {
+                break;
+            }
+            match wait_for(id) {
+                Some(reply) if reply.get("result").is_some() => registered += 1,
+                Some(reply) => log::warn!("[session-sync] 登记线程 {thread_id} 失败: {reply}"),
+                None => break,
+            }
+        }
+    }
+    let _ = child.kill();
+    let _ = child.wait();
+    registered
+}
+
+fn locate_codex() -> Option<PathBuf> {
+    if let Some(path) = std::env::var_os("META_API_CODEX_BIN") {
+        return Some(PathBuf::from(path));
+    }
+    let mut dirs: Vec<PathBuf> = std::env::var_os("PATH")
+        .map(|p| std::env::split_paths(&p).collect())
+        .unwrap_or_default();
+    // 从 Dock 启动的应用 PATH 往往不含这些常见安装位置
+    for extra in ["/opt/homebrew/bin", "/usr/local/bin"] {
+        dirs.push(PathBuf::from(extra));
+    }
+    if let Some(home) = dirs::home_dir() {
+        dirs.push(home.join(".local/bin"));
+        dirs.push(home.join(".npm-global/bin"));
+    }
+    let names: &[&str] = if cfg!(windows) {
+        &["codex.cmd", "codex.exe"]
+    } else {
+        &["codex"]
+    };
+    dirs.into_iter()
+        .flat_map(|dir| names.iter().map(move |name| dir.join(name)))
+        .find(|candidate| candidate.is_file())
 }
 
 impl SessionWriter for CodexWriter {
@@ -136,6 +288,15 @@ impl SessionWriter for CodexWriter {
                 .map_err(|e| format!("Failed to remove {}: {e}", path.display()))?;
         }
         Ok(())
+    }
+
+    fn after_batch(&self, written: &[TargetRef]) {
+        let ids: Vec<String> = written.iter().map(|t| t.session_id.clone()).collect();
+        let registered = register_threads(&ids);
+        log::info!(
+            "[session-sync] Codex 桌面列表登记 {registered}/{}",
+            ids.len()
+        );
     }
 }
 
@@ -183,11 +344,17 @@ mod tests {
         assert_eq!(lines[0]["type"], "session_meta");
         assert_eq!(lines[0]["payload"]["model_provider"], "custom");
         assert_eq!(lines[0]["payload"]["cwd"], "/p");
-        assert_eq!(lines[1]["payload"]["role"], "user");
+        assert_eq!(lines[1]["payload"]["type"], "task_started");
+        assert_eq!(lines[2]["payload"]["type"], "user_message");
+        assert_eq!(lines[2]["payload"]["message"], "[Claude Code] t\n\nq");
+        assert_eq!(lines[3]["payload"]["role"], "user");
         assert_eq!(
-            lines[1]["payload"]["content"][0]["text"],
+            lines[3]["payload"]["content"][0]["text"],
             "[Claude Code] t\n\nq"
         );
-        assert_eq!(lines[2]["payload"]["content"][0]["type"], "output_text");
+        assert_eq!(lines[4]["payload"]["type"], "agent_message");
+        assert_eq!(lines[5]["payload"]["content"][0]["type"], "output_text");
+        assert_eq!(lines.last().unwrap()["payload"]["type"], "task_complete");
+        assert_eq!(lines[0]["payload"]["source"], "vscode");
     }
 }

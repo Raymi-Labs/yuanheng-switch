@@ -3510,7 +3510,7 @@
     "mutedHint": "You won't be asked again. You can still sync manually in Sessions & Usage.",
     "runFailedContinue": "Sync didn't finish, launching anyway: {{error}}",
     "settingTitle": "Offer to sync chats between apps when launching",
-    "settingDescription": "When you launch Claude Code or Codex and other apps have chats for this project that haven't been brought over, you'll be asked once.",
+    "settingDescription": "When you launch Claude Code, Codex, Gemini CLI or Grok Build and other apps have chats for this project that haven't been brought over, you'll be asked once.",
     "mutedCount": "{{count}} projects set to don't ask",
     "clearMuted": "Ask again"
   }
