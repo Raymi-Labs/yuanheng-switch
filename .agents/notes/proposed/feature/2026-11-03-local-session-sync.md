@@ -131,8 +131,13 @@ OpenCode    ─ 读 ─┤        + 同步账本            ├─ 写 ─ OpenC
 ### M4 进行中（2026-11-03）
 
 - **OpenCode（已完成，真实客户端验收）**：本机用 Meta API 同款命令安装 OpenCode 1.19.5。会话在 SQLite，不直接写库，改走官方 `opencode import` 与 `opencode session delete`。实测三个坑都已处理：同 ID 再导入不覆盖，所以更新是先删后导；导入忽略 JSON 里的 directory、按执行命令时的工作目录归属项目，所以必须在项目目录里执行；user 消息缺 `model` 时导入报错，消息记录不存在的模型时续聊报 ProviderModelNotFoundError，所以写入用户在 OpenCode 配置的默认模型。隔离 HOME 加本地模拟模型验收：列表可见，不指定模型直接 `opencode run -s` 续聊回答正确，源端追加的消息也随更新进入历史，撤销后 session/message/part 全部清空。判断"是否被续聊"用只读查询消息数与最后时间。
-- **Hermes（未完成）**：官方安装是远程脚本，改用 uv 从 PyPI 安装 `hermes-agent` 也被本机权限策略拦截，未能安装验证，暂不开放为同步目标。
-- **OpenClaw（进行中）**：npm 包约 274 MB，首次下载被网络重置；官方要求 Node `>=24.16 <25 或 >=26.1`，本机为 25.9，可能无法运行。
+- **Hermes、OpenClaw（用户决定不适配）**：两者仍作为同步来源被读取，不作为同步目标。Hermes 的远程脚本与 uv 安装均被本机权限策略拦截；OpenClaw 下载中断后留下的半装包已用 `npm uninstall -g` 移除。
+
+### 尚未覆盖的客户端（2026-11-03 核对）
+
+- **DSH（DeepSeek Harness）**：本机已安装，`~/.dsh/sessions/<编码目录>/session-<id>/session.v4.jsonl.zstd` 下有 8 个会话，是 zstd 压缩的 JSONL。现有会话扫描不读 DSH，所以它既不是同步来源也不是目标；适配需要先补读取适配器再写写入适配器，并核实压缩格式与锁文件 `session.lock` 的语义。
+- **Claude Desktop**：普通聊天在云端，无法写入。内置 Claude Code 模式的目录 `Application Support/Claude-3p/claude-code-sessions/` 目前只有调度文件，是否读 `~/.claude/projects` 未核验，启动 Claude Desktop 不触发同步询问。
+- **WorkBuddy、Accio Work、TRAE**：本机未安装，未调研本地存储。
 
 ## Alternatives considered
 
