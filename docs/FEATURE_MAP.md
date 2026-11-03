@@ -8,6 +8,7 @@ Verified from the local checkout on 2026-09-29. This is a scoped navigation aid,
 
 | Capability | Entry / UI | API / orchestration | Implementation / data | Review boundary |
 |---|---|---|---|---|
+| 登录密码可见性 | [登录与注册面板](../src/components/desktop/YuanhengConnectionPanel.tsx) | 密码和确认密码各自支持眼睛按钮切换 | 默认隐藏；切换登录/注册及认证完成后恢复隐藏 | 登录页与紧凑连接面板共用；按钮不提交表单，支持键盘操作。 |
 | Project connection and local tool configuration | [src/App.tsx](../src/App.tsx) | [src/lib/api/yuanheng.ts](../src/lib/api/yuanheng.ts) | [src-tauri/src/commands/yuanheng.rs](../src-tauri/src/commands/yuanheng.rs) | Console owns keys, model access and billing; inspect desktop configuration application before adding another configuration flow. |
 | 通用凭据与下线分组修复 | [连接诊断卡片](../src/components/desktop/YuanhengHealthCard.tsx)的显式分组选择 | 登录/刷新仅同步会话；配置通用凭据不重配工具 | [设备凭据获取](../src-tauri/src/commands/yuanheng/device_credentials.rs)：实时分组、分页、串行锁、持久待确认标记，验证后写安全存储 | 不回退default、不自动换计费组、403不冒充过期；正常工具独立校验。声音克隆读取同一安全凭据入口。模拟测试边界见[决定](../.agents/notes/implemented/bug-fix/2026-11-02-credential-group-repair.md)。 |
 | 工具配置验收与就近诊断 | 工作台 / 工具管理共用 [生效状态](../src/components/desktop/ToolActivationProgress.tsx) → [诊断弹窗](../src/components/desktop/ToolDiagnosticDialog.tsx) | [账号隔离查询与配置后刷新](../src/lib/query/yuanheng.ts) | [静态证据分层](../src/lib/toolActivationAssessment.ts)，原 activation 状态和诊断快照 | 刷新状态不发送模型请求；详细体检仍可能维护 Codex 历史路由。旧成功不证明当前连接，2xx 未确认不算成功，直连请求不可观测；不自动上传。见[决定](../.agents/notes/implemented/feature/2026-10-31-tool-configuration-checks.md)。 |

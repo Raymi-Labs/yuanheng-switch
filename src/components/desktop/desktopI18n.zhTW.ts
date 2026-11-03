@@ -1,6 +1,10 @@
 // Generated from the desktop Simplified Chinese source strings, then normalized for Taiwan terminology.
 import { MEDIA_ZH_TW } from "./mediaStudioTranslations";
 export const DESKTOP_ZH_TW: Record<string, string> = {
+  显示密码: "顯示密碼",
+  隐藏密码: "隱藏密碼",
+  显示确认密码: "顯示確認密碼",
+  隐藏确认密码: "隱藏確認密碼",
   部分检查未通过: "部分檢查未通過",
   配置或修复通用凭据: "設定或修復通用憑證",
   选择通用凭据分组: "選擇通用憑證群組",

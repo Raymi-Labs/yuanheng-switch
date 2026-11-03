@@ -18,6 +18,47 @@ const renderPanel = () => {
 };
 
 describe("YuanhengConnectionPanel", () => {
+  it("密码可反复显示隐藏且不提交，注册确认密码独立切换并在换页后隐藏", async () => {
+    let logins = 0;
+    server.use(
+      http.post("http://tauri.local/login_yuanheng", () => {
+        logins += 1;
+        return HttpResponse.error();
+      }),
+    );
+    renderPanel();
+    fireEvent.change(await screen.findByLabelText("用户名"), {
+      target: { value: "tester" },
+    });
+    const password = screen.getByLabelText("密码");
+    fireEvent.change(password, { target: { value: "password123" } });
+    expect(password).toHaveAttribute("type", "password");
+    const toggle = screen.getByRole("button", { name: "显示密码" });
+    expect(toggle).toHaveAttribute("type", "button");
+    fireEvent.click(toggle);
+    expect(password).toHaveAttribute("type", "text");
+    expect(password).toHaveValue("password123");
+    expect(toggle).toHaveAttribute("aria-pressed", "true");
+    fireEvent.click(screen.getByRole("button", { name: "隐藏密码" }));
+    expect(password).toHaveAttribute("type", "password");
+    fireEvent.click(screen.getByRole("button", { name: "显示密码" }));
+    fireEvent.click(screen.getByRole("button", { name: "注册" }));
+    expect(password).toHaveAttribute("type", "password");
+    const confirmation = screen.getByLabelText("确认密码");
+    fireEvent.change(confirmation, { target: { value: "password123" } });
+    fireEvent.click(screen.getByRole("button", { name: "显示确认密码" }));
+    expect(confirmation).toHaveAttribute("type", "text");
+    expect(confirmation).toHaveValue("password123");
+    expect(password).toHaveAttribute("type", "password");
+    fireEvent.click(screen.getByRole("button", { name: "登录" }));
+    fireEvent.click(screen.getByRole("button", { name: "注册" }));
+    expect(screen.getByLabelText("确认密码")).toHaveAttribute(
+      "type",
+      "password",
+    );
+    expect(logins).toBe(0);
+  });
+
   it("旧条目拒绝后完成两步登录，不再要求恢复旧登录", async () => {
     let restores = 0;
     server.use(

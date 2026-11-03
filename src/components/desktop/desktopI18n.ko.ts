@@ -1,6 +1,10 @@
 // ko translations for the desktop Simplified Chinese source strings.
 import { MEDIA_KO } from "./mediaStudioTranslations";
 export const DESKTOP_KO: Record<string, string> = {
+  显示密码: "비밀번호 표시",
+  隐藏密码: "비밀번호 숨기기",
+  显示确认密码: "확인 비밀번호 표시",
+  隐藏确认密码: "확인 비밀번호 숨기기",
   部分检查未通过: "일부 항목을 확인해야 합니다",
   配置或修复通用凭据: "공통 인증 정보 설정 또는 복구",
   选择通用凭据分组: "공통 인증 정보 그룹 선택",

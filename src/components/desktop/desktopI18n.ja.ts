@@ -1,6 +1,10 @@
 // Japanese translations for the desktop Simplified Chinese source strings.
 import { MEDIA_JA } from "./mediaStudioTranslations";
 export const DESKTOP_JA: Record<string, string> = {
+  显示密码: "パスワードを表示",
+  隐藏密码: "パスワードを隠す",
+  显示确认密码: "確認用パスワードを表示",
+  隐藏确认密码: "確認用パスワードを隠す",
   部分检查未通过: "一部のチェックに対応が必要です",
   配置或修复通用凭据: "共通認証情報の設定・修復",
   选择通用凭据分组: "共通認証情報のグループを選択",

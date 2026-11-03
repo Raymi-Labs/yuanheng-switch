@@ -2,6 +2,8 @@ import { useState } from "react";
 import {
   CheckCircle2,
   Cloud,
+  Eye,
+  EyeOff,
   Loader2,
   LogIn,
   LogOut,
@@ -59,12 +61,16 @@ export function YuanhengConnectionPanel({
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [requiresTwoFactor, setRequiresTwoFactor] = useState(false);
   const [twoFactorCode, setTwoFactorCode] = useState("");
 
   const finishAuthentication = (result: YuanhengAuthResult) => {
     setPassword("");
     setConfirmPassword("");
+    setShowPassword(false);
+    setShowConfirmPassword(false);
     if (result.requiresTwoFactor) {
       setRequiresTwoFactor(true);
       toast.success(dt("账号密码验证通过，请完成两步验证"));
@@ -146,6 +152,8 @@ export function YuanhengConnectionPanel({
     setAuthMode(mode);
     setPassword("");
     setConfirmPassword("");
+    setShowPassword(false);
+    setShowConfirmPassword(false);
   };
 
   const handleRefresh = async () => {
@@ -409,19 +417,42 @@ export function YuanhengConnectionPanel({
                   >
                     {dt("密码")}
                   </Label>
-                  <Input
-                    id="yuanheng-password"
-                    type="password"
-                    autoComplete={
-                      authMode === "register"
-                        ? "new-password"
-                        : "current-password"
-                    }
-                    value={password}
-                    onChange={(event) => setPassword(event.target.value)}
-                    placeholder={dt("8 到 20 个字符")}
-                    className={compact ? "h-8 text-[12px]" : "h-9"}
-                  />
+                  <div className="relative">
+                    <Input
+                      id="yuanheng-password"
+                      type={showPassword ? "text" : "password"}
+                      autoComplete={
+                        authMode === "register"
+                          ? "new-password"
+                          : "current-password"
+                      }
+                      value={password}
+                      onChange={(event) => setPassword(event.target.value)}
+                      placeholder={dt("8 到 20 个字符")}
+                      className={cn(
+                        "pr-10",
+                        compact ? "h-8 text-[12px]" : "h-9",
+                      )}
+                    />
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="absolute right-0 top-0 h-full w-9 hover:bg-transparent"
+                      aria-label={
+                        showPassword ? dt("隐藏密码") : dt("显示密码")
+                      }
+                      aria-controls="yuanheng-password"
+                      aria-pressed={showPassword}
+                      onClick={() => setShowPassword((visible) => !visible)}
+                    >
+                      {showPassword ? (
+                        <EyeOff className="h-4 w-4" aria-hidden="true" />
+                      ) : (
+                        <Eye className="h-4 w-4" aria-hidden="true" />
+                      )}
+                    </Button>
+                  </div>
                 </div>
                 {authMode === "register" && (
                   <div className="space-y-1.5">
@@ -431,17 +462,44 @@ export function YuanhengConnectionPanel({
                     >
                       {dt("确认密码")}
                     </Label>
-                    <Input
-                      id="yuanheng-confirm-password"
-                      type="password"
-                      autoComplete="new-password"
-                      value={confirmPassword}
-                      onChange={(event) =>
-                        setConfirmPassword(event.target.value)
-                      }
-                      placeholder={dt("再次输入密码")}
-                      className={compact ? "h-8 text-[12px]" : "h-9"}
-                    />
+                    <div className="relative">
+                      <Input
+                        id="yuanheng-confirm-password"
+                        type={showConfirmPassword ? "text" : "password"}
+                        autoComplete="new-password"
+                        value={confirmPassword}
+                        onChange={(event) =>
+                          setConfirmPassword(event.target.value)
+                        }
+                        placeholder={dt("再次输入密码")}
+                        className={cn(
+                          "pr-10",
+                          compact ? "h-8 text-[12px]" : "h-9",
+                        )}
+                      />
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="absolute right-0 top-0 h-full w-9 hover:bg-transparent"
+                        aria-label={
+                          showConfirmPassword
+                            ? dt("隐藏确认密码")
+                            : dt("显示确认密码")
+                        }
+                        aria-controls="yuanheng-confirm-password"
+                        aria-pressed={showConfirmPassword}
+                        onClick={() =>
+                          setShowConfirmPassword((visible) => !visible)
+                        }
+                      >
+                        {showConfirmPassword ? (
+                          <EyeOff className="h-4 w-4" aria-hidden="true" />
+                        ) : (
+                          <Eye className="h-4 w-4" aria-hidden="true" />
+                        )}
+                      </Button>
+                    </div>
                   </div>
                 )}
                 <Button
