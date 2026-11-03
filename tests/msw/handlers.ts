@@ -500,11 +500,61 @@ export const handlers = [
     );
   }),
 
+  http.post(
+    `${TAURI_ENDPOINT}/check_session_sync_before_launch`,
+    async ({ request }) => {
+      const body = await withJson<{
+        targetProvider: string;
+        projectDir: string | null;
+      }>(request);
+      const state = getSessionSyncState();
+      state.launchChecks.push(body);
+      if (state.failLaunchCheck) {
+        return HttpResponse.json("check failed", { status: 500 });
+      }
+      return success(
+        state.pending[body.targetProvider] ?? {
+          targetProvider: body.targetProvider,
+          directories: [],
+          total: 0,
+        },
+      );
+    },
+  ),
+
+  http.post(`${TAURI_ENDPOINT}/get_session_sync_prefs`, () =>
+    success(getSessionSyncState().prefs),
+  ),
+
+  http.post(`${TAURI_ENDPOINT}/set_session_sync_prefs`, async ({ request }) => {
+    const { prefs } = await withJson<{
+      prefs: { promptOnLaunch: boolean; muted: unknown[] };
+    }>(request);
+    getSessionSyncState().prefs = prefs;
+    return success(prefs);
+  }),
+
+  http.post(
+    `${TAURI_ENDPOINT}/mute_session_sync_directories`,
+    async ({ request }) => {
+      const body = await withJson<{
+        targetProvider: string;
+        projectDirs: string[];
+      }>(request);
+      const state = getSessionSyncState();
+      state.muteCalls.push(body);
+      return success(state.prefs);
+    },
+  ),
+
   http.post(`${TAURI_ENDPOINT}/run_session_sync`, async ({ request }) => {
     const body = await withJson<{ targetProvider: string; scope?: unknown }>(
       request,
     );
     getSessionSyncState().runCalls.push(body);
+    if (getSessionSyncState().failRun) {
+      return HttpResponse.json("disk full", { status: 500 });
+    }
     return success({
       targetProvider: body.targetProvider,
       synced: 3,

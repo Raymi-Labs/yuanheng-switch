@@ -8,6 +8,7 @@ import {
 import { sessionSyncApi } from "@/lib/api";
 import {
   sessionSyncStateKey,
+  type SessionSyncPrefs,
   type SessionSyncScope,
   type SessionSyncState,
 } from "@/lib/api/sessionSync";
@@ -16,6 +17,7 @@ export const sessionSyncKeys = {
   all: ["session-sync"] as const,
   targets: () => [...sessionSyncKeys.all, "targets"] as const,
   states: () => [...sessionSyncKeys.all, "states"] as const,
+  prefs: () => [...sessionSyncKeys.all, "prefs"] as const,
   pending: (target: string, projectDir?: string | null) =>
     [...sessionSyncKeys.all, "pending", target, projectDir ?? "*"] as const,
 };
@@ -75,5 +77,21 @@ export const useUndoSessionSyncMutation = () => {
       targetSessionId: string;
     }) => sessionSyncApi.undo(targetProvider, targetSessionId),
     onSettled: () => invalidateSessionSync(queryClient),
+  });
+};
+
+export const useSessionSyncPrefsQuery = () =>
+  useQuery({
+    queryKey: sessionSyncKeys.prefs(),
+    queryFn: () => sessionSyncApi.getPrefs(),
+  });
+
+export const useSaveSessionSyncPrefsMutation = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (prefs: SessionSyncPrefs) => sessionSyncApi.setPrefs(prefs),
+    onSuccess: (saved) => {
+      queryClient.setQueryData(sessionSyncKeys.prefs(), saved);
+    },
   });
 };

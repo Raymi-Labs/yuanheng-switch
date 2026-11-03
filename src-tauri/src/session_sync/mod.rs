@@ -11,6 +11,7 @@
 
 pub mod canonical;
 pub mod ledger;
+pub mod prefs;
 pub mod writers;
 
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -50,6 +51,9 @@ pub struct SyncScope {
     /// 为空时表示全部目录
     #[serde(default)]
     pub project_dir: Option<String>,
+    /// 非空时只处理这些目录（启动弹窗把用户看到的目录原样传回）
+    #[serde(default)]
+    pub project_dirs: Vec<String>,
     /// 为空时表示所有可读来源
     #[serde(default)]
     pub source_providers: Vec<String>,
@@ -65,6 +69,7 @@ impl Default for SyncScope {
     fn default() -> Self {
         Self {
             project_dir: None,
+            project_dirs: Vec::new(),
             source_providers: Vec::new(),
             max_age_days: Some(DEFAULT_MAX_AGE_DAYS),
             max_per_directory: Some(DEFAULT_MAX_PER_DIRECTORY),
@@ -184,6 +189,20 @@ fn session_matches_scope(meta: &SessionMeta, scope: &SyncScope, now: i64) -> boo
             return false;
         }
     }
+    if !scope.project_dirs.is_empty() {
+        let actual = meta
+            .project_dir
+            .as_deref()
+            .map(normalize_project_dir)
+            .unwrap_or_default();
+        if !scope
+            .project_dirs
+            .iter()
+            .any(|dir| normalize_project_dir(dir) == actual)
+        {
+            return false;
+        }
+    }
     if !scope.source_providers.is_empty()
         && !scope
             .source_providers
@@ -282,6 +301,31 @@ pub fn source_fingerprint(meta: &SessionMeta) -> String {
     format!("{size}:{ts}")
 }
 
+/// 清洗后的轮次数，按 (provider, session, 源指纹) 缓存在进程内：
+/// 启动前检测会反复调用，源未变时不再重读文件。读取失败返回 None。
+fn cached_turn_count(meta: &SessionMeta, fingerprint: &str) -> Option<usize> {
+    use std::sync::{Mutex, OnceLock};
+    /// (provider, session) → (源指纹, 轮次数)
+    type TurnCache = HashMap<(String, String), (String, usize)>;
+    static CACHE: OnceLock<Mutex<TurnCache>> = OnceLock::new();
+    let cache = CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+    let key = (meta.provider_id.clone(), meta.session_id.clone());
+    if let Ok(guard) = cache.lock() {
+        if let Some((fp, turns)) = guard.get(&key) {
+            if fp == fingerprint {
+                return Some(*turns);
+            }
+        }
+    }
+    let path = meta.source_path.as_deref()?;
+    let messages = session_manager::load_messages(&meta.provider_id, path).ok()?;
+    let turns = canonical::from_messages(meta, &messages).turns.len();
+    if let Ok(mut guard) = cache.lock() {
+        guard.insert(key, (fingerprint.to_string(), turns));
+    }
+    Some(turns)
+}
+
 /// 检测某目标客户端的待同步会话（不写任何文件）。
 pub fn check_pending(
     db: &Database,
@@ -323,18 +367,10 @@ fn summarize_pending(
         if pending == 0 && diverged == 0 {
             continue;
         }
-        if pending == 1 && min_turns > 0 {
-            // 轮次校验需要读文件；仅对新候选做，避免每次检测全量解析。
-            if let Some(path) = meta.source_path.as_deref() {
-                match session_manager::load_messages(&meta.provider_id, path) {
-                    Ok(messages) => {
-                        let canonical = canonical::from_messages(&meta, &messages);
-                        if canonical.turns.len() < min_turns {
-                            continue;
-                        }
-                    }
-                    Err(_) => continue,
-                }
+        if pending == 1 && min_turns > 0 && meta.source_path.is_some() {
+            match cached_turn_count(&meta, &fingerprint) {
+                Some(turns) if turns >= min_turns => {}
+                _ => continue,
             }
         }
         let entry = dirs
@@ -377,6 +413,40 @@ fn summarize_pending(
         directories,
         total,
     }
+}
+
+/// 启动前检测：遵守总开关与"不再提醒"，只返回确有待同步内容的目录。
+/// 目标客户端不支持写入时返回空结果而非报错，调用方可无条件调用。
+pub fn check_before_launch(
+    db: &Database,
+    target_provider: &str,
+    project_dir: Option<&str>,
+) -> Result<PendingSummary, String> {
+    let empty = PendingSummary {
+        target_provider: target_provider.to_string(),
+        directories: Vec::new(),
+        total: 0,
+    };
+    if writers::writer_for(target_provider).is_err() {
+        return Ok(empty);
+    }
+    let prefs = prefs::load(db);
+    if !prefs.prompt_on_launch {
+        return Ok(empty);
+    }
+    let scope = SyncScope {
+        project_dir: project_dir
+            .map(str::trim)
+            .filter(|d| !d.is_empty())
+            .map(str::to_string),
+        ..SyncScope::default()
+    };
+    let mut summary = check_pending(db, target_provider, &scope)?;
+    summary
+        .directories
+        .retain(|dir| dir.total > 0 && !prefs.is_muted(target_provider, &dir.project_dir));
+    summary.total = summary.directories.iter().map(|d| d.total).sum();
+    Ok(summary)
 }
 
 /// 执行同步：把范围内的源会话写入目标客户端，并更新账本。
@@ -826,6 +896,77 @@ mod e2e_tests {
 
     #[test]
     #[serial]
+    fn launch_check_respects_prompt_switch_mutes_and_directory() {
+        let home = setup_home();
+        let project = home.path().join("proj");
+        std::fs::create_dir_all(&project).unwrap();
+        let project = project.canonicalize().unwrap();
+        write_codex_source(home.path(), &project);
+        let db = Database::memory().expect("db");
+        let dir = project.to_string_lossy().to_string();
+
+        let found = check_before_launch(&db, "claude", Some(&dir)).unwrap();
+        assert_eq!(found.total, 1);
+        assert_eq!(
+            check_before_launch(&db, "claude", Some("/elsewhere"))
+                .unwrap()
+                .total,
+            0
+        );
+        assert_eq!(check_before_launch(&db, "claude", None).unwrap().total, 1);
+        // 不支持写入的目标静默返回空
+        assert_eq!(
+            check_before_launch(&db, "gemini", Some(&dir))
+                .unwrap()
+                .total,
+            0
+        );
+
+        // 只同步弹窗里列出的目录
+        let scoped = run_sync(
+            &db,
+            "claude",
+            &SyncScope {
+                project_dirs: vec!["/elsewhere".into()],
+                ..SyncScope::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(scoped.synced, 0);
+
+        prefs::mute(&db, "claude", &[dir.clone()]).unwrap();
+        assert_eq!(
+            check_before_launch(&db, "claude", Some(&dir))
+                .unwrap()
+                .total,
+            0
+        );
+        assert_eq!(
+            check_before_launch(&db, "codex", Some(&dir)).unwrap().total,
+            0
+        );
+
+        let mut p = prefs::load(&db);
+        p.muted.clear();
+        p.prompt_on_launch = false;
+        prefs::save(&db, &p).unwrap();
+        assert_eq!(
+            check_before_launch(&db, "claude", Some(&dir))
+                .unwrap()
+                .total,
+            0
+        );
+        // 关闭询问后手动检测仍然可用
+        assert_eq!(
+            check_pending(&db, "claude", &SyncScope::default())
+                .unwrap()
+                .total,
+            1
+        );
+    }
+
+    #[test]
+    #[serial]
     fn claude_to_codex_writes_resumable_rollout_and_undo_deletes() {
         let home = setup_home();
         let project = home.path().join("proj2");
@@ -917,5 +1058,38 @@ mod live_probe {
             ),
         )
         .unwrap();
+    }
+}
+
+#[cfg(test)]
+mod perf_probe {
+    //! 手动测量：`cargo test --release --lib perf_probe -- --ignored --nocapture`
+    //! 只读真实 HOME，内存账本，不写任何文件。
+    use super::*;
+
+    #[test]
+    #[ignore]
+    fn measure_check_pending_on_real_home() {
+        let db = Database::memory().expect("db");
+        for target in ["claude", "codex"] {
+            let start = std::time::Instant::now();
+            let summary = check_pending(&db, target, &SyncScope::default()).unwrap();
+            println!(
+                "target={target} total={} dirs={} elapsed={:?}",
+                summary.total,
+                summary.directories.len(),
+                start.elapsed()
+            );
+        }
+        let start = std::time::Instant::now();
+        let warm = check_pending(&db, "claude", &SyncScope::default()).unwrap();
+        println!(
+            "warm claude total={} elapsed={:?}",
+            warm.total,
+            start.elapsed()
+        );
+        let start = std::time::Instant::now();
+        let all = session_manager::scan_sessions();
+        println!("scan_sessions={} elapsed={:?}", all.len(), start.elapsed());
     }
 }

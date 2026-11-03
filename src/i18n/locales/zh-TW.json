@@ -3501,6 +3501,19 @@
     "undoTooltip": "刪除這份從 {{source}} 帶過來的副本；如果已經在這裡接著聊過，只取消關聯、保留內容",
     "undoRemoved": "已撤銷，這份副本已刪除",
     "undoUnlinked": "已取消關聯；因為你在這裡接著聊過，內容已保留",
-    "undoFailed": "撤銷失敗：{{error}}"
+    "undoFailed": "撤銷失敗：{{error}}",
+    "launchTitle": "要把之前的聊天帶到 {{target}} 嗎？",
+    "launchDescription": "其他用戶端裡有 {{count}} 次聊天還沒帶過來。帶過來後可以在 {{target}} 裡直接接著聊，原本的紀錄不會被改動。",
+    "launchConfirm": "帶過來並啟動",
+    "launchSkip": "直接啟動",
+    "syncing": "正在帶過來…",
+    "muteProject": "這個專案不再提醒",
+    "muteProjects": "這些專案不再提醒",
+    "mutedHint": "之後啟動不再詢問；需要時可在「會話與用量」裡手動同步",
+    "runFailedContinue": "同步沒有完成，先為你直接啟動：{{error}}",
+    "settingTitle": "啟動時幫我同步各用戶端的聊天紀錄",
+    "settingDescription": "啟動 Claude Code 或 Codex 時，如果其他用戶端裡有這個專案的聊天還沒帶過來，會先問你一次。",
+    "mutedCount": "有 {{count}} 個專案設為不再提醒",
+    "clearMuted": "恢復提醒"
   }
 }

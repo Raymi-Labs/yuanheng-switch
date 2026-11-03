@@ -111,6 +111,13 @@ OpenCode    ─ 读 ─┤        + 同步账本            ├─ 写 ─ OpenC
 - 测试：隔离 HOME 端到端覆盖双向写入、扫描器识别、不回传、幂等、源文件不被修改、目标续聊后分叉不覆盖、撤销已续聊副本只解链；前端覆盖弹窗与撤销流程。
 - 仍未核验：Codex Desktop 列表在首次 resume 前是否显示同步线程；Claude Desktop 内置 Claude Code 模式是否读同一目录。移入 M3。
 
+### M2（2026-11-03 完成）
+
+- 启动前询问挂在唯一入口 [launchTool](../../../../src/lib/api/yuanheng.ts)，工作台、工具管理等所有启动路径都经过它；重启只为应用配置，不询问。工具到同步客户端的映射在 [sessionSyncLaunch](../../../../src/lib/sessionSyncLaunch.ts)：Claude Code → claude，Codex CLI 与 Codex Desktop → codex，其余工具静默放行。
+- 后端 `check_session_sync_before_launch` 只看启动目录，遵守总开关与按（目标, 目录）的不再提醒；目标不支持写入时返回空而非报错。弹窗把列出的目录原样传回 `run_session_sync` 的 `projectDirs`，不会同步用户没看到的项目。
+- 全局 [SessionSyncLaunchPrompt](../../../../src/components/sessions/SessionSyncLaunchPrompt.tsx) 三个按钮：带过来并启动、直接启动、这个项目不再提醒。检测失败、同步失败、关闭弹窗都放行启动。设置 → 桌面体验新增总开关与"恢复提醒"。
+- 性能（本机真实数据，release 构建）：130 个会话中对 Claude 冷检测约 1.8 秒，主要是逐条读文件数轮次；加入按源指纹的进程内轮次缓存后热检测约 0.11 秒。启动时只检查一个目录，实际开销更小。
+
 ## Alternatives considered
 
 - **归档中心 + MCP 让各客户端自行检索旧记录**（已删除的前版）— 不碰任何客户端格式，升级零风险。否决：记录不会出现在目标客户端的历史列表，用户还要在对话里主动调工具，违背"一键"诉求；仅适合没有本地文件的云端产品，本期不做。

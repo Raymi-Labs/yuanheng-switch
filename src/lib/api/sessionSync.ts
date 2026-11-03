@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 
 export interface SessionSyncScope {
   projectDir?: string | null;
+  projectDirs?: string[];
   sourceProviders?: string[];
   maxAgeDays?: number | null;
   maxPerDirectory?: number | null;
@@ -52,7 +53,45 @@ export interface SessionSyncState {
   syncedTo: SyncedTarget[];
 }
 
+export interface MutedDirectory {
+  targetProvider: string;
+  projectDir: string;
+}
+
+export interface SessionSyncPrefs {
+  promptOnLaunch: boolean;
+  muted: MutedDirectory[];
+}
+
 export const sessionSyncApi = {
+  async checkBeforeLaunch(
+    targetProvider: string,
+    projectDir?: string | null,
+  ): Promise<PendingSummary> {
+    return invoke("check_session_sync_before_launch", {
+      targetProvider,
+      projectDir: projectDir ?? null,
+    });
+  },
+
+  async getPrefs(): Promise<SessionSyncPrefs> {
+    return invoke("get_session_sync_prefs");
+  },
+
+  async setPrefs(prefs: SessionSyncPrefs): Promise<SessionSyncPrefs> {
+    return invoke("set_session_sync_prefs", { prefs });
+  },
+
+  async muteDirectories(
+    targetProvider: string,
+    projectDirs: string[],
+  ): Promise<SessionSyncPrefs> {
+    return invoke("mute_session_sync_directories", {
+      targetProvider,
+      projectDirs,
+    });
+  },
+
   async targets(): Promise<string[]> {
     return invoke("get_session_sync_targets");
   },

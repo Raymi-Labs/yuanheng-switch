@@ -3499,6 +3499,19 @@
     "undoTooltip": "{{source}} から取り込んだこのコピーを削除します。ここで続けて会話した場合は関連付けのみ解除し、内容は残します。",
     "undoRemoved": "取り消しました。コピーを削除しました",
     "undoUnlinked": "関連付けを解除しました。ここで会話を続けたため内容は残しています",
-    "undoFailed": "取り消しに失敗しました：{{error}}"
+    "undoFailed": "取り消しに失敗しました：{{error}}",
+    "launchTitle": "以前のチャットを {{target}} に取り込みますか？",
+    "launchDescription": "他のアプリにまだ取り込んでいないチャットが {{count}} 件あります。取り込むと {{target}} でそのまま続けられます。元の履歴は変更されません。",
+    "launchConfirm": "取り込んで起動",
+    "launchSkip": "そのまま起動",
+    "syncing": "取り込み中…",
+    "muteProject": "このプロジェクトは今後確認しない",
+    "muteProjects": "これらのプロジェクトは今後確認しない",
+    "mutedHint": "今後は確認しません。必要なら「セッションと使用量」から手動で同期できます",
+    "runFailedContinue": "同期が完了しなかったため、そのまま起動します：{{error}}",
+    "settingTitle": "起動時にアプリ間のチャット履歴の同期を提案する",
+    "settingDescription": "Claude Code や Codex の起動時に、このプロジェクトの未取り込みチャットが他のアプリにあれば一度確認します。",
+    "mutedCount": "{{count}} 件のプロジェクトを確認しない設定にしています",
+    "clearMuted": "確認を再開"
   }
 }

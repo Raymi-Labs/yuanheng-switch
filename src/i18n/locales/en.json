@@ -3499,6 +3499,19 @@
     "undoTooltip": "Delete this copy brought from {{source}}. If you already continued it here, only unlink and keep the content.",
     "undoRemoved": "Undone. The copy was deleted.",
     "undoUnlinked": "Unlinked. You continued this chat here, so its content was kept.",
-    "undoFailed": "Undo failed: {{error}}"
+    "undoFailed": "Undo failed: {{error}}",
+    "launchTitle": "Bring your earlier chats to {{target}}?",
+    "launchDescription": "{{count}} chats in your other apps haven't been brought over yet. After that you can keep chatting in {{target}}. Your original chats stay untouched.",
+    "launchConfirm": "Bring over and launch",
+    "launchSkip": "Just launch",
+    "syncing": "Bringing over…",
+    "muteProject": "Don't ask for this project",
+    "muteProjects": "Don't ask for these projects",
+    "mutedHint": "You won't be asked again. You can still sync manually in Sessions & Usage.",
+    "runFailedContinue": "Sync didn't finish, launching anyway: {{error}}",
+    "settingTitle": "Offer to sync chats between apps when launching",
+    "settingDescription": "When you launch Claude Code or Codex and other apps have chats for this project that haven't been brought over, you'll be asked once.",
+    "mutedCount": "{{count}} projects set to don't ask",
+    "clearMuted": "Ask again"
   }
 }

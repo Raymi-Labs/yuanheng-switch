@@ -44,6 +44,7 @@ import { AppVisibilitySettings } from "@/components/settings/AppVisibilitySettin
 import { SkillStorageLocationSettings } from "@/components/settings/SkillStorageLocationSettings";
 import { SkillSyncMethodSettings } from "@/components/settings/SkillSyncMethodSettings";
 import { TerminalSettings } from "@/components/settings/TerminalSettings";
+import { SessionSyncSettings } from "@/components/settings/SessionSyncSettings";
 import { DirectorySettings } from "@/components/settings/DirectorySettings";
 import { ImportExportSection } from "@/components/settings/ImportExportSection";
 import { BackupListSection } from "@/components/settings/BackupListSection";
@@ -349,6 +350,7 @@ export function SettingsPage({
                           handleAutoSave({ preferredTerminal: terminal })
                         }
                       />
+                      <SessionSyncSettings />
                     </SettingsSectionCard>
                   </motion.div>
                 ) : null}

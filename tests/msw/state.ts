@@ -273,6 +273,11 @@ type SessionSyncFixture = {
   states: unknown[];
   runCalls: Array<{ targetProvider: string; scope?: unknown }>;
   undoCalls: Array<{ targetProvider: string; targetSessionId: string }>;
+  launchChecks: Array<{ targetProvider: string; projectDir: string | null }>;
+  muteCalls: Array<{ targetProvider: string; projectDirs: string[] }>;
+  prefs: { promptOnLaunch: boolean; muted: unknown[] };
+  failLaunchCheck: boolean;
+  failRun: boolean;
 };
 
 const createDefaultSessionSync = (): SessionSyncFixture => ({
@@ -281,13 +286,23 @@ const createDefaultSessionSync = (): SessionSyncFixture => ({
   states: [],
   runCalls: [],
   undoCalls: [],
+  launchChecks: [],
+  muteCalls: [],
+  prefs: { promptOnLaunch: true, muted: [] },
+  failLaunchCheck: false,
+  failRun: false,
 });
 
 let sessionSyncState = createDefaultSessionSync();
 
 export const getSessionSyncState = () => sessionSyncState;
 export const setSessionSyncFixtures = (
-  next: Partial<Omit<SessionSyncFixture, "runCalls" | "undoCalls">>,
+  next: Partial<
+    Omit<
+      SessionSyncFixture,
+      "runCalls" | "undoCalls" | "launchChecks" | "muteCalls"
+    >
+  >,
 ) => {
   sessionSyncState = { ...sessionSyncState, ...next };
 };

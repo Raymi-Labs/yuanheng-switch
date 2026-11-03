@@ -3499,6 +3499,19 @@
     "undoTooltip": "删除这份从 {{source}} 带过来的副本；如果已经在这里接着聊过，只取消关联、保留内容",
     "undoRemoved": "已撤销，这份副本已删除",
     "undoUnlinked": "已取消关联；因为你在这里接着聊过，内容已保留",
-    "undoFailed": "撤销失败：{{error}}"
+    "undoFailed": "撤销失败：{{error}}",
+    "launchTitle": "要把之前的聊天带到 {{target}} 吗？",
+    "launchDescription": "其他客户端里有 {{count}} 次聊天还没带过来。带过来后可以在 {{target}} 里直接接着聊，原来的记录不会被改动。",
+    "launchConfirm": "带过来并启动",
+    "launchSkip": "直接启动",
+    "syncing": "正在带过来…",
+    "muteProject": "这个项目不再提醒",
+    "muteProjects": "这些项目不再提醒",
+    "mutedHint": "以后启动不再询问；需要时可在「会话与用量」里手动同步",
+    "runFailedContinue": "同步没有完成，先为你直接启动：{{error}}",
+    "settingTitle": "启动时帮我同步各客户端的聊天记录",
+    "settingDescription": "启动 Claude Code 或 Codex 时，如果其他客户端里有这个项目的聊天还没带过来，会先问你一次。",
+    "mutedCount": "有 {{count}} 个项目设为不再提醒",
+    "clearMuted": "恢复提醒"
   }
 }

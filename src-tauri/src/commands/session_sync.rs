@@ -66,3 +66,44 @@ pub async fn list_session_sync_states(
         .await
         .map_err(|e| format!("Failed to list session sync states: {e}"))?
 }
+
+#[tauri::command]
+pub async fn get_session_sync_prefs(
+    state: State<'_, AppState>,
+) -> Result<session_sync::prefs::SessionSyncPrefs, String> {
+    Ok(session_sync::prefs::load(&state.db))
+}
+
+#[tauri::command]
+pub async fn set_session_sync_prefs(
+    state: State<'_, AppState>,
+    prefs: session_sync::prefs::SessionSyncPrefs,
+) -> Result<session_sync::prefs::SessionSyncPrefs, String> {
+    session_sync::prefs::save(&state.db, &prefs)?;
+    Ok(session_sync::prefs::load(&state.db))
+}
+
+#[tauri::command]
+pub async fn mute_session_sync_directories(
+    state: State<'_, AppState>,
+    targetProvider: String,
+    projectDirs: Vec<String>,
+) -> Result<session_sync::prefs::SessionSyncPrefs, String> {
+    session_sync::prefs::mute(&state.db, &targetProvider, &projectDirs)
+}
+
+/// 启动前检测：总开关关闭时直接返回空；否则只看启动目录（未给目录时看全部），
+/// 并剔除"不再提醒"的目录与只剩分叉的目录。
+#[tauri::command]
+pub async fn check_session_sync_before_launch(
+    state: State<'_, AppState>,
+    targetProvider: String,
+    projectDir: Option<String>,
+) -> Result<PendingSummary, String> {
+    let db = state.db.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        session_sync::check_before_launch(&db, &targetProvider, projectDir.as_deref())
+    })
+    .await
+    .map_err(|e| format!("Failed to check session sync: {e}"))?
+}

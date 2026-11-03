@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { offerSessionSyncBeforeLaunch } from "@/lib/sessionSyncLaunch";
 import type { AppId } from "./types";
 import {
   ensureClaudeWorkspaceReady,
@@ -423,6 +424,8 @@ export const yuanhengApi = {
       throw new Error("已取消启动 Accio Work");
     }
     if (app === "claude-desktop") await ensureClaudeWorkspaceReady();
+    // 重启不询问：重启只为应用新配置，不是用户开始新工作。
+    if (!restart) await offerSessionSyncBeforeLaunch(app, cwd);
     return invoke(
       "launch_tool",
       cwd ? { tool: app, restart, cwd } : { tool: app, restart },

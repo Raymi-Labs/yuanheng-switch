@@ -3499,6 +3499,19 @@
     "undoTooltip": "{{source}}에서 가져온 이 사본을 삭제합니다. 여기서 이어서 대화했다면 연결만 해제하고 내용은 유지합니다.",
     "undoRemoved": "취소했습니다. 사본을 삭제했습니다",
     "undoUnlinked": "연결을 해제했습니다. 여기서 대화를 이어갔으므로 내용은 유지됩니다",
-    "undoFailed": "취소 실패: {{error}}"
+    "undoFailed": "취소 실패: {{error}}",
+    "launchTitle": "이전 채팅을 {{target}}(으)로 가져올까요?",
+    "launchDescription": "다른 앱에 아직 가져오지 않은 채팅이 {{count}}개 있습니다. 가져오면 {{target}}에서 바로 이어서 대화할 수 있으며 원래 기록은 변경되지 않습니다.",
+    "launchConfirm": "가져오고 실행",
+    "launchSkip": "바로 실행",
+    "syncing": "가져오는 중…",
+    "muteProject": "이 프로젝트는 다시 묻지 않기",
+    "muteProjects": "이 프로젝트들은 다시 묻지 않기",
+    "mutedHint": "다시 묻지 않습니다. 필요하면 「세션 및 사용량」에서 직접 동기화할 수 있습니다",
+    "runFailedContinue": "동기화가 끝나지 않아 바로 실행합니다: {{error}}",
+    "settingTitle": "실행할 때 앱 간 채팅 기록 동기화 제안",
+    "settingDescription": "Claude Code나 Codex를 실행할 때 다른 앱에 이 프로젝트의 가져오지 않은 채팅이 있으면 한 번 묻습니다.",
+    "mutedCount": "{{count}}개 프로젝트를 다시 묻지 않도록 설정함",
+    "clearMuted": "다시 묻기"
   }
 }
