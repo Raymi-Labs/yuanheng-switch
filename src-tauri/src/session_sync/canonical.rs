@@ -195,6 +195,7 @@ pub fn origin_title_prefix(provider_id: &str) -> &'static str {
         "opencode" => "[OpenCode] ",
         "openclaw" => "[OpenClaw] ",
         "hermes" => "[Hermes] ",
+        "dsh" => "[DSH] ",
         _ => "[同步] ",
     }
 }

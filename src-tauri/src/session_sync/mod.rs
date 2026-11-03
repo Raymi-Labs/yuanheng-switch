@@ -1210,6 +1210,63 @@ mod opencode_probe {
 }
 
 #[cfg(test)]
+mod dsh_probe {
+    //! 手动验收（需已安装 DSH 桌面版）：
+    //! `SYNC_E2E_HOME=<隔离HOME> SYNC_E2E_CWD=<项目> cargo test --lib dsh_probe -- --ignored --nocapture`
+    //! 隔离 HOME 下 DSH 主目录为 `<HOME>/.dsh`。
+    use super::*;
+
+    #[test]
+    #[ignore]
+    fn sync_codex_session_into_dsh() {
+        let home = PathBuf::from(std::env::var("SYNC_E2E_HOME").expect("SYNC_E2E_HOME"));
+        let cwd = std::env::var("SYNC_E2E_CWD").expect("SYNC_E2E_CWD");
+        std::env::set_var("YUANHENG_SWITCH_TEST_HOME", &home);
+        let dir = home.join(".codex/sessions/2026/11/03");
+        std::fs::create_dir_all(&dir).unwrap();
+        let id = "0199dddd-0000-7000-8000-0000000000a1";
+        let now = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ");
+        std::fs::write(
+            dir.join(format!("rollout-2026-11-03T10-00-00-{id}.jsonl")),
+            format!(
+                "{{\"timestamp\":\"{now}\",\"type\":\"session_meta\",\"payload\":{{\"id\":\"{id}\",\"cwd\":\"{cwd}\"}}}}\n\
+                 {{\"timestamp\":\"{now}\",\"type\":\"response_item\",\"payload\":{{\"type\":\"message\",\"role\":\"user\",\"content\":[{{\"type\":\"input_text\",\"text\":\"# AGENTS.md instructions for x\"}}]}}}}\n\
+                 {{\"timestamp\":\"{now}\",\"type\":\"response_item\",\"payload\":{{\"type\":\"message\",\"role\":\"user\",\"content\":[{{\"type\":\"input_text\",\"text\":\"我们的暗号是：银杏书签。记住它。\"}}]}}}}\n\
+                 {{\"timestamp\":\"{now}\",\"type\":\"response_item\",\"payload\":{{\"type\":\"message\",\"role\":\"assistant\",\"content\":[{{\"type\":\"output_text\",\"text\":\"好的，已记住。\"}}]}}}}\n"
+            ),
+        )
+        .unwrap();
+        let db = Database::memory().unwrap();
+        let pending = check_pending(&db, "dsh", &SyncScope::default()).unwrap();
+        println!("pending total={}", pending.total);
+        let out = run_sync(&db, "dsh", &SyncScope::default()).unwrap();
+        println!(
+            "synced={} failed={} errors={:?}",
+            out.synced, out.failed, out.errors
+        );
+        for link in db.list_session_sync_links().unwrap() {
+            println!("TARGET {} {}", link.target_session_id, link.target_ref);
+        }
+        let dsh: Vec<_> = session_manager::scan_sessions()
+            .into_iter()
+            .filter(|s| s.provider_id == "dsh")
+            .collect();
+        println!(
+            "dsh scanned={} title={:?}",
+            dsh.len(),
+            dsh.first().and_then(|s| s.title.clone())
+        );
+        // DSH 写出的会话不应再作为来源回传给 Codex
+        println!(
+            "codex pending from dsh={}",
+            check_pending(&db, "codex", &SyncScope::default())
+                .unwrap()
+                .total
+        );
+    }
+}
+
+#[cfg(test)]
 mod install_probe {
     //! 手动验收：`SYNC_E2E_HOME=<隔离HOME> SYNC_E2E_CWD=<项目> cargo test --lib install_probe -- --ignored`
     //! 在隔离 HOME 里放一份 Codex 会话，用真实 `run_sync` 同步到 Gemini 与 Grok Build，

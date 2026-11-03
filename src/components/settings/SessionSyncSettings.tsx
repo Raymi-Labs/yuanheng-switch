@@ -34,7 +34,7 @@ export function SessionSyncSettings() {
         })}
         description={t("sessionSync.settingDescription", {
           defaultValue:
-            "启动 Claude Code、Codex、Gemini CLI、Grok Build 或 OpenCode 时，如果其他客户端里有这个项目的聊天还没带过来，会先问你一次。",
+            "启动 Claude Code、Codex、Gemini CLI、Grok Build、OpenCode 或 DSH 时，如果其他客户端里有这个项目的聊天还没带过来，会先问你一次。",
         })}
         checked={prefs?.promptOnLaunch ?? true}
         disabled={!prefs || save.isPending}

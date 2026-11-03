@@ -133,9 +133,18 @@ OpenCode    ─ 读 ─┤        + 同步账本            ├─ 写 ─ OpenC
 - **OpenCode（已完成，真实客户端验收）**：本机用 Meta API 同款命令安装 OpenCode 1.19.5。会话在 SQLite，不直接写库，改走官方 `opencode import` 与 `opencode session delete`。实测三个坑都已处理：同 ID 再导入不覆盖，所以更新是先删后导；导入忽略 JSON 里的 directory、按执行命令时的工作目录归属项目，所以必须在项目目录里执行；user 消息缺 `model` 时导入报错，消息记录不存在的模型时续聊报 ProviderModelNotFoundError，所以写入用户在 OpenCode 配置的默认模型。隔离 HOME 加本地模拟模型验收：列表可见，不指定模型直接 `opencode run -s` 续聊回答正确，源端追加的消息也随更新进入历史，撤销后 session/message/part 全部清空。判断"是否被续聊"用只读查询消息数与最后时间。
 - **Hermes、OpenClaw（用户决定不适配）**：两者仍作为同步来源被读取，不作为同步目标。Hermes 的远程脚本与 uv 安装均被本机权限策略拦截；OpenClaw 下载中断后留下的半装包已用 `npm uninstall -g` 移除。
 
+### DSH（2026-11-03 完成，真实客户端验收）
+
+本机已装 DeepSeek Harness 桌面版 0.2.1-rc.5，它自带命令行与 Node 运行时。格式以应用包内 `dsh-session-persistence-jsonl` 源码为准（只读提取后删除），并在隔离 `DSH_HOME` 中用 `dsh --profile headless --session-id` 逐项实测。
+
+- **读取**：新增 [providers/dsh.rs](../../../../src-tauri/src/session_manager/providers/dsh.rs)。日志是多个 zstd 帧拼接，`zstd` 解码器顺序读完全部帧。只把 `source.kind == "user"` 当作用户发言，runtime-context、skill-catalog 等注入内容跳过；只有初始化事件的空会话与子代理会话不展示。本机 8 个会话识别出 6 个有对话的，另 2 个是空会话。只读不取锁，与 DSH 自身读者一致。
+- **写入**：新增 [writers/dsh.rs](../../../../src-tauri/src/session_sync/writers/dsh.rs)。DSH 校验严格，按实测报错逐项满足：首帧只能是一行头部；事件 `seq` 从 0 连续；用户和助手消息顶层带 `surfaceOp: "append"`；助手消息要有 `source.kind = "model"` 以及 `stream`、`usage` 结算字段。路径编码 `projectKey` / `encodeSegment` 照源码实现，单测对齐本机真实目录名。
+- **写锁**：DSH 用对 `session.lock` 的内核 `flock` 实现跨进程写互斥。写入与删除前取同一把非阻塞锁，DSH 正在写这个会话时放弃并提示稍后再同步，不撕裂日志；锁文件保留不删。Windows 上 DSH 用命名信号量，暂不支持写入。
+- **验收**：用 Meta API 真实同步代码把一份 Codex 会话写进隔离 DSH 主目录，DSH 续聊经本地模拟模型正确回答暗号；发给模型的历史不含 Codex 注入的 AGENTS 指令。DSH 写出的会话不会再回传给 Codex。DSH 列表接口按目录发现 `session.v4.jsonl.zstd` 并只读头部，同步会话满足其发现条件，但未在 DSH 桌面界面上目视确认。用户真实 `~/.dsh` 未被写入。
+- 启动 DSH 时同样触发同步询问。
+
 ### 尚未覆盖的客户端（2026-11-03 核对）
 
-- **DSH（DeepSeek Harness）**：本机已安装，`~/.dsh/sessions/<编码目录>/session-<id>/session.v4.jsonl.zstd` 下有 8 个会话，是 zstd 压缩的 JSONL。现有会话扫描不读 DSH，所以它既不是同步来源也不是目标；适配需要先补读取适配器再写写入适配器，并核实压缩格式与锁文件 `session.lock` 的语义。
 - **Claude Desktop**：普通聊天在云端，无法写入。内置 Claude Code 模式的目录 `Application Support/Claude-3p/claude-code-sessions/` 目前只有调度文件，是否读 `~/.claude/projects` 未核验，启动 Claude Desktop 不触发同步询问。
 - **WorkBuddy、Accio Work、TRAE**：本机未安装，未调研本地存储。
 

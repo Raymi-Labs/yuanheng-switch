@@ -17,6 +17,7 @@ export const SESSION_SYNC_TARGET_BY_TOOL: Record<string, string> = {
   gemini: "gemini",
   grokbuild: "grokbuild",
   opencode: "opencode",
+  dsh: "dsh",
 };
 
 export interface LaunchSyncRequest {

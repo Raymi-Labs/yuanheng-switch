@@ -2,6 +2,7 @@
 
 pub mod claude;
 pub mod codex;
+pub mod dsh;
 pub mod gemini;
 pub mod grokbuild;
 pub mod opencode;
@@ -32,13 +33,14 @@ pub trait SessionWriter: Send + Sync {
     fn after_batch(&self, _written: &[TargetRef]) {}
 }
 
-const WRITABLE: &[&str] = &["claude", "codex", "gemini", "grokbuild", "opencode"];
+const WRITABLE: &[&str] = &["claude", "codex", "gemini", "grokbuild", "opencode", "dsh"];
 const READABLE: &[&str] = &[
     "claude",
     "codex",
     "gemini",
     "grokbuild",
     "opencode",
+    "dsh",
     "openclaw",
     "hermes",
 ];
@@ -58,6 +60,7 @@ pub fn writer_for(provider_id: &str) -> Result<Box<dyn SessionWriter>, String> {
         "gemini" => Ok(Box::new(gemini::GeminiWriter)),
         "grokbuild" => Ok(Box::new(grokbuild::GrokBuildWriter)),
         "opencode" => Ok(Box::new(opencode::OpenCodeWriter)),
+        "dsh" => Ok(Box::new(dsh::DshWriter)),
         other => Err(format!("Session sync target not supported yet: {other}")),
     }
 }

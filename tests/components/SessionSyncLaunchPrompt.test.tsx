@@ -158,15 +158,17 @@ describe("launch-time session sync prompt", () => {
     expect(getSessionSyncState().launchChecks).toEqual([]);
   });
 
-  it("asks before Gemini CLI, Grok Build and OpenCode launches too", async () => {
+  it("asks before Gemini CLI, Grok Build, OpenCode and DSH launches too", async () => {
     mountPrompt();
     await yuanhengApi.launchTool("gemini", false, "/Users/me/a");
     await yuanhengApi.launchTool("grokbuild", false, "/Users/me/b");
     await yuanhengApi.launchTool("opencode", false, "/Users/me/c");
+    await yuanhengApi.launchTool("dsh", false, "/Users/me/d");
     expect(getSessionSyncState().launchChecks).toEqual([
       { targetProvider: "gemini", projectDir: "/Users/me/a" },
       { targetProvider: "grokbuild", projectDir: "/Users/me/b" },
       { targetProvider: "opencode", projectDir: "/Users/me/c" },
+      { targetProvider: "dsh", projectDir: "/Users/me/d" },
     ]);
   });
 
