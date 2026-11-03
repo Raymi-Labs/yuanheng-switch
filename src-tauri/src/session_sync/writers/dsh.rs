@@ -8,6 +8,12 @@
 //! - 助手消息需要 `source.kind = "model"`，以及 `stream`、`usage` 结算字段（空数组即可）。
 //! - 会话 id 用 `session-<uuid>`，与 DSH 自身一致。
 //!
+//! - 侧栏标题只从投影缓存 `storages/session_projcache/sessions/<id>.json` 读取；DSH 只在会话被
+//!   打开时才生成缓存，没有缓存的同步会话会显示为 "Untitled"（2026-11-03 网页界面实测）。
+//!   因此同时写一份最小缓存：只含 `title`、`titleInput`、`sessionListMetadata` 三行，
+//!   身份字段与会话头一致。缓存只是加速项：DSH 打开会话时会从日志重算并整体覆盖它，
+//!   缺失的行按初始值重新折叠，`ver` 不匹配的行直接丢弃，所以写错也不会产生错误数据。
+//!
 //! 写入前对 `session.lock` 取非阻塞 `flock`，与 DSH 自己的写锁互斥：DSH 正在写同一会话时放弃，
 //! 不撕裂日志；锁文件写完保留，不删除（DSH 依赖其 inode 稳定）。
 
@@ -91,8 +97,18 @@ pub fn log_path(root: &Path, cwd: &str, session_id: &str) -> PathBuf {
         .join(LOG_FILENAME)
 }
 
+/// 生成会话日志后，按 DSH 投影规则算出的列表摘要（标题与首条用户消息）。
+pub struct ListHints {
+    pub title: Option<(String, usize)>,
+    pub first_user: Option<(usize, String)>,
+    pub user_count: usize,
+    pub last_user_seq: Option<usize>,
+    pub last_prompt_at: Option<i64>,
+    pub end_seq: usize,
+}
+
 /// 生成两帧：头部一帧、全部事件一帧。
-pub fn render(session: &CanonicalSession, session_id: &str) -> Result<Vec<u8>, String> {
+pub fn build_log(session: &CanonicalSession, session_id: &str) -> (Value, Vec<Value>) {
     let header = json!({
         "type": "session",
         "version": 4,
@@ -213,6 +229,10 @@ pub fn render(session: &CanonicalSession, session_id: &str) -> Result<Vec<u8>, S
         );
     }
 
+    (header, events)
+}
+
+pub fn encode_log(header: &Value, events: &[Value]) -> Result<Vec<u8>, String> {
     let encode = |text: &str| {
         zstd::stream::encode_all(text.as_bytes(), 3).map_err(|e| format!("压缩 DSH 会话失败: {e}"))
     };
@@ -220,6 +240,120 @@ pub fn render(session: &CanonicalSession, session_id: &str) -> Result<Vec<u8>, S
     let body: String = events.iter().map(|e| format!("{e}\n")).collect();
     out.extend(encode(&body)?);
     Ok(out)
+}
+
+#[cfg(test)]
+pub fn render(session: &CanonicalSession, session_id: &str) -> Result<Vec<u8>, String> {
+    let (header, events) = build_log(session, session_id);
+    encode_log(&header, &events)
+}
+
+/// 按 DSH 的投影规则（`dsh-session-title` 与 `dsh-api-session-controller`）从事件算出列表摘要。
+pub fn list_hints(events: &[Value]) -> ListHints {
+    let mut hints = ListHints {
+        title: None,
+        first_user: None,
+        user_count: 0,
+        last_user_seq: None,
+        last_prompt_at: None,
+        end_seq: 0,
+    };
+    for event in events {
+        let seq = event["seq"].as_u64().unwrap_or(0) as usize;
+        hints.end_seq = seq;
+        match event["type"].as_str() {
+            Some("session/title") => {
+                if let Some(t) = event["data"]["title"].as_str() {
+                    hints.title = Some((t.to_string(), seq));
+                }
+            }
+            Some("user/message") if event["data"]["source"]["kind"] == "user" => {
+                let text = event["data"]["content"]
+                    .as_array()
+                    .map(|blocks| {
+                        blocks
+                            .iter()
+                            .filter(|b| b["type"] == "text")
+                            .filter_map(|b| b["text"].as_str())
+                            .collect::<Vec<_>>()
+                            .join("")
+                    })
+                    .unwrap_or_default();
+                hints.user_count += 1;
+                hints.first_user.get_or_insert((seq, text));
+                hints.last_user_seq = Some(seq);
+                hints.last_prompt_at = event["time"].as_i64();
+            }
+            _ => {}
+        }
+    }
+    hints
+}
+
+/// 最小投影缓存：只给侧栏需要的三行。行的 `ver` 必须与 DSH 当前投影版本一致，
+/// 否则 DSH 会丢弃该行（不会出错，只是仍显示 Untitled）。
+pub fn render_projection_cache(header: &Value, events: &[Value]) -> Value {
+    let hints = list_hints(events);
+    let seq = hints.end_seq;
+    let title_input = match (&hints.first_user, hints.last_user_seq) {
+        (Some((first_seq, text)), Some(last)) => json!({
+            "first": {"seq": first_seq, "text": text},
+            "count": hints.user_count,
+            "lastSeq": last,
+        }),
+        _ => json!({"first": null, "count": 0, "lastSeq": null}),
+    };
+    json!({
+        "version": 7,
+        "record": {
+            "identity": {
+                "formatVersion": header["version"],
+                "createdAt": header["createdAt"],
+                "cwd": header["cwd"],
+                "isSeeded": false,
+                "inheritedEventCount": 0,
+            },
+            "rows": {
+                "title": {"ver": 1, "seq": seq, "val": hints.title.map(|(t, _)| t)},
+                "titleInput": {"ver": 3, "seq": seq, "val": title_input},
+                "sessionListMetadata": {
+                    "ver": 1,
+                    "seq": seq,
+                    "val": {"blank": false, "lastPromptAt": hints.last_prompt_at},
+                },
+            },
+        },
+    })
+}
+
+fn projection_cache_path(session_id: &str) -> PathBuf {
+    crate::commands::dsh_install::home()
+        .join("storages")
+        .join("session_projcache")
+        .join("sessions")
+        .join(format!("{session_id}.json"))
+}
+
+/// 写投影缓存（同目录临时文件 + rename）。失败只记日志：缓存缺失只影响标题显示。
+fn write_projection_cache(session_id: &str, cache: &Value) {
+    let path = projection_cache_path(session_id);
+    let result = (|| -> Result<(), String> {
+        let dir = path.parent().ok_or("invalid cache path")?;
+        std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+        let tmp = dir.join(format!(".{}.tmp", uuid::Uuid::new_v4()));
+        let text = format!(
+            "{}\n",
+            serde_json::to_string_pretty(cache).map_err(|e| e.to_string())?
+        );
+        std::fs::write(&tmp, text).map_err(|e| e.to_string())?;
+        std::fs::rename(&tmp, &path).map_err(|e| {
+            let _ = std::fs::remove_file(&tmp);
+            e.to_string()
+        })
+    })();
+    if let Err(e) = result {
+        log::warn!("[session-sync] 写 DSH 标题缓存失败 {session_id}: {e}");
+    }
 }
 
 /// 持有 DSH 会话写锁期间执行 `f`；锁被占用（DSH 正在写）时返回错误。
@@ -261,7 +395,8 @@ impl SessionWriter for DshWriter {
             .parent()
             .ok_or_else(|| format!("Invalid DSH path: {}", path.display()))?
             .to_path_buf();
-        let bytes = render(session, &id)?;
+        let (header, events) = build_log(session, &id);
+        let bytes = encode_log(&header, &events)?;
         with_session_lock(&dir, || {
             let tmp = dir.join(format!(".{LOG_FILENAME}.meta-api.tmp"));
             std::fs::write(&tmp, &bytes).map_err(|e| format!("写入 DSH 会话失败: {e}"))?;
@@ -270,6 +405,7 @@ impl SessionWriter for DshWriter {
                 format!("写入 DSH 会话失败: {e}")
             })
         })?;
+        write_projection_cache(&id, &render_projection_cache(&header, &events));
         Ok(TargetRef {
             session_id: id,
             path: path.to_string_lossy().to_string(),
@@ -304,7 +440,9 @@ impl SessionWriter for DshWriter {
             return Ok(());
         }
         with_session_lock(dir, || Ok(()))?;
-        std::fs::remove_dir_all(dir).map_err(|e| format!("删除 DSH 会话失败: {e}"))
+        std::fs::remove_dir_all(dir).map_err(|e| format!("删除 DSH 会话失败: {e}"))?;
+        let _ = std::fs::remove_file(projection_cache_path(&target.session_id));
+        Ok(())
     }
 }
 
@@ -399,6 +537,32 @@ mod tests {
         let messages = crate::session_manager::providers::dsh::load_messages(&path).unwrap();
         let texts: Vec<&str> = messages.iter().map(|m| m.content.as_str()).collect();
         assert_eq!(texts, vec!["q1", "a1", "q2"]);
+    }
+
+    #[test]
+    fn projection_cache_matches_the_log_and_dsh_row_versions() {
+        let (header, events) = build_log(&sample(), "session-x");
+        let cache = render_projection_cache(&header, &events);
+        let identity = &cache["record"]["identity"];
+        assert_eq!(identity["formatVersion"], 4);
+        assert_eq!(identity["createdAt"], header["createdAt"]);
+        assert_eq!(identity["cwd"], "/p");
+        let rows = &cache["record"]["rows"];
+        assert_eq!(rows["title"]["ver"], 1);
+        assert_eq!(rows["title"]["val"], "[Codex] t");
+        assert_eq!(rows["titleInput"]["ver"], 3);
+        assert_eq!(rows["titleInput"]["val"]["count"], 2);
+        assert_eq!(rows["titleInput"]["val"]["first"]["text"], "q1");
+        assert_eq!(rows["sessionListMetadata"]["val"]["blank"], false);
+        // 所有行的 seq 都是日志最后一个事件的 seq
+        let end = events.last().unwrap()["seq"].clone();
+        for key in ["title", "titleInput", "sessionListMetadata"] {
+            assert_eq!(rows[key]["seq"], end);
+        }
+        // titleInput 的状态约束：first.seq <= lastSeq
+        let first = rows["titleInput"]["val"]["first"]["seq"].as_u64().unwrap();
+        let last = rows["titleInput"]["val"]["lastSeq"].as_u64().unwrap();
+        assert!(first <= last);
     }
 
     #[cfg(unix)]

@@ -107,3 +107,48 @@ pub async fn check_session_sync_before_launch(
     .await
     .map_err(|e| format!("Failed to check session sync: {e}"))?
 }
+
+#[tauri::command]
+pub async fn preview_project_sync(
+    sourceProvider: String,
+    targetProvider: String,
+) -> Result<session_sync::projects::ProjectSyncPreview, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        session_sync::projects::preview(&sourceProvider, &targetProvider)
+    })
+    .await
+    .map_err(|e| format!("Failed to preview project sync: {e}"))?
+}
+
+#[tauri::command]
+pub async fn run_project_sync(
+    sourceProvider: String,
+    targetProvider: String,
+) -> Result<session_sync::projects::ProjectSyncOutcome, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        session_sync::projects::sync(&sourceProvider, &targetProvider)
+    })
+    .await
+    .map_err(|e| format!("Failed to run project sync: {e}"))?
+}
+
+#[tauri::command]
+pub async fn check_project_sync_before_launch(
+    state: State<'_, AppState>,
+    targetProvider: String,
+) -> Result<Option<session_sync::projects::ProjectSyncPreview>, String> {
+    let db = state.db.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        session_sync::projects::preview_before_launch(&db, &targetProvider)
+    })
+    .await
+    .map_err(|e| format!("Failed to check project sync: {e}"))
+}
+
+#[tauri::command]
+pub async fn mute_project_sync(
+    state: State<'_, AppState>,
+    targetProvider: String,
+) -> Result<session_sync::prefs::SessionSyncPrefs, String> {
+    session_sync::prefs::mute_project_target(&state.db, &targetProvider)
+}

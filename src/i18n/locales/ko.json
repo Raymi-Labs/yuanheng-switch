@@ -3513,6 +3513,13 @@
     "settingTitle": "실행할 때 앱 간 채팅 기록 동기화 제안",
     "settingDescription": "Claude Code, Codex, Gemini CLI, Grok Build, OpenCode, DSH를 실행할 때 다른 앱에 이 프로젝트의 가져오지 않은 채팅이 있으면 한 번 묻습니다.",
     "mutedCount": "{{count}}개 프로젝트를 다시 묻지 않도록 설정함",
-    "clearMuted": "다시 묻기"
+    "clearMuted": "다시 묻기",
+    "launchProjectsTitle": "프로젝트 그룹을 {{target}}(으)로 가져올까요?",
+    "launchProjectsDescription": "{{source}}에서 나눈 프로젝트가 {{target}}에는 아직 없습니다. 가져오면 {{target}} 사이드바에서 같은 프로젝트별로 채팅이 표시됩니다.",
+    "projectsLine": "{{source}}의 프로젝트 그룹 {{count}}개도 {{target}}(으)로 가져오기",
+    "projectsDone": "{{target}}에 프로젝트 그룹 {{count}}개를 정리했습니다",
+    "projectsUpToDate": "DSH 프로젝트 그룹이 이미 Codex와 같습니다",
+    "menuProjects": "Codex 프로젝트 그룹을 DSH로 가져오기",
+    "muteProjectGroups": "다시 묻지 않기"
   }
 }

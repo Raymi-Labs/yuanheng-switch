@@ -1,5 +1,5 @@
 import { sessionSyncApi } from "@/lib/api/sessionSync";
-import type { PendingSummary } from "@/lib/api/sessionSync";
+import type { PendingSummary, ProjectSyncPreview } from "@/lib/api/sessionSync";
 
 /**
  * 启动客户端前的一次性同步询问。
@@ -23,9 +23,15 @@ export const SESSION_SYNC_TARGET_BY_TOOL: Record<string, string> = {
 export interface LaunchSyncRequest {
   tool: string;
   targetProvider: string;
-  summary: PendingSummary;
+  /** 待同步的聊天；为空表示只有项目分组要询问 */
+  summary: PendingSummary | null;
+  /** 待同步的项目分组（目前只有 Codex → DSH） */
+  projects: ProjectSyncPreview | null;
   resolve: () => void;
 }
+
+/** 支持把项目分组带过去的目标客户端 */
+const PROJECT_SYNC_TARGETS = new Set(["dsh"]);
 
 type Listener = (request: LaunchSyncRequest | null) => void;
 
@@ -61,17 +67,20 @@ export async function offerSessionSyncBeforeLaunch(
   // 没有任何弹窗宿主（例如测试或无界面环境）时直接放行
   if (listeners.size === 0) return;
   if (current) return;
-  let summary: PendingSummary;
-  try {
-    summary = await sessionSyncApi.checkBeforeLaunch(
-      targetProvider,
-      projectDir,
-    );
-  } catch {
-    return;
-  }
-  if (!summary || summary.total <= 0) return;
+  const [summary, projects] = await Promise.all([
+    sessionSyncApi
+      .checkBeforeLaunch(targetProvider, projectDir)
+      .then((value) => (value && value.total > 0 ? value : null))
+      .catch(() => null),
+    PROJECT_SYNC_TARGETS.has(targetProvider)
+      ? sessionSyncApi
+          .checkProjectsBeforeLaunch(targetProvider)
+          .then((value) => (value && value.missing > 0 ? value : null))
+          .catch(() => null)
+      : Promise.resolve(null),
+  ]);
+  if (!summary && !projects) return;
   await new Promise<void>((resolve) => {
-    publish({ tool, targetProvider, summary, resolve });
+    publish({ tool, targetProvider, summary, projects, resolve });
   });
 }

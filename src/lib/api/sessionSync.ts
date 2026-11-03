@@ -61,9 +61,51 @@ export interface MutedDirectory {
 export interface SessionSyncPrefs {
   promptOnLaunch: boolean;
   muted: MutedDirectory[];
+  mutedProjectTargets?: string[];
+}
+
+export interface ProjectSyncPreview {
+  sourceProvider: string;
+  targetProvider: string;
+  sourceProjects: number;
+  missing: number;
+  blockedReason?: string;
+}
+
+export interface ProjectSyncOutcome {
+  targetProvider: string;
+  created: number;
+  updated: number;
+  sessionsAttached: number;
+  skipped: string[];
+  blockedReason?: string;
 }
 
 export const sessionSyncApi = {
+  async previewProjects(
+    sourceProvider: string,
+    targetProvider: string,
+  ): Promise<ProjectSyncPreview> {
+    return invoke("preview_project_sync", { sourceProvider, targetProvider });
+  },
+
+  async syncProjects(
+    sourceProvider: string,
+    targetProvider: string,
+  ): Promise<ProjectSyncOutcome> {
+    return invoke("run_project_sync", { sourceProvider, targetProvider });
+  },
+
+  async checkProjectsBeforeLaunch(
+    targetProvider: string,
+  ): Promise<ProjectSyncPreview | null> {
+    return invoke("check_project_sync_before_launch", { targetProvider });
+  },
+
+  async muteProjectSync(targetProvider: string): Promise<SessionSyncPrefs> {
+    return invoke("mute_project_sync", { targetProvider });
+  },
+
   async checkBeforeLaunch(
     targetProvider: string,
     projectDir?: string | null,

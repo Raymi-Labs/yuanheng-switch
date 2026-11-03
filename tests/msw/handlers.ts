@@ -547,6 +547,38 @@ export const handlers = [
     },
   ),
 
+  http.post(`${TAURI_ENDPOINT}/check_project_sync_before_launch`, () =>
+    success(getSessionSyncState().projectPreview),
+  ),
+
+  http.post(`${TAURI_ENDPOINT}/run_project_sync`, async ({ request }) => {
+    const body = await withJson<{
+      sourceProvider: string;
+      targetProvider: string;
+    }>(request);
+    const state = getSessionSyncState();
+    state.projectSyncCalls.push(body);
+    return success({
+      targetProvider: body.targetProvider,
+      created: 2,
+      updated: 1,
+      sessionsAttached: 4,
+      skipped: [],
+      ...(state.projectBlockedReason
+        ? { blockedReason: state.projectBlockedReason }
+        : {}),
+    });
+  }),
+
+  http.post(`${TAURI_ENDPOINT}/mute_project_sync`, async ({ request }) => {
+    const { targetProvider } = await withJson<{ targetProvider: string }>(
+      request,
+    );
+    const state = getSessionSyncState();
+    state.projectMuteCalls.push(targetProvider);
+    return success(state.prefs);
+  }),
+
   http.post(`${TAURI_ENDPOINT}/run_session_sync`, async ({ request }) => {
     const body = await withJson<{ targetProvider: string; scope?: unknown }>(
       request,

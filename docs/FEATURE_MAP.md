@@ -8,6 +8,7 @@ Verified from the local checkout on 2026-09-29. This is a scoped navigation aid,
 
 | Capability | Entry / UI | API / orchestration | Implementation / data | Review boundary |
 |---|---|---|---|---|
+| Codex 项目分组同步到 DSH | 会话页“带过来”菜单、DSH 启动前提示 | [同步 API](../src/lib/api/sessionSync.ts) → [项目适配器](../src-tauri/src/session_sync/projects/mod.rs) | 只读 Codex 项目，按目录合并 DSH 工作区；同步会话生成列表标题缓存 | 保留用户分组名称与已有归属；运行中的 DSH 拒绝工作区写入；备份、校验和原子写入。真实桌面本轮未复验，见[进展](../.agents/notes/proposed/feature/2026-11-03-local-session-sync.md)。 |
 | 登录密码可见性 | [登录与注册面板](../src/components/desktop/YuanhengConnectionPanel.tsx) | 密码和确认密码各自支持眼睛按钮切换 | 默认隐藏；切换登录/注册及认证完成后恢复隐藏 | 登录页与紧凑连接面板共用；按钮不提交表单，支持键盘操作。 |
 | Project connection and local tool configuration | [src/App.tsx](../src/App.tsx) | [src/lib/api/yuanheng.ts](../src/lib/api/yuanheng.ts) | [src-tauri/src/commands/yuanheng.rs](../src-tauri/src/commands/yuanheng.rs) | Console owns keys, model access and billing; inspect desktop configuration application before adding another configuration flow. |
 | 通用凭据与下线分组修复 | [连接诊断卡片](../src/components/desktop/YuanhengHealthCard.tsx)的显式分组选择 | 登录/刷新仅同步会话；配置通用凭据不重配工具 | [设备凭据获取](../src-tauri/src/commands/yuanheng/device_credentials.rs)：实时分组、分页、串行锁、持久待确认标记，验证后写安全存储 | 不回退default、不自动换计费组、403不冒充过期；正常工具独立校验。声音克隆读取同一安全凭据入口。模拟测试边界见[决定](../.agents/notes/implemented/bug-fix/2026-11-02-credential-group-repair.md)。 |

@@ -16,6 +16,9 @@ pub struct SessionSyncPrefs {
     /// 不再提醒的 (目标客户端, 规范化目录)
     #[serde(default)]
     pub muted: Vec<MutedDirectory>,
+    /// 启动时不再询问项目分组同步的目标客户端
+    #[serde(default)]
+    pub muted_project_targets: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -34,6 +37,7 @@ impl Default for SessionSyncPrefs {
         Self {
             prompt_on_launch: true,
             muted: Vec::new(),
+            muted_project_targets: Vec::new(),
         }
     }
 }
@@ -65,6 +69,8 @@ pub fn save(db: &Database, prefs: &SessionSyncPrefs) -> Result<(), String> {
             .cmp(&(b.target_provider.as_str(), b.project_dir.as_str()))
     });
     prefs.muted.dedup();
+    prefs.muted_project_targets.sort();
+    prefs.muted_project_targets.dedup();
     let text = serde_json::to_string(&prefs).map_err(|e| e.to_string())?;
     db.set_setting(PREFS_KEY, &text).map_err(|e| e.to_string())
 }
@@ -86,6 +92,19 @@ pub fn mute(
     Ok(load(db))
 }
 
+/// 启动时不再询问某个目标客户端的项目分组同步。
+pub fn mute_project_target(
+    db: &Database,
+    target_provider: &str,
+) -> Result<SessionSyncPrefs, String> {
+    let mut prefs = load(db);
+    prefs
+        .muted_project_targets
+        .push(target_provider.to_string());
+    save(db, &prefs)?;
+    Ok(load(db))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -103,6 +122,9 @@ mod tests {
         assert_eq!(prefs.muted.len(), 1);
         assert!(prefs.is_muted("claude", "/nonexistent/a"));
         assert!(!prefs.is_muted("codex", "/nonexistent/a"));
+        mute_project_target(&db, "dsh").unwrap();
+        let prefs = mute_project_target(&db, "dsh").unwrap();
+        assert_eq!(prefs.muted_project_targets, vec!["dsh".to_string()]);
         save(
             &db,
             &SessionSyncPrefs {

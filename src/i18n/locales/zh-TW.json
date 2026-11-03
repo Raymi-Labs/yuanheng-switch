@@ -3515,6 +3515,13 @@
     "settingTitle": "啟動時幫我同步各用戶端的聊天紀錄",
     "settingDescription": "啟動 Claude Code、Codex、Gemini CLI、Grok Build、OpenCode 或 DSH 時，如果其他用戶端裡有這個專案的聊天還沒帶過來，會先問你一次。",
     "mutedCount": "有 {{count}} 個專案設為不再提醒",
-    "clearMuted": "恢復提醒"
+    "clearMuted": "恢復提醒",
+    "launchProjectsTitle": "要把專案分組帶到 {{target}} 嗎？",
+    "launchProjectsDescription": "{{source}} 裡分好的專案，{{target}} 裡還沒有。帶過去後，{{target}} 左側會按同樣的專案分組顯示聊天。",
+    "projectsLine": "同時把 {{source}} 的 {{count}} 個專案分組帶到 {{target}}",
+    "projectsDone": "已在 {{target}} 裡整理好 {{count}} 個專案分組",
+    "projectsUpToDate": "DSH 的專案分組已經和 Codex 一致",
+    "menuProjects": "把 Codex 的專案分組帶到 DSH",
+    "muteProjectGroups": "不再提醒"
   }
 }

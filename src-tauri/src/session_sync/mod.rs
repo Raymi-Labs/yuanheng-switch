@@ -12,6 +12,7 @@
 pub mod canonical;
 pub mod ledger;
 pub mod prefs;
+pub mod projects;
 pub mod writers;
 
 use std::collections::{BTreeMap, HashMap, HashSet};

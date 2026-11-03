@@ -179,4 +179,109 @@ describe("launch-time session sync prompt", () => {
       { targetProvider: "codex", projectDir: null },
     ]);
   });
+
+  describe("project groups to DSH", () => {
+    const projectPreview = {
+      sourceProvider: "codex",
+      targetProvider: "dsh",
+      sourceProjects: 33,
+      missing: 16,
+    };
+
+    it("asks about project groups alone and syncs them before launching", async () => {
+      setSessionSyncFixtures({ projectPreview });
+      mountPrompt();
+      const launch = yuanhengApi.launchTool("dsh", false, "/Users/me/x");
+      expect(
+        await screen.findByText(/要把项目分组带到 .+ 吗？/),
+      ).toBeInTheDocument();
+      expect(screen.getByText(/16 个项目分组/)).toBeInTheDocument();
+      await userEvent.click(
+        screen.getByRole("button", { name: "带过来并启动" }),
+      );
+      await launch;
+      expect(getSessionSyncState().projectSyncCalls).toEqual([
+        { sourceProvider: "codex", targetProvider: "dsh" },
+      ]);
+      expect(getSessionSyncState().runCalls).toEqual([]);
+      expect(
+        getLaunchedToolRequests().filter((r) => r.app === "dsh").length,
+      ).toBe(1);
+      expect(toastSuccessMock).toHaveBeenCalledWith(
+        expect.stringContaining("3 个项目分组"),
+      );
+    });
+
+    it("brings chats first, then project groups, in one click", async () => {
+      setSessionSyncFixtures({
+        projectPreview,
+        pending: {
+          dsh: {
+            targetProvider: "dsh",
+            total: 2,
+            directories: [
+              {
+                projectDir: "/Users/me/x",
+                label: "x",
+                total: 2,
+                sources: [{ sourceProvider: "codex", pending: 2, diverged: 0 }],
+              },
+            ],
+          },
+        },
+      });
+      mountPrompt();
+      const launch = yuanhengApi.launchTool("dsh", false, "/Users/me/x");
+      expect(
+        await screen.findByText(/要把之前的聊天带到 .+ 吗？/),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByText(/同时把 .+ 的 16 个项目分组/),
+      ).toBeInTheDocument();
+      await userEvent.click(
+        screen.getByRole("button", { name: "带过来并启动" }),
+      );
+      await launch;
+      expect(getSessionSyncState().runCalls).toHaveLength(1);
+      expect(getSessionSyncState().projectSyncCalls).toHaveLength(1);
+    });
+
+    it("mutes project group prompts and still launches", async () => {
+      setSessionSyncFixtures({ projectPreview });
+      mountPrompt();
+      const launch = yuanhengApi.launchTool("dsh", false, "/Users/me/x");
+      await userEvent.click(
+        await screen.findByRole("button", { name: "不再提醒" }),
+      );
+      await launch;
+      expect(getSessionSyncState().projectMuteCalls).toEqual(["dsh"]);
+      expect(getSessionSyncState().projectSyncCalls).toEqual([]);
+    });
+
+    it("reports a blocked project sync without stopping the launch", async () => {
+      setSessionSyncFixtures({
+        projectPreview,
+        projectBlockedReason: "DSH 正在运行，请先退出 DSH 再同步项目分组",
+      });
+      mountPrompt();
+      const launch = yuanhengApi.launchTool("dsh", false, "/Users/me/x");
+      await userEvent.click(
+        await screen.findByRole("button", { name: "带过来并启动" }),
+      );
+      await launch;
+      expect(toastErrorMock).toHaveBeenCalledWith(
+        "DSH 正在运行，请先退出 DSH 再同步项目分组",
+      );
+      expect(
+        getLaunchedToolRequests().filter((r) => r.app === "dsh").length,
+      ).toBe(1);
+    });
+
+    it("does not ask about project groups for other tools", async () => {
+      setSessionSyncFixtures({ projectPreview });
+      mountPrompt();
+      await yuanhengApi.launchTool("claude", false, "/Users/me/x");
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    });
+  });
 });

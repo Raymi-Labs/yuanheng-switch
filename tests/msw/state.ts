@@ -278,6 +278,10 @@ type SessionSyncFixture = {
   prefs: { promptOnLaunch: boolean; muted: unknown[] };
   failLaunchCheck: boolean;
   failRun: boolean;
+  projectPreview: Record<string, unknown> | null;
+  projectSyncCalls: Array<{ sourceProvider: string; targetProvider: string }>;
+  projectMuteCalls: string[];
+  projectBlockedReason: string | null;
 };
 
 const createDefaultSessionSync = (): SessionSyncFixture => ({
@@ -291,6 +295,10 @@ const createDefaultSessionSync = (): SessionSyncFixture => ({
   prefs: { promptOnLaunch: true, muted: [] },
   failLaunchCheck: false,
   failRun: false,
+  projectPreview: null,
+  projectSyncCalls: [],
+  projectMuteCalls: [],
+  projectBlockedReason: null,
 });
 
 let sessionSyncState = createDefaultSessionSync();
@@ -300,7 +308,12 @@ export const setSessionSyncFixtures = (
   next: Partial<
     Omit<
       SessionSyncFixture,
-      "runCalls" | "undoCalls" | "launchChecks" | "muteCalls"
+      | "runCalls"
+      | "undoCalls"
+      | "launchChecks"
+      | "muteCalls"
+      | "projectSyncCalls"
+      | "projectMuteCalls"
     >
   >,
 ) => {

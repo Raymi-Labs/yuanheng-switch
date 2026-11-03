@@ -22,6 +22,7 @@ import {
   ChevronRight,
   ChevronsDownUp,
   ArrowRightLeft,
+  FolderTree,
   Undo2,
 } from "lucide-react";
 import {
@@ -65,6 +66,7 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuLabel,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
@@ -72,7 +74,7 @@ import {
   useSessionSyncTargetsQuery,
   useUndoSessionSyncMutation,
 } from "@/lib/query/sessionSync";
-import { sessionSyncStateKey } from "@/lib/api/sessionSync";
+import { sessionSyncApi, sessionSyncStateKey } from "@/lib/api/sessionSync";
 import { SessionMessageItem } from "./SessionMessageItem";
 import { SessionTocDialog, SessionTocSidebar } from "./SessionToc";
 import {
@@ -342,6 +344,35 @@ export function SessionManagerPage({ appId }: { appId: string }) {
         ),
       )
     : undefined;
+
+  const [projectSyncBusy, setProjectSyncBusy] = useState(false);
+  const handleProjectSync = async () => {
+    setProjectSyncBusy(true);
+    try {
+      const outcome = await sessionSyncApi.syncProjects("codex", "dsh");
+      if (outcome.blockedReason) {
+        toast.error(outcome.blockedReason);
+      } else if (outcome.created + outcome.updated === 0) {
+        toast.success(
+          t("sessionSync.projectsUpToDate", {
+            defaultValue: "DSH 的项目分组已经和 Codex 一致",
+          }),
+        );
+      } else {
+        toast.success(
+          t("sessionSync.projectsDone", {
+            defaultValue: "已在 {{target}} 里整理好 {{count}} 个项目分组",
+            count: outcome.created + outcome.updated,
+            target: "DSH",
+          }),
+        );
+      }
+    } catch (error) {
+      toast.error(extractErrorMessage(error));
+    } finally {
+      setProjectSyncBusy(false);
+    }
+  };
 
   const handleUndoSync = async () => {
     if (!selectedSession) return;
@@ -1242,6 +1273,17 @@ export function SessionManagerPage({ appId }: { appId: string }) {
                                   {getProviderLabel(target, t)}
                                 </DropdownMenuItem>
                               ))}
+                              <DropdownMenuSeparator />
+                              <DropdownMenuItem
+                                className="gap-2"
+                                disabled={projectSyncBusy}
+                                onSelect={() => void handleProjectSync()}
+                              >
+                                <FolderTree className="size-3.5" />
+                                {t("sessionSync.menuProjects", {
+                                  defaultValue: "把 Codex 的项目分组带到 DSH",
+                                })}
+                              </DropdownMenuItem>
                             </DropdownMenuContent>
                           </DropdownMenu>
                         )}
