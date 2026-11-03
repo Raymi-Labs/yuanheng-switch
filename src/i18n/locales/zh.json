@@ -3477,5 +3477,28 @@
     "copied": "报告已复制",
     "copyFailed": "复制失败，请手动复制预览内容。",
     "versionAutomatic": "由客户端自动提供"
+  },
+  "sessionSync": {
+    "title": "把聊天记录带到 {{target}}",
+    "description": "带过来之后，可以在 {{target}} 的历史记录里直接接着聊。原来的记录不会被改动。",
+    "checking": "正在查看其他客户端的聊天…",
+    "nothing": "已经是最新的，没有需要带过来的聊天。",
+    "onlyDiverged": "有 {{count}} 次聊天两边都有新内容，为避免覆盖已暂停同步。",
+    "projectLabel": "「{{name}}」项目",
+    "sourceCount": "{{source}} 有 {{count}} 次",
+    "confirm": "全部带过来（{{count}} 次）",
+    "done": "已把 {{count}} 次聊天带到 {{target}}",
+    "partialFailed": "已带过来 {{done}} 次聊天，{{failed}} 次没成功",
+    "checkFailed": "检查聊天记录失败：{{error}}",
+    "runFailed": "同步失败：{{error}}",
+    "menuTooltip": "把其他客户端的聊天带过来",
+    "menuLabel": "带到哪个客户端",
+    "directoryTooltip": "把这个项目的聊天带到其他客户端",
+    "fromSource": "来自 {{source}}",
+    "undo": "撤销同步",
+    "undoTooltip": "删除这份从 {{source}} 带过来的副本；如果已经在这里接着聊过，只取消关联、保留内容",
+    "undoRemoved": "已撤销，这份副本已删除",
+    "undoUnlinked": "已取消关联；因为你在这里接着聊过，内容已保留",
+    "undoFailed": "撤销失败：{{error}}"
   }
 }

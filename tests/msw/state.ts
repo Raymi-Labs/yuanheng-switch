@@ -267,7 +267,33 @@ let launchedToolRequests: Array<{
 const cloneProviders = (value: ProvidersByApp) =>
   deepClone(value) as ProvidersByApp;
 
+type SessionSyncFixture = {
+  targets: string[];
+  pending: Record<string, unknown>;
+  states: unknown[];
+  runCalls: Array<{ targetProvider: string; scope?: unknown }>;
+  undoCalls: Array<{ targetProvider: string; targetSessionId: string }>;
+};
+
+const createDefaultSessionSync = (): SessionSyncFixture => ({
+  targets: ["claude", "codex"],
+  pending: {},
+  states: [],
+  runCalls: [],
+  undoCalls: [],
+});
+
+let sessionSyncState = createDefaultSessionSync();
+
+export const getSessionSyncState = () => sessionSyncState;
+export const setSessionSyncFixtures = (
+  next: Partial<Omit<SessionSyncFixture, "runCalls" | "undoCalls">>,
+) => {
+  sessionSyncState = { ...sessionSyncState, ...next };
+};
+
 export const resetProviderState = () => {
+  sessionSyncState = createDefaultSessionSync();
   providers = createDefaultProviders();
   current = createDefaultCurrent();
   liveProviderIds = {

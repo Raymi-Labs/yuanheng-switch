@@ -101,6 +101,16 @@ OpenCode    ─ 读 ─┤        + 同步账本            ├─ 写 ─ OpenC
 - M3：Gemini、Grok Build 写适配器；增量与分叉；Codex Desktop 可见性核验。
 - M4：OpenCode、Hermes、OpenClaw 写适配器（各自核验后逐个开放）；WorkBuddy / DSH / Accio Work 本地记录调研；后台定时检测（可选）。
 
+## Progress
+
+### M1（2026-11-03 完成）
+
+- 后端：[session_sync](../../../../src-tauri/src/session_sync/mod.rs) 实现通用会话、读侧清洗、`SessionWriter` trait，以及 [Claude Code](../../../../src-tauri/src/session_sync/writers/claude.rs)、[Codex](../../../../src-tauri/src/session_sync/writers/codex.rs) 两个写适配器；主库 v23 新增 `session_sync_links` 账本表，写入前快照到 `~/.yuanheng-switch/backups/session-sync/`（保留 20 份）。命令：`get_session_sync_targets`、`check_session_sync`、`run_session_sync`、`undo_session_sync`、`list_session_sync_states`。
+- 前端：会话页工具栏"带过来"菜单与目录级同步按钮共用 [SessionSyncDialog](../../../../src/components/sessions/SessionSyncDialog.tsx)；同步副本显示"来自 X"角标，详情页提供"撤销同步"。五种语言文案齐全。
+- 已核验：Claude Code 目录编码为"非字母数字替换为 `-`"，本机 6 个注册项目中 5 个命中，未命中的是一个含空格且已不存在的旧目录；写适配器的真实输出经本机 `claude -p --resume` 与 `codex exec resume` 续聊，均正确回忆合成内容，测试会话已清理。
+- 测试：隔离 HOME 端到端覆盖双向写入、扫描器识别、不回传、幂等、源文件不被修改、目标续聊后分叉不覆盖、撤销已续聊副本只解链；前端覆盖弹窗与撤销流程。
+- 仍未核验：Codex Desktop 列表在首次 resume 前是否显示同步线程；Claude Desktop 内置 Claude Code 模式是否读同一目录。移入 M3。
+
 ## Alternatives considered
 
 - **归档中心 + MCP 让各客户端自行检索旧记录**（已删除的前版）— 不碰任何客户端格式，升级零风险。否决：记录不会出现在目标客户端的历史列表，用户还要在对话里主动调工具，违背"一键"诉求；仅适合没有本地文件的云端产品，本期不做。

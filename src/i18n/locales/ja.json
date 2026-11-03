@@ -3477,5 +3477,28 @@
     "copied": "報告をコピーしました",
     "copyFailed": "コピーに失敗しました。プレビューを手動でコピーしてください。",
     "versionAutomatic": "クライアントが自動で提供"
+  },
+  "sessionSync": {
+    "title": "チャット履歴を {{target}} に取り込む",
+    "description": "取り込んだ後は {{target}} の履歴からそのまま続けられます。元の履歴は変更されません。",
+    "checking": "他のアプリのチャットを確認しています…",
+    "nothing": "最新の状態です。取り込むチャットはありません。",
+    "onlyDiverged": "{{count}} 件のチャットは両側に新しい内容があるため、上書き防止のため同期を停止しています。",
+    "projectLabel": "「{{name}}」プロジェクト",
+    "sourceCount": "{{source}} に {{count}} 件",
+    "confirm": "すべて取り込む（{{count}} 件）",
+    "done": "{{count}} 件のチャットを {{target}} に取り込みました",
+    "partialFailed": "{{done}} 件を取り込み、{{failed}} 件は失敗しました",
+    "checkFailed": "チャットの確認に失敗しました：{{error}}",
+    "runFailed": "同期に失敗しました：{{error}}",
+    "menuTooltip": "他のアプリのチャットを取り込む",
+    "menuLabel": "取り込み先のアプリ",
+    "directoryTooltip": "このプロジェクトのチャットを他のアプリに取り込む",
+    "fromSource": "{{source}} から",
+    "undo": "同期を取り消す",
+    "undoTooltip": "{{source}} から取り込んだこのコピーを削除します。ここで続けて会話した場合は関連付けのみ解除し、内容は残します。",
+    "undoRemoved": "取り消しました。コピーを削除しました",
+    "undoUnlinked": "関連付けを解除しました。ここで会話を続けたため内容は残しています",
+    "undoFailed": "取り消しに失敗しました：{{error}}"
   }
 }

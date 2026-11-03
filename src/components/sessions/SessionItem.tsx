@@ -27,6 +27,8 @@ interface SessionItemProps {
   searchQuery?: string;
   onSelect: (key: string) => void;
   onToggleChecked: (checked: boolean) => void;
+  /** 由会话同步生成时的来源客户端 */
+  originProvider?: string;
 }
 
 export function SessionItem({
@@ -38,6 +40,7 @@ export function SessionItem({
   searchQuery,
   onSelect,
   onToggleChecked,
+  originProvider,
 }: SessionItemProps) {
   const { t } = useTranslation();
   const title = formatSessionTitle(session);
@@ -103,6 +106,14 @@ export function SessionItem({
               ? formatRelativeTime(lastActive, t)
               : t("common.unknown")}
           </span>
+          {originProvider && (
+            <span className="ml-1 rounded border px-1 py-px text-[10px] leading-none">
+              {t("sessionSync.fromSource", {
+                defaultValue: "来自 {{source}}",
+                source: getProviderLabel(originProvider, t),
+              })}
+            </span>
+          )}
         </div>
       </button>
     </div>

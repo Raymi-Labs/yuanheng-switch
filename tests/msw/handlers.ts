@@ -12,6 +12,7 @@ import {
   getProviders,
   listProviders,
   listSessions,
+  getSessionSyncState,
   resetProviderState,
   setCurrentProviderId,
   updateProvider,
@@ -477,6 +478,52 @@ export const handlers = [
   http.post(`${TAURI_ENDPOINT}/open_external`, () => success(true)),
 
   http.post(`${TAURI_ENDPOINT}/list_sessions`, () => success(listSessions())),
+
+  http.post(`${TAURI_ENDPOINT}/get_session_sync_targets`, () =>
+    success(getSessionSyncState().targets),
+  ),
+
+  http.post(`${TAURI_ENDPOINT}/list_session_sync_states`, () =>
+    success(getSessionSyncState().states),
+  ),
+
+  http.post(`${TAURI_ENDPOINT}/check_session_sync`, async ({ request }) => {
+    const { targetProvider } = await withJson<{ targetProvider: string }>(
+      request,
+    );
+    return success(
+      getSessionSyncState().pending[targetProvider] ?? {
+        targetProvider,
+        directories: [],
+        total: 0,
+      },
+    );
+  }),
+
+  http.post(`${TAURI_ENDPOINT}/run_session_sync`, async ({ request }) => {
+    const body = await withJson<{ targetProvider: string; scope?: unknown }>(
+      request,
+    );
+    getSessionSyncState().runCalls.push(body);
+    return success({
+      targetProvider: body.targetProvider,
+      synced: 3,
+      updated: 0,
+      skippedDiverged: 0,
+      skippedUnchanged: 0,
+      failed: 0,
+      errors: [],
+    });
+  }),
+
+  http.post(`${TAURI_ENDPOINT}/undo_session_sync`, async ({ request }) => {
+    const body = await withJson<{
+      targetProvider: string;
+      targetSessionId: string;
+    }>(request);
+    getSessionSyncState().undoCalls.push(body);
+    return success(true);
+  }),
 
   http.post(`${TAURI_ENDPOINT}/get_session_messages`, async ({ request }) => {
     const { providerId, sourcePath } = await withJson<{

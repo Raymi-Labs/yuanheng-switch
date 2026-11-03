@@ -3479,5 +3479,28 @@
     "copied": "報告已複製",
     "copyFailed": "複製失敗，請手動複製預覽內容。",
     "versionAutomatic": "由用戶端自動提供"
+  },
+  "sessionSync": {
+    "title": "把聊天紀錄帶到 {{target}}",
+    "description": "帶過來之後，可以在 {{target}} 的歷史紀錄裡直接接著聊。原本的紀錄不會被改動。",
+    "checking": "正在查看其他用戶端的聊天…",
+    "nothing": "已經是最新的，沒有需要帶過來的聊天。",
+    "onlyDiverged": "有 {{count}} 次聊天兩邊都有新內容，為避免覆蓋已暫停同步。",
+    "projectLabel": "「{{name}}」專案",
+    "sourceCount": "{{source}} 有 {{count}} 次",
+    "confirm": "全部帶過來（{{count}} 次）",
+    "done": "已把 {{count}} 次聊天帶到 {{target}}",
+    "partialFailed": "已帶過來 {{done}} 次聊天，{{failed}} 次沒成功",
+    "checkFailed": "檢查聊天紀錄失敗：{{error}}",
+    "runFailed": "同步失敗：{{error}}",
+    "menuTooltip": "把其他用戶端的聊天帶過來",
+    "menuLabel": "帶到哪個用戶端",
+    "directoryTooltip": "把這個專案的聊天帶到其他用戶端",
+    "fromSource": "來自 {{source}}",
+    "undo": "撤銷同步",
+    "undoTooltip": "刪除這份從 {{source}} 帶過來的副本；如果已經在這裡接著聊過，只取消關聯、保留內容",
+    "undoRemoved": "已撤銷，這份副本已刪除",
+    "undoUnlinked": "已取消關聯；因為你在這裡接著聊過，內容已保留",
+    "undoFailed": "撤銷失敗：{{error}}"
   }
 }

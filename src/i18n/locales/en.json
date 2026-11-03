@@ -3477,5 +3477,28 @@
     "copied": "Report copied",
     "copyFailed": "Copy failed. Please copy the preview manually.",
     "versionAutomatic": "Provided automatically by the client"
+  },
+  "sessionSync": {
+    "title": "Bring chats to {{target}}",
+    "description": "After this, you can pick them up in {{target}}'s history and keep chatting. Your original chats stay untouched.",
+    "checking": "Looking at chats in your other apps…",
+    "nothing": "Everything is up to date. Nothing to bring over.",
+    "onlyDiverged": "{{count}} chats have new messages on both sides, so syncing is paused to avoid overwriting.",
+    "projectLabel": "Project “{{name}}”",
+    "sourceCount": "{{count}} in {{source}}",
+    "confirm": "Bring all over ({{count}})",
+    "done": "Brought {{count}} chats to {{target}}",
+    "partialFailed": "Brought {{done}} chats over, {{failed}} failed",
+    "checkFailed": "Could not check chats: {{error}}",
+    "runFailed": "Sync failed: {{error}}",
+    "menuTooltip": "Bring chats from other apps",
+    "menuLabel": "Bring to which app",
+    "directoryTooltip": "Bring this project's chats to another app",
+    "fromSource": "From {{source}}",
+    "undo": "Undo sync",
+    "undoTooltip": "Delete this copy brought from {{source}}. If you already continued it here, only unlink and keep the content.",
+    "undoRemoved": "Undone. The copy was deleted.",
+    "undoUnlinked": "Unlinked. You continued this chat here, so its content was kept.",
+    "undoFailed": "Undo failed: {{error}}"
   }
 }
