@@ -120,6 +120,15 @@ system-configuration = "0.7"
 objc2 = "0.5"
 objc2-app-kit = { version = "0.2", features = ["NSColor"] }
 
+# 本地 debug/test 构建只保留行号表：panic backtrace 仍带文件与行号，但调试器看不到局部变量。
+# 需要完整调试本项目代码时临时使用：CARGO_PROFILE_DEV_DEBUG=true cargo build
+[profile.dev]
+debug = "line-tables-only"
+
+# 第三方依赖不生成调试信息
+[profile.dev.package."*"]
+debug = false
+
 # Optimize release binary size to help reduce AppImage footprint
 [profile.release]
 codegen-units = 1
