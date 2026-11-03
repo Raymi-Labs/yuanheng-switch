@@ -1148,6 +1148,68 @@ mod perf_probe {
 }
 
 #[cfg(test)]
+mod opencode_probe {
+    //! 手动验收（需已安装 opencode）：
+    //! `SYNC_E2E_HOME=<隔离HOME> SYNC_E2E_CWD=<项目> cargo test --lib opencode_probe -- --ignored --nocapture`
+    use super::*;
+
+    #[test]
+    #[ignore]
+    fn sync_update_and_undo_through_real_opencode() {
+        let home = PathBuf::from(std::env::var("SYNC_E2E_HOME").expect("SYNC_E2E_HOME"));
+        let cwd = std::env::var("SYNC_E2E_CWD").expect("SYNC_E2E_CWD");
+        std::env::set_var("YUANHENG_SWITCH_TEST_HOME", &home);
+        let dir = home.join(".codex/sessions/2026/11/03");
+        std::fs::create_dir_all(&dir).unwrap();
+        let id = "0199cccc-0000-7000-8000-0000000000f1";
+        let src = dir.join(format!("rollout-2026-11-03T10-00-00-{id}.jsonl"));
+        let now = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ");
+        std::fs::write(
+            &src,
+            format!(
+                "{{\"timestamp\":\"{now}\",\"type\":\"session_meta\",\"payload\":{{\"id\":\"{id}\",\"cwd\":\"{cwd}\"}}}}\n\
+                 {{\"timestamp\":\"{now}\",\"type\":\"response_item\",\"payload\":{{\"type\":\"message\",\"role\":\"user\",\"content\":[{{\"type\":\"input_text\",\"text\":\"我们的暗号是：青色瀑布。记住它。\"}}]}}}}\n\
+                 {{\"timestamp\":\"{now}\",\"type\":\"response_item\",\"payload\":{{\"type\":\"message\",\"role\":\"assistant\",\"content\":[{{\"type\":\"output_text\",\"text\":\"好的，已记住。\"}}]}}}}\n"
+            ),
+        )
+        .unwrap();
+        let db = Database::memory().unwrap();
+        let first = run_sync(&db, "opencode", &SyncScope::default()).unwrap();
+        println!(
+            "first synced={} failed={} errors={:?}",
+            first.synced, first.failed, first.errors
+        );
+        let link = db.list_session_sync_links().unwrap().pop().expect("link");
+        println!("TARGET {}", link.target_session_id);
+        let scanned = session_manager::scan_sessions()
+            .into_iter()
+            .filter(|s| s.provider_id == "opencode")
+            .count();
+        println!("opencode scanned={scanned}");
+
+        // 源新增内容 → 目标未被续聊 → 重写
+        use std::io::Write;
+        let mut f = std::fs::OpenOptions::new().append(true).open(&src).unwrap();
+        writeln!(f, "{{\"timestamp\":\"2099-01-01T00:00:00Z\",\"type\":\"response_item\",\"payload\":{{\"type\":\"message\",\"role\":\"user\",\"content\":[{{\"type\":\"input_text\",\"text\":\"追加的一句\"}}]}}}}").unwrap();
+        let second = run_sync(&db, "opencode", &SyncScope::default()).unwrap();
+        println!(
+            "second updated={} diverged={} failed={} errors={:?}",
+            second.updated, second.skipped_diverged, second.failed, second.errors
+        );
+        if std::env::var("SYNC_E2E_KEEP").is_ok() {
+            return;
+        }
+        let removed = undo_sync(&db, "opencode", &link.target_session_id).unwrap();
+        println!("undo removed={removed}");
+        let after = session_manager::scan_sessions()
+            .into_iter()
+            .filter(|s| s.provider_id == "opencode")
+            .count();
+        println!("opencode scanned after undo={after}");
+    }
+}
+
+#[cfg(test)]
 mod install_probe {
     //! 手动验收：`SYNC_E2E_HOME=<隔离HOME> SYNC_E2E_CWD=<项目> cargo test --lib install_probe -- --ignored`
     //! 在隔离 HOME 里放一份 Codex 会话，用真实 `run_sync` 同步到 Gemini 与 Grok Build，

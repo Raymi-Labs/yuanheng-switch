@@ -128,6 +128,12 @@ OpenCode    ─ 读 ─┤        + 同步账本            ├─ 写 ─ OpenC
 - **启动询问**：Gemini CLI 与 Grok Build 的启动也触发询问。首条消息不再重复拼接与标题相同的一段文字。
 - 仍未覆盖：OpenCode、Hermes、OpenClaw 作为同步目标（M4）；Gemini 与 Grok 的真实付费模型续聊未做，仅验证到"历史已随请求发出"。
 
+### M4 进行中（2026-11-03）
+
+- **OpenCode（已完成，真实客户端验收）**：本机用 Meta API 同款命令安装 OpenCode 1.19.5。会话在 SQLite，不直接写库，改走官方 `opencode import` 与 `opencode session delete`。实测三个坑都已处理：同 ID 再导入不覆盖，所以更新是先删后导；导入忽略 JSON 里的 directory、按执行命令时的工作目录归属项目，所以必须在项目目录里执行；user 消息缺 `model` 时导入报错，消息记录不存在的模型时续聊报 ProviderModelNotFoundError，所以写入用户在 OpenCode 配置的默认模型。隔离 HOME 加本地模拟模型验收：列表可见，不指定模型直接 `opencode run -s` 续聊回答正确，源端追加的消息也随更新进入历史，撤销后 session/message/part 全部清空。判断"是否被续聊"用只读查询消息数与最后时间。
+- **Hermes（未完成）**：官方安装是远程脚本，改用 uv 从 PyPI 安装 `hermes-agent` 也被本机权限策略拦截，未能安装验证，暂不开放为同步目标。
+- **OpenClaw（进行中）**：npm 包约 274 MB，首次下载被网络重置；官方要求 Node `>=24.16 <25 或 >=26.1`，本机为 25.9，可能无法运行。
+
 ## Alternatives considered
 
 - **归档中心 + MCP 让各客户端自行检索旧记录**（已删除的前版）— 不碰任何客户端格式，升级零风险。否决：记录不会出现在目标客户端的历史列表，用户还要在对话里主动调工具，违背"一键"诉求；仅适合没有本地文件的云端产品，本期不做。

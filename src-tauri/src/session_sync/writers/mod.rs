@@ -4,6 +4,7 @@ pub mod claude;
 pub mod codex;
 pub mod gemini;
 pub mod grokbuild;
+pub mod opencode;
 
 use sha2::{Digest, Sha256};
 use std::path::Path;
@@ -31,7 +32,7 @@ pub trait SessionWriter: Send + Sync {
     fn after_batch(&self, _written: &[TargetRef]) {}
 }
 
-const WRITABLE: &[&str] = &["claude", "codex", "gemini", "grokbuild"];
+const WRITABLE: &[&str] = &["claude", "codex", "gemini", "grokbuild", "opencode"];
 const READABLE: &[&str] = &[
     "claude",
     "codex",
@@ -56,6 +57,7 @@ pub fn writer_for(provider_id: &str) -> Result<Box<dyn SessionWriter>, String> {
         "codex" => Ok(Box::new(codex::CodexWriter)),
         "gemini" => Ok(Box::new(gemini::GeminiWriter)),
         "grokbuild" => Ok(Box::new(grokbuild::GrokBuildWriter)),
+        "opencode" => Ok(Box::new(opencode::OpenCodeWriter)),
         other => Err(format!("Session sync target not supported yet: {other}")),
     }
 }
