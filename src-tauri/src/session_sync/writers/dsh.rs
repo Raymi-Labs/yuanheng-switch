@@ -28,6 +28,7 @@ use crate::session_sync::CanonicalSession;
 
 pub struct DshWriter;
 
+#[cfg(unix)]
 const LOCK_FILENAME: &str = "session.lock";
 
 fn is_safe_char(c: char) -> bool {

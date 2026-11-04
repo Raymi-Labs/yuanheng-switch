@@ -36,6 +36,8 @@ Status: implemented
 
 ## Delivery boundary
 
+整合后Windows CI暴露伙伴DSH同步模块的Unix专用LOCK_FILENAME在Windows未使用，补cfg(unix)与实际调用端保持一致，不改变锁或同步行为。首轮候选构建主动取消，按修复后的新SHA重新构建；不能把取消的候选视为验收成功。
+
 reference是维护者基线而非隔离沙箱；检查不能代替营销/合规审稿，GUI只报告文件规则。Windows能准备/检查不等于支持Accio Windows配置启动，入口遵循Accio当前supported状态。
 
 固定样例检查不接受用户随意改写的商品源；这是演示/验收工具而非通用上架编辑器，真实商户资料须另设契约。对话框内显示本地路径且提供显式复制，不持久化最近目录、不自动上传。JSON/Markdown固定文件各限4MB，未知目录内容拒绝，允许Finder产生的.DS_Store。OS目录picker取消不写入，创建使用私有随机新目录，失败清理仅限本次拥有的新目录。基线以create_new保存，损坏/中断留下的基线不会被当作有效结果或自动覆盖。本地恶意进程并发替换祖先目录不属于该工作目录约定的安全沙箱承诺。
