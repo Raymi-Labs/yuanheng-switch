@@ -1,6 +1,22 @@
 // ko translations for the desktop Simplified Chinese source strings.
 import { MEDIA_KO } from "./mediaStudioTranslations";
 export const DESKTOP_KO: Record<string, string> = {
+  "完成 Codex 首次登录": "Codex 첫 로그인 완료",
+  "已为本次配置准备好平台令牌，无需再去平台创建。按下面步骤完成登录即可。":
+    "이번 설정에 사용할 플랫폼 토큰이 준비되었습니다. 새로 만들 필요 없이 아래 단계로 로그인하세요.",
+  "平台令牌（API Key）": "플랫폼 토큰 (API Key)",
+  复制令牌: "토큰 복사",
+  "复制上方令牌，然后打开 Codex。": "위 토큰을 복사한 다음 Codex를 여세요.",
+  "在登录页面选择 Sign in with an API key（使用 API Key 登录）；如果先显示其他登录方式，请展开后选择 API Key。":
+    "로그인 화면에서 Sign in with an API key를 선택하세요. 다른 로그인 방식이 먼저 보이면 펼친 후 API Key를 선택하세요.",
+  "将令牌粘贴到 API Key 输入框，点击继续完成登录。":
+    "API Key 입력란에 토큰을 붙여넣고 계속을 눌러 로그인하세요.",
+  "若 Codex 已直接进入主界面，即可开始使用。需要再次查看令牌时，重新应用 Codex 配置即可。":
+    "Codex 기본 화면이 열리면 바로 사용할 수 있습니다. 로그아웃 상태에서 Codex 설정을 다시 적용하면 이 안내를 볼 수 있습니다.",
+  "已复制，继续": "복사 완료, 계속",
+  稍后登录: "나중에 로그인",
+  "配置已保存，登录指引读取失败，请重新应用配置查看。":
+    "설정은 저장되었지만 로그인 안내를 불러오지 못했습니다. 설정을 다시 적용해 주세요.",
   显示密码: "비밀번호 표시",
   隐藏密码: "비밀번호 숨기기",
   显示确认密码: "확인 비밀번호 표시",
