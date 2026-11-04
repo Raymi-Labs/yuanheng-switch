@@ -30,6 +30,8 @@ Status: implemented
 
 ## Consequences
 
+收益是无需外部运行时即可完成示例准备与校验；代价是Rust/JS/Ruby格式需共同fixture维护，检查仅适用于固定样例，不能变成通用业务审核承诺。
+
 ## 发布准备验证
 
 2026-11-04整合主分支2cc33c01中的会话同步和密码显示功能，四份语言文件仅新增词条位置冲突，双方内容保留。合并后171个前端测试文件、1261项全部通过，类型和模板一致性检查通过。候选版本0.1.128使用既有candidate_only签名流程；未完成安装包入口验收前不创建正式标签、不更新官网下载清单。
@@ -37,6 +39,8 @@ Status: implemented
 ## Delivery boundary
 
 整合后Windows CI暴露伙伴DSH同步模块的Unix专用LOCK_FILENAME在Windows未使用，补cfg(unix)与实际调用端保持一致，不改变锁或同步行为。首轮候选构建主动取消，按修复后的新SHA重新构建；不能把取消的候选视为验收成功。
+
+Windows后续五项会话同步测试失败来自测试fixture把带反斜杠路径直接拼入JSON，以及根目录断言写死Unix。修复仅限cfg(test)：路径用serde_json编码、根目录使用系统canonicalize。本机复测暴露XDG/OpenCode目录未隔离，补XDG_DATA_HOME、DSH_HOME、外部CLI路径隔离与设置重载/恢复；真实会话不进入测试fixture或公开日志。修复后本机会话同步43项通过、5项原有外部CLI测试忽略。候选构建7833d70b的产品代码不变；后续此提交只改测试与笔记，签名候选仍按其原SHA记录，不冒充新SHA构建。
 
 reference是维护者基线而非隔离沙箱；检查不能代替营销/合规审稿，GUI只报告文件规则。Windows能准备/检查不等于支持Accio Windows配置启动，入口遵循Accio当前supported状态。
 
