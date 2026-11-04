@@ -1,6 +1,6 @@
 [package]
 name = "yuanheng-switch"
-version = "0.1.126"
+version = "0.1.127"
 description = "YuanHeng API desktop companion for local AI coding tools"
 authors = ["nanashiwang"]
 license = "MIT"
@@ -90,7 +90,7 @@ image = { version = "0.25", default-features = false, features = ["jpeg", "png",
 rusqlite = { version = "0.31", features = ["bundled", "backup", "hooks"] }
 indexmap = { version = "2", features = ["serde"] }
 rust_decimal = "1.33"
-uuid = { version = "1.11", features = ["v4"] }
+uuid = { version = "1.11", features = ["v4", "v5"] }
 sha2 = "0.10"
 semver = "1"
 hmac = "0.12"
@@ -119,6 +119,15 @@ security-framework = "3.7"
 system-configuration = "0.7"
 objc2 = "0.5"
 objc2-app-kit = { version = "0.2", features = ["NSColor"] }
+
+# 本地 debug/test 构建只保留行号表：panic backtrace 仍带文件与行号，但调试器看不到局部变量。
+# 需要完整调试本项目代码时临时使用：CARGO_PROFILE_DEV_DEBUG=true cargo build
+[profile.dev]
+debug = "line-tables-only"
+
+# 第三方依赖不生成调试信息
+[profile.dev.package."*"]
+debug = false
 
 # Optimize release binary size to help reduce AppImage footprint
 [profile.release]

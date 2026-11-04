@@ -42,6 +42,7 @@ mod proxy;
 mod secure_storage;
 mod services;
 mod session_manager;
+mod session_sync;
 mod settings;
 mod store;
 mod trae;
@@ -1619,6 +1620,20 @@ pub fn run() {
             commands::delete_session,
             commands::delete_sessions,
             commands::launch_session_terminal,
+            // Session sync
+            commands::get_session_sync_targets,
+            commands::check_session_sync,
+            commands::run_session_sync,
+            commands::undo_session_sync,
+            commands::list_session_sync_states,
+            commands::get_session_sync_prefs,
+            commands::set_session_sync_prefs,
+            commands::mute_session_sync_directories,
+            commands::check_session_sync_before_launch,
+            commands::preview_project_sync,
+            commands::run_project_sync,
+            commands::check_project_sync_before_launch,
+            commands::mute_project_sync,
             commands::get_tool_versions,
             commands::get_accio_release_status,
             commands::get_installed_tool_versions,

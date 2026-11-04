@@ -21,6 +21,9 @@ import {
   ChevronDown,
   ChevronRight,
   ChevronsDownUp,
+  ArrowRightLeft,
+  FolderTree,
+  Undo2,
 } from "lucide-react";
 import {
   useDeleteSessionMutation,
@@ -57,6 +60,21 @@ import { extractErrorMessage } from "@/utils/errorUtils";
 import { isMac } from "@/lib/platform";
 import { ProviderIcon } from "@/components/ProviderIcon";
 import { SessionItem } from "./SessionItem";
+import { SessionSyncDialog } from "./SessionSyncDialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
+  useSessionSyncStatesQuery,
+  useSessionSyncTargetsQuery,
+  useUndoSessionSyncMutation,
+} from "@/lib/query/sessionSync";
+import { sessionSyncApi, sessionSyncStateKey } from "@/lib/api/sessionSync";
 import { SessionMessageItem } from "./SessionMessageItem";
 import { SessionTocDialog, SessionTocSidebar } from "./SessionToc";
 import {
@@ -190,6 +208,13 @@ export function SessionManagerPage({ appId }: { appId: string }) {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
   const { data, isLoading, refetch } = useSessionsQuery();
+  const { data: syncTargets = [] } = useSessionSyncTargetsQuery();
+  const { byKey: syncStates } = useSessionSyncStatesQuery();
+  const undoSync = useUndoSessionSyncMutation();
+  const [syncDialog, setSyncDialog] = useState<{
+    targetProvider: string;
+    projectDir: string | null;
+  } | null>(null);
   const sessions = data ?? [];
   const detailRef = useRef<HTMLDivElement | null>(null);
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
@@ -310,6 +335,70 @@ export function SessionManagerPage({ appId }: { appId: string }) {
       ) || null
     );
   }, [filteredSessions, selectedKey]);
+
+  const selectedSyncState = selectedSession
+    ? syncStates.get(
+        sessionSyncStateKey(
+          selectedSession.providerId,
+          selectedSession.sessionId,
+        ),
+      )
+    : undefined;
+
+  const [projectSyncBusy, setProjectSyncBusy] = useState(false);
+  const handleProjectSync = async () => {
+    setProjectSyncBusy(true);
+    try {
+      const outcome = await sessionSyncApi.syncProjects("codex", "dsh");
+      if (outcome.blockedReason) {
+        toast.error(outcome.blockedReason);
+      } else if (outcome.created + outcome.updated === 0) {
+        toast.success(
+          t("sessionSync.projectsUpToDate", {
+            defaultValue: "DSH 的项目分组已经和 Codex 一致",
+          }),
+        );
+      } else {
+        toast.success(
+          t("sessionSync.projectsDone", {
+            defaultValue: "已在 {{target}} 里整理好 {{count}} 个项目分组",
+            count: outcome.created + outcome.updated,
+            target: "DSH",
+          }),
+        );
+      }
+    } catch (error) {
+      toast.error(extractErrorMessage(error));
+    } finally {
+      setProjectSyncBusy(false);
+    }
+  };
+
+  const handleUndoSync = async () => {
+    if (!selectedSession) return;
+    try {
+      const removed = await undoSync.mutateAsync({
+        targetProvider: selectedSession.providerId,
+        targetSessionId: selectedSession.sessionId,
+      });
+      toast.success(
+        removed
+          ? t("sessionSync.undoRemoved", {
+              defaultValue: "已撤销，这份副本已删除",
+            })
+          : t("sessionSync.undoUnlinked", {
+              defaultValue: "已取消关联；因为你在这里接着聊过，内容已保留",
+            }),
+      );
+    } catch (error) {
+      toast.error(
+        t("sessionSync.undoFailed", {
+          defaultValue: "撤销失败：{{error}}",
+          error: extractErrorMessage(error),
+        }),
+      );
+    }
+  };
 
   const listViewModeLabel =
     listViewMode === "grouped"
@@ -687,6 +776,11 @@ export function SessionManagerPage({ appId }: { appId: string }) {
       <SessionItem
         key={sessionKey}
         session={session}
+        originProvider={
+          syncStates.get(
+            sessionSyncStateKey(session.providerId, session.sessionId),
+          )?.originProvider
+        }
         isSelected={isSelected}
         selectionMode={selectionMode}
         searchQuery={search}
@@ -1131,6 +1225,69 @@ export function SessionManagerPage({ appId }: { appId: string }) {
                           </SelectContent>
                         </Select>
 
+                        {syncTargets.length > 0 && (
+                          <DropdownMenu>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <DropdownMenuTrigger asChild>
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="size-7"
+                                    aria-label={t("sessionSync.menuTooltip", {
+                                      defaultValue: "把其他客户端的聊天带过来",
+                                    })}
+                                  >
+                                    <ArrowRightLeft className="size-3.5" />
+                                  </Button>
+                                </DropdownMenuTrigger>
+                              </TooltipTrigger>
+                              <TooltipContent>
+                                {t("sessionSync.menuTooltip", {
+                                  defaultValue: "把其他客户端的聊天带过来",
+                                })}
+                              </TooltipContent>
+                            </Tooltip>
+                            <DropdownMenuContent align="end">
+                              <DropdownMenuLabel className="text-xs">
+                                {t("sessionSync.menuLabel", {
+                                  defaultValue: "带到哪个客户端",
+                                })}
+                              </DropdownMenuLabel>
+                              {syncTargets.map((target) => (
+                                <DropdownMenuItem
+                                  key={target}
+                                  onSelect={() =>
+                                    setSyncDialog({
+                                      targetProvider: target,
+                                      projectDir: null,
+                                    })
+                                  }
+                                  className="gap-2"
+                                >
+                                  <ProviderIcon
+                                    icon={getProviderIconName(target)}
+                                    name={target}
+                                    size={14}
+                                  />
+                                  {getProviderLabel(target, t)}
+                                </DropdownMenuItem>
+                              ))}
+                              <DropdownMenuSeparator />
+                              <DropdownMenuItem
+                                className="gap-2"
+                                disabled={projectSyncBusy}
+                                onSelect={() => void handleProjectSync()}
+                              >
+                                <FolderTree className="size-3.5" />
+                                {t("sessionSync.menuProjects", {
+                                  defaultValue: "把 Codex 的项目分组带到 DSH",
+                                })}
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        )}
+
                         <Tooltip>
                           <TooltipTrigger asChild>
                             <Button
@@ -1371,6 +1528,75 @@ export function SessionManagerPage({ appId }: { appId: string }) {
                                               )}
                                             </button>
                                           </CollapsibleTrigger>
+                                          {directoryGroup.projectDir &&
+                                            !selectionMode &&
+                                            syncTargets.some(
+                                              (target) =>
+                                                target !==
+                                                providerGroup.providerId,
+                                            ) && (
+                                              <DropdownMenu>
+                                                <DropdownMenuTrigger asChild>
+                                                  <Button
+                                                    variant="ghost"
+                                                    size="icon"
+                                                    className="size-6 shrink-0"
+                                                    aria-label={t(
+                                                      "sessionSync.directoryTooltip",
+                                                      {
+                                                        defaultValue:
+                                                          "把这个项目的聊天带到其他客户端",
+                                                      },
+                                                    )}
+                                                  >
+                                                    <ArrowRightLeft className="size-3" />
+                                                  </Button>
+                                                </DropdownMenuTrigger>
+                                                <DropdownMenuContent align="end">
+                                                  <DropdownMenuLabel className="text-xs">
+                                                    {t(
+                                                      "sessionSync.menuLabel",
+                                                      {
+                                                        defaultValue:
+                                                          "带到哪个客户端",
+                                                      },
+                                                    )}
+                                                  </DropdownMenuLabel>
+                                                  {syncTargets
+                                                    .filter(
+                                                      (target) =>
+                                                        target !==
+                                                        providerGroup.providerId,
+                                                    )
+                                                    .map((target) => (
+                                                      <DropdownMenuItem
+                                                        key={target}
+                                                        className="gap-2"
+                                                        onSelect={() =>
+                                                          setSyncDialog({
+                                                            targetProvider:
+                                                              target,
+                                                            projectDir:
+                                                              directoryGroup.projectDir,
+                                                          })
+                                                        }
+                                                      >
+                                                        <ProviderIcon
+                                                          icon={getProviderIconName(
+                                                            target,
+                                                          )}
+                                                          name={target}
+                                                          size={14}
+                                                        />
+                                                        {getProviderLabel(
+                                                          target,
+                                                          t,
+                                                        )}
+                                                      </DropdownMenuItem>
+                                                    ))}
+                                                </DropdownMenuContent>
+                                              </DropdownMenu>
+                                            )}
                                         </div>
                                         <CollapsibleContent className="mt-1 space-y-1 pl-3">
                                           {directoryGroup.sessions.map(
@@ -1546,6 +1772,36 @@ export function SessionManagerPage({ appId }: { appId: string }) {
                             </TooltipContent>
                           </Tooltip>
                         )}
+                        {selectedSyncState?.originProvider && (
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="gap-1.5"
+                                disabled={undoSync.isPending}
+                                onClick={() => void handleUndoSync()}
+                              >
+                                <Undo2 className="size-3.5" />
+                                <span className="hidden sm:inline">
+                                  {t("sessionSync.undo", {
+                                    defaultValue: "撤销同步",
+                                  })}
+                                </span>
+                              </Button>
+                            </TooltipTrigger>
+                            <TooltipContent>
+                              {t("sessionSync.undoTooltip", {
+                                defaultValue:
+                                  "删除这份从 {{source}} 带过来的副本；如果已经在这里接着聊过，只取消关联、保留内容",
+                                source: getProviderLabel(
+                                  selectedSyncState.originProvider,
+                                  t,
+                                ),
+                              })}
+                            </TooltipContent>
+                          </Tooltip>
+                        )}
                         <Tooltip>
                           <TooltipTrigger asChild>
                             <Button
@@ -1703,6 +1959,16 @@ export function SessionManagerPage({ appId }: { appId: string }) {
           </div>
         </div>
       </div>
+      {syncDialog && (
+        <SessionSyncDialog
+          open
+          onOpenChange={(open) => {
+            if (!open) setSyncDialog(null);
+          }}
+          targetProvider={syncDialog.targetProvider}
+          projectDir={syncDialog.projectDir}
+        />
+      )}
       <ConfirmDialog
         isOpen={Boolean(deleteTargets)}
         title={

@@ -267,7 +267,61 @@ let launchedToolRequests: Array<{
 const cloneProviders = (value: ProvidersByApp) =>
   deepClone(value) as ProvidersByApp;
 
+type SessionSyncFixture = {
+  targets: string[];
+  pending: Record<string, unknown>;
+  states: unknown[];
+  runCalls: Array<{ targetProvider: string; scope?: unknown }>;
+  undoCalls: Array<{ targetProvider: string; targetSessionId: string }>;
+  launchChecks: Array<{ targetProvider: string; projectDir: string | null }>;
+  muteCalls: Array<{ targetProvider: string; projectDirs: string[] }>;
+  prefs: { promptOnLaunch: boolean; muted: unknown[] };
+  failLaunchCheck: boolean;
+  failRun: boolean;
+  projectPreview: Record<string, unknown> | null;
+  projectSyncCalls: Array<{ sourceProvider: string; targetProvider: string }>;
+  projectMuteCalls: string[];
+  projectBlockedReason: string | null;
+};
+
+const createDefaultSessionSync = (): SessionSyncFixture => ({
+  targets: ["claude", "codex"],
+  pending: {},
+  states: [],
+  runCalls: [],
+  undoCalls: [],
+  launchChecks: [],
+  muteCalls: [],
+  prefs: { promptOnLaunch: true, muted: [] },
+  failLaunchCheck: false,
+  failRun: false,
+  projectPreview: null,
+  projectSyncCalls: [],
+  projectMuteCalls: [],
+  projectBlockedReason: null,
+});
+
+let sessionSyncState = createDefaultSessionSync();
+
+export const getSessionSyncState = () => sessionSyncState;
+export const setSessionSyncFixtures = (
+  next: Partial<
+    Omit<
+      SessionSyncFixture,
+      | "runCalls"
+      | "undoCalls"
+      | "launchChecks"
+      | "muteCalls"
+      | "projectSyncCalls"
+      | "projectMuteCalls"
+    >
+  >,
+) => {
+  sessionSyncState = { ...sessionSyncState, ...next };
+};
+
 export const resetProviderState = () => {
+  sessionSyncState = createDefaultSessionSync();
   providers = createDefaultProviders();
   current = createDefaultCurrent();
   liveProviderIds = {

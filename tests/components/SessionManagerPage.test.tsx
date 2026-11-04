@@ -12,7 +12,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { SessionManagerPage } from "@/components/sessions/SessionManagerPage";
 import { sessionsApi } from "@/lib/api/sessions";
 import type { SessionMessage, SessionMeta } from "@/types";
-import { setSessionFixtures } from "../msw/state";
+import {
+  getSessionSyncState,
+  setSessionFixtures,
+  setSessionSyncFixtures,
+} from "../msw/state";
 
 const toastSuccessMock = vi.fn();
 const toastErrorMock = vi.fn();
@@ -154,7 +158,9 @@ describe("SessionManagerPage", () => {
     toastSuccessMock.mockReset();
     toastErrorMock.mockReset();
     Element.prototype.scrollIntoView = vi.fn();
-    window.localStorage.removeItem("yuanheng-switch.sessionManager.listViewMode");
+    window.localStorage.removeItem(
+      "yuanheng-switch.sessionManager.listViewMode",
+    );
     window.localStorage.removeItem(GROUP_EXPANSION_STORAGE_KEY);
 
     const sessions: SessionMeta[] = [
@@ -219,6 +225,41 @@ describe("SessionManagerPage", () => {
     };
 
     setSessionFixtures(sessions, messages);
+  });
+
+  it("marks synced copies with their origin and undoes them from the detail panel", async () => {
+    setSessionSyncFixtures({
+      states: [
+        {
+          providerId: "codex",
+          sessionId: "codex-session-1",
+          originProvider: "claude",
+          originSessionId: "claude-session-1",
+          syncedTo: [],
+        },
+      ],
+    });
+    renderPage();
+
+    await screen.findByRole("heading", { name: "Alpha Session" });
+    expect(await screen.findByText(/来自/)).toBeInTheDocument();
+
+    fireEvent.click(await screen.findByRole("button", { name: /撤销同步/ }));
+
+    await waitFor(() =>
+      expect(getSessionSyncState().undoCalls).toEqual([
+        { targetProvider: "codex", targetSessionId: "codex-session-1" },
+      ]),
+    );
+    expect(toastSuccessMock).toHaveBeenCalledWith("已撤销，这份副本已删除");
+  });
+
+  it("does not offer undo for native sessions", async () => {
+    renderPage();
+    await screen.findByRole("heading", { name: "Alpha Session" });
+    expect(
+      screen.queryByRole("button", { name: /撤销同步/ }),
+    ).not.toBeInTheDocument();
   });
 
   it("deletes the selected session and selects the next visible session", async () => {

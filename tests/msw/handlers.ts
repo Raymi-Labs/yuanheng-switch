@@ -12,6 +12,7 @@ import {
   getProviders,
   listProviders,
   listSessions,
+  getSessionSyncState,
   resetProviderState,
   setCurrentProviderId,
   updateProvider,
@@ -477,6 +478,134 @@ export const handlers = [
   http.post(`${TAURI_ENDPOINT}/open_external`, () => success(true)),
 
   http.post(`${TAURI_ENDPOINT}/list_sessions`, () => success(listSessions())),
+
+  http.post(`${TAURI_ENDPOINT}/get_session_sync_targets`, () =>
+    success(getSessionSyncState().targets),
+  ),
+
+  http.post(`${TAURI_ENDPOINT}/list_session_sync_states`, () =>
+    success(getSessionSyncState().states),
+  ),
+
+  http.post(`${TAURI_ENDPOINT}/check_session_sync`, async ({ request }) => {
+    const { targetProvider } = await withJson<{ targetProvider: string }>(
+      request,
+    );
+    return success(
+      getSessionSyncState().pending[targetProvider] ?? {
+        targetProvider,
+        directories: [],
+        total: 0,
+      },
+    );
+  }),
+
+  http.post(
+    `${TAURI_ENDPOINT}/check_session_sync_before_launch`,
+    async ({ request }) => {
+      const body = await withJson<{
+        targetProvider: string;
+        projectDir: string | null;
+      }>(request);
+      const state = getSessionSyncState();
+      state.launchChecks.push(body);
+      if (state.failLaunchCheck) {
+        return HttpResponse.json("check failed", { status: 500 });
+      }
+      return success(
+        state.pending[body.targetProvider] ?? {
+          targetProvider: body.targetProvider,
+          directories: [],
+          total: 0,
+        },
+      );
+    },
+  ),
+
+  http.post(`${TAURI_ENDPOINT}/get_session_sync_prefs`, () =>
+    success(getSessionSyncState().prefs),
+  ),
+
+  http.post(`${TAURI_ENDPOINT}/set_session_sync_prefs`, async ({ request }) => {
+    const { prefs } = await withJson<{
+      prefs: { promptOnLaunch: boolean; muted: unknown[] };
+    }>(request);
+    getSessionSyncState().prefs = prefs;
+    return success(prefs);
+  }),
+
+  http.post(
+    `${TAURI_ENDPOINT}/mute_session_sync_directories`,
+    async ({ request }) => {
+      const body = await withJson<{
+        targetProvider: string;
+        projectDirs: string[];
+      }>(request);
+      const state = getSessionSyncState();
+      state.muteCalls.push(body);
+      return success(state.prefs);
+    },
+  ),
+
+  http.post(`${TAURI_ENDPOINT}/check_project_sync_before_launch`, () =>
+    success(getSessionSyncState().projectPreview),
+  ),
+
+  http.post(`${TAURI_ENDPOINT}/run_project_sync`, async ({ request }) => {
+    const body = await withJson<{
+      sourceProvider: string;
+      targetProvider: string;
+    }>(request);
+    const state = getSessionSyncState();
+    state.projectSyncCalls.push(body);
+    return success({
+      targetProvider: body.targetProvider,
+      created: 2,
+      updated: 1,
+      sessionsAttached: 4,
+      skipped: [],
+      ...(state.projectBlockedReason
+        ? { blockedReason: state.projectBlockedReason }
+        : {}),
+    });
+  }),
+
+  http.post(`${TAURI_ENDPOINT}/mute_project_sync`, async ({ request }) => {
+    const { targetProvider } = await withJson<{ targetProvider: string }>(
+      request,
+    );
+    const state = getSessionSyncState();
+    state.projectMuteCalls.push(targetProvider);
+    return success(state.prefs);
+  }),
+
+  http.post(`${TAURI_ENDPOINT}/run_session_sync`, async ({ request }) => {
+    const body = await withJson<{ targetProvider: string; scope?: unknown }>(
+      request,
+    );
+    getSessionSyncState().runCalls.push(body);
+    if (getSessionSyncState().failRun) {
+      return HttpResponse.json("disk full", { status: 500 });
+    }
+    return success({
+      targetProvider: body.targetProvider,
+      synced: 3,
+      updated: 0,
+      skippedDiverged: 0,
+      skippedUnchanged: 0,
+      failed: 0,
+      errors: [],
+    });
+  }),
+
+  http.post(`${TAURI_ENDPOINT}/undo_session_sync`, async ({ request }) => {
+    const body = await withJson<{
+      targetProvider: string;
+      targetSessionId: string;
+    }>(request);
+    getSessionSyncState().undoCalls.push(body);
+    return success(true);
+  }),
 
   http.post(`${TAURI_ENDPOINT}/get_session_messages`, async ({ request }) => {
     const { providerId, sourcePath } = await withJson<{

@@ -45,6 +45,24 @@ impl Database {
         )
         .map_err(|e| AppError::Database(e.to_string()))?;
 
+        // 本机 AI 工具间会话同步账本（session_sync 模块）
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS session_sync_links (
+                source_provider TEXT NOT NULL,
+                source_session_id TEXT NOT NULL,
+                target_provider TEXT NOT NULL,
+                target_session_id TEXT NOT NULL,
+                target_ref TEXT NOT NULL,
+                source_fingerprint TEXT NOT NULL,
+                target_fingerprint TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'synced',
+                synced_at INTEGER NOT NULL,
+                PRIMARY KEY (source_provider, source_session_id, target_provider)
+            )",
+            [],
+        )
+        .map_err(|e| AppError::Database(e.to_string()))?;
+
         // Device-local runtime credentials, excluded from WebDAV/S3 sync.
         conn.execute(
             "CREATE TABLE IF NOT EXISTS accio_work_runtime (
@@ -557,6 +575,11 @@ impl Database {
                     21 => {
                         Self::migrate_v21_to_v22(conn)?;
                         Self::set_user_version(conn, 22)?;
+                    }
+                    22 => {
+                        log::info!("迁移数据库从 v22 到 v23（会话同步账本表）");
+                        Self::migrate_v22_to_v23(conn)?;
+                        Self::set_user_version(conn, 23)?;
                     }
                     _ => {
                         return Err(AppError::Database(format!(
@@ -1593,6 +1616,26 @@ impl Database {
 
     /// Both the released image-skill build and an unpublished Accio prototype
     /// used v21. Repair both shapes without overwriting skills or credentials.
+    /// v22 -> v23: session sync ledger for cross-tool local session sync.
+    fn migrate_v22_to_v23(conn: &Connection) -> Result<(), AppError> {
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS session_sync_links (
+                source_provider TEXT NOT NULL,
+                source_session_id TEXT NOT NULL,
+                target_provider TEXT NOT NULL,
+                target_session_id TEXT NOT NULL,
+                target_ref TEXT NOT NULL,
+                source_fingerprint TEXT NOT NULL,
+                target_fingerprint TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'synced',
+                synced_at INTEGER NOT NULL,
+                PRIMARY KEY (source_provider, source_session_id, target_provider)
+            )",
+            [],
+        )?;
+        Ok(())
+    }
+
     fn migrate_v21_to_v22(conn: &Connection) -> Result<(), AppError> {
         Self::migrate_v20_to_v21(conn)?;
         conn.execute(
@@ -3149,7 +3192,7 @@ mod tests {
                             (true, skill_columns >= 1, false)
                         ]
                     );
-                    assert_eq!(Database::get_user_version(&conn)?, 22);
+                    assert_eq!(Database::get_user_version(&conn)?, SCHEMA_VERSION);
                     let snapshots = conn
                         .prepare("SELECT payload FROM accio_work_runtime")?
                         .query_map([], |row| row.get::<_, String>(0))?

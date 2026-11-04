@@ -11,6 +11,7 @@ export { vscodeApi } from "./vscode";
 export { proxyApi } from "./proxy";
 export { openclawApi } from "./openclaw";
 export { sessionsApi } from "./sessions";
+export { sessionSyncApi } from "./sessionSync";
 export { workspaceApi } from "./workspace";
 export { voiceCloneApi } from "./voice-clone";
 export type { VoiceCloneRequest, VoiceCloneResult } from "./voice-clone";

@@ -9,6 +9,10 @@ type Values = Record<string, string | number | null | undefined>;
 
 export const DESKTOP_EN: Record<string, string> = {
   ...COMMERCE_EN,
+  显示密码: "Show password",
+  隐藏密码: "Hide password",
+  显示确认密码: "Show confirmation password",
+  隐藏确认密码: "Hide confirmation password",
   部分检查未通过: "Some checks need attention",
   配置或修复通用凭据: "Configure or repair general credentials",
   选择通用凭据分组: "Choose a group for general credentials",
