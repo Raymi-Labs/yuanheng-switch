@@ -2442,3 +2442,18 @@ user_profile_enabled: false
         );
     }
 }
+
+/// Managed reasoning touches only agent fields; preserve the rest of the document.
+pub(crate) fn write_reasoning_agent(
+    expected: &serde_json::Value,
+    value: &serde_json::Value,
+) -> Result<HermesWriteOutcome, AppError> {
+    let _guard = hermes_write_lock().lock()?;
+    if yaml_to_json(&read_hermes_config()?)? != *expected {
+        return Err(AppError::Config(
+            "Hermes configuration changed; reload before applying reasoning".into(),
+        ));
+    }
+    let value = json_to_yaml(value)?;
+    write_yaml_section_to_config_locked("agent", &value)
+}

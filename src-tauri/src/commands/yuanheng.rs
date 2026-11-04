@@ -12,6 +12,7 @@ mod imagegen_connection;
 mod imagegen_credentials;
 mod media_studio;
 mod model_catalog;
+mod reasoning;
 pub use media_studio::*;
 
 pub use desktop_feedback::*;
@@ -1765,6 +1766,25 @@ fn grokbuild_models_config(token: &str, selected: &str, available_models: &[Stri
     config
 }
 
+fn grokbuild_reasoning_config(token: &str, model: &str, models: &[String], level: &str) -> String {
+    let raw = grokbuild_models_config(token, model, models);
+    if level == "auto" {
+        return raw;
+    }
+    let mut config: toml::Value = toml::from_str(&raw).expect("generated Grok configuration");
+    if level != "auto" {
+        config["model"][model].as_table_mut().unwrap().insert(
+            "supports_reasoning_effort".into(),
+            toml::Value::Boolean(true),
+        );
+        config["model"][model]
+            .as_table_mut()
+            .unwrap()
+            .insert("reasoning_effort".into(), toml::Value::String(level.into()));
+    }
+    toml::to_string(&config).expect("generated Grok configuration")
+}
+
 fn provider_meta(app: &AppType, model: &str, reasoning: &str) -> ProviderMeta {
     let claude_api_format = yuanheng_model_api_format(model);
     let mut meta = ProviderMeta {
@@ -1822,7 +1842,7 @@ fn managed_provider_with_models(
     reasoning: &str,
 ) -> Result<Provider, String> {
     let catalog_models = terminal_catalog_models(model, available_models);
-    let settings = match app {
+    let mut settings = match app {
         AppType::Claude | AppType::ClaudeDesktop => json!({
             "env": {
                 "ANTHROPIC_BASE_URL": BASE_URL,
@@ -1860,7 +1880,7 @@ fn managed_provider_with_models(
             }
         }),
         AppType::GrokBuild => json!({
-            "config": grokbuild_models_config(token, model, &catalog_models)
+            "config": grokbuild_reasoning_config(token, model, &catalog_models, reasoning)
         }),
         AppType::OpenCode => {
             let mut models = Map::new();
@@ -1900,6 +1920,7 @@ fn managed_provider_with_models(
         }),
     };
 
+    reasoning::project(app, model, reasoning, &mut settings);
     let mut provider = Provider::with_id(
         MANAGED_PROVIDER_ID.to_string(),
         MANAGED_PROVIDER_DISPLAY_NAME.to_string(),
@@ -2933,6 +2954,9 @@ fn provider_reasoning(provider: &Provider) -> Option<String> {
 }
 
 fn provider_schema_current(provider: &Provider, app: &AppType) -> bool {
+    if !reasoning::projection_current(provider, app) {
+        return false;
+    }
     if provider.name != MANAGED_PROVIDER_DISPLAY_NAME {
         return false;
     }
@@ -3342,7 +3366,14 @@ fn tool_status(
         || std::fs::read_to_string(codex_terminal_profile_path())
             .ok()
             .is_some_and(|config| config.contains("/codex/v1"));
-    let schema_current = provider_schema_current && surface_config_current;
+    let reasoning_current = provider.as_ref().is_none_or(|p| {
+        reasoning::current(
+            state,
+            app.as_str(),
+            &provider_reasoning(p).unwrap_or_else(|| "auto".into()),
+        )
+    });
+    let schema_current = provider_schema_current && surface_config_current && reasoning_current;
     let needs_update =
         provider.is_some() && (!live_selected || !credentials_current || !schema_current);
     let configured = provider.is_some() && !needs_update;
@@ -3496,6 +3527,19 @@ fn workbuddy_status(state: &AppState, connection: &YuanhengConnectionStatus) -> 
                         && workbuddy_config_covers_models(value, &expected_models)
                 })
         });
+    let reasoning = stored_model
+        .as_deref()
+        .and_then(|model| {
+            read_workbuddy_config().and_then(|v| {
+                v["models"]
+                    .as_array()?
+                    .iter()
+                    .find(|m| m["id"].as_str() == Some(model))?["reasoning"]["defaultEffort"]
+                    .as_str()
+                    .map(str::to_string)
+            })
+        })
+        .unwrap_or_else(|| "auto".into());
     let supported = recommended.is_some();
     YuanhengToolStatus {
         app: "workbuddy".to_string(),
@@ -3504,7 +3548,7 @@ fn workbuddy_status(state: &AppState, connection: &YuanhengConnectionStatus) -> 
         needs_update: was_managed && !configured,
         model: stored_model,
         group: stored_group,
-        reasoning: Some("auto".to_string()),
+        reasoning: Some(reasoning),
         recommended_model: recommended,
         message: if !supported {
             Some("账号中暂时没有可用于 WorkBuddy 的文本模型".to_string())
@@ -3838,28 +3882,34 @@ fn protect_workbuddy_config() -> Result<(), String> {
     Ok(())
 }
 
+#[cfg(test)]
 fn configure_workbuddy(
+    state: &AppState,
+    token: &str,
+    model: &str,
+    models: &[String],
+    group: &str,
+) -> Result<YuanhengToolConfigureResult, String> {
+    configure_workbuddy_reasoning(state, token, model, models, group, "auto")
+}
+fn configure_workbuddy_reasoning(
     state: &AppState,
     token: &str,
     model: &str,
     available_models: &[String],
     group: &str,
+    reasoning: &str,
 ) -> Result<YuanhengToolConfigureResult, String> {
+    let _reasoning_guard = reasoning::configuration_lock()?;
     remember_workbuddy_state(state)?;
     let catalog_models = terminal_catalog_models(model, available_models);
+    let profiles = load_local_reasoning_profiles();
     let config = json!({
-        "models": catalog_models.iter().map(|catalog_model| json!({
-            "id": catalog_model,
-            "name": catalog_model,
-            "vendor": MANAGED_PROVIDER_DISPLAY_NAME,
-            "url": format!("{OPENAI_BASE_URL}/chat/completions"),
-            "apiKey": token,
-            "maxInputTokens": 200000,
-            "maxOutputTokens": 8192,
-            "supportsToolCall": true,
-            "supportsImages": true
-        })).collect::<Vec<_>>(),
-        "availableModels": catalog_models
+        "models":catalog_models.iter().map(|id| {
+            let mut entry=reasoning::workbuddy_model(id,model,reasoning,&profiles);
+            entry["apiKey"]=json!(token); entry
+        }).collect::<Vec<_>>(),
+        "availableModels":catalog_models
     });
     crate::config::write_json_file(&workbuddy_config_path(), &config)
         .map_err(|error| format!("写入 WorkBuddy 配置失败: {error}"))?;
@@ -4038,6 +4088,13 @@ fn restore_managed_tools_inner(state: &AppState) -> Result<YuanhengDisconnectRes
     };
     let mut codex_restored = false;
     for app in AppType::all() {
+        if matches!(app, AppType::Gemini | AppType::Hermes | AppType::OpenClaw) {
+            if let Err(error) = reasoning::restore(state, app.as_str()) {
+                result.retained_tools.push(app.as_str().into());
+                result.warnings.push(error);
+                continue;
+            }
+        }
         match remove_managed_tool(state, app.clone()) {
             Ok(Some(true)) => {
                 codex_restored |= matches!(app, AppType::Codex);
@@ -4406,8 +4463,12 @@ async fn preflight_yuanheng_tool_at(
         );
     }
 
-    let reasoning =
-        resolve_reasoning_level(requested_reasoning, model, &connection.reasoning_levels);
+    let reasoning = reasoning::resolve(
+        app_name,
+        model,
+        requested_reasoning,
+        &connection.reasoning_levels,
+    );
     match reasoning {
         Ok(_) => push_preflight_check(
             &mut checks,
@@ -4539,7 +4600,7 @@ async fn preflight_yuanheng_tool_at(
         reasoning_supported: connection
             .reasoning_levels
             .get(model)
-            .is_some_and(|levels| !levels.is_empty()),
+            .is_some_and(|levels| !reasoning::tool_levels(app_name, model, levels).is_empty()),
         image_input: preflight_image_input(model).to_string(),
         checks,
         message: match status {
@@ -4552,6 +4613,43 @@ async fn preflight_yuanheng_tool_at(
 }
 
 fn configure_tool_with_models(
+    state: &AppState,
+    app: AppType,
+    token: &str,
+    model: &str,
+    models: &[String],
+    group: &str,
+    level: &str,
+) -> Result<YuanhengToolConfigureResult, String> {
+    let _reasoning_guard = reasoning::configuration_lock()?;
+    let change = reasoning::apply(state, app.as_str(), model, level)?;
+    match configure_tool_with_models_inner(state, app.clone(), token, model, models, group, level) {
+        Ok(mut result) => {
+            if !reasoning::current(state, app.as_str(), level) {
+                if let Some(change) = change {
+                    reasoning::rollback(state, app.as_str(), &change)?;
+                }
+                return Err("工具推理配置未通过写入后核验，请检查原生配置冲突".into());
+            }
+            if level != "auto" && matches!(app, AppType::Hermes) {
+                result.warnings.push("Hermes原生推理覆盖按模型名匹配，同模型的其他供应商也可能采用该默认值；会话设置优先。".into());
+            }
+            if level != "auto" {
+                result.warnings.push("推理设置按各工具原生优先级生效；会话、环境变量或全局设置可能影响结果，必要时重开会话。".into());
+            }
+            Ok(result)
+        }
+        Err(error) => {
+            if let Some(change) = change {
+                reasoning::rollback(state, app.as_str(), &change)
+                    .map_err(|restore| format!("{error}；推理配置恢复失败：{restore}"))?;
+            }
+            Err(error)
+        }
+    }
+}
+
+fn configure_tool_with_models_inner(
     state: &AppState,
     app: AppType,
     token: &str,
@@ -5541,12 +5639,17 @@ pub async fn configure_yuanheng_tools(
                 continue;
             }
         };
-        let reasoning = match resolve_reasoning_level(
+        let reasoning = match reasoning::resolve(
+            &app_name,
+            &model,
             requested_reasoning
                 .get(&app_name)
                 .map(String::as_str)
-                .or_else(|| previous.and_then(|item| item.reasoning.as_deref())),
-            &model,
+                .or_else(|| {
+                    previous
+                        .filter(|item| item.model.as_deref() == Some(model.as_str()))
+                        .and_then(|item| item.reasoning.as_deref())
+                }),
             &connection.reasoning_levels,
         ) {
             Ok(reasoning) => reasoning,
@@ -5687,9 +5790,9 @@ pub async fn configure_yuanheng_tools(
         let configured = if app_name == crate::accio_work::SCOPE {
             accio::configure(&state, &token, &model, &group_models, &group, &reasoning)
         } else if app_name == "dsh" {
-            dsh::configure(&state, &token, &model, &group_models, &group)
+            dsh::configure_reasoning(&state, &token, &model, &group_models, &group, &reasoning)
         } else if is_workbuddy {
-            configure_workbuddy(&state, &token, &model, &group_models, &group)
+            configure_workbuddy_reasoning(&state, &token, &model, &group_models, &group, &reasoning)
         } else if matches!(&app, AppType::Codex) {
             configure_codex_surface(
                 &state,

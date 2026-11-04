@@ -1087,3 +1087,21 @@ mod tests {
         });
     }
 }
+
+pub(crate) fn write_reasoning_agents(
+    expected: &Value,
+    value: &Value,
+) -> Result<OpenClawWriteOutcome, AppError> {
+    let mut doc = OpenClawConfigDocument::load()?;
+    let actual = match &doc.original_source {
+        Some(s) => json5::from_str::<Value>(s).map_err(|e| AppError::Config(e.to_string()))?,
+        None => default_openclaw_config_value(),
+    };
+    if actual != *expected {
+        return Err(AppError::Config(
+            "OpenClaw configuration changed; reload before applying reasoning".into(),
+        ));
+    }
+    doc.set_root_section("agents", value)?;
+    doc.save()
+}

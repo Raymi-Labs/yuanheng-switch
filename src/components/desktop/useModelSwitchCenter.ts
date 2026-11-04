@@ -1,3 +1,4 @@
+import { toolReasoningLevels } from "@/lib/agentReasoning";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useInstallContinuation } from "./useInstallContinuation";
 import { ClaudeWorkspaceDeferredError } from "@/lib/claudeWorkspaceSetup";
@@ -380,8 +381,11 @@ export function useModelSwitchCenter() {
           );
           const selectedReasoning =
             reasoning[app] ?? status.reasoning ?? "auto";
-          const supportedReasoning =
-            connection.reasoningLevels[selectedModel] ?? [];
+          const supportedReasoning = toolReasoningLevels(
+            app,
+            selectedModel,
+            connection.reasoningLevels[selectedModel],
+          );
           const normalizedReasoning: YuanhengReasoningLevel =
             selectedReasoning === "auto" ||
             supportedReasoning.includes(selectedReasoning)
@@ -521,7 +525,23 @@ export function useModelSwitchCenter() {
         return;
       group = suggestion;
     }
-    const supportedReasoning = connection?.reasoningLevels[model] ?? [];
+    const supportedReasoning = toolReasoningLevels(
+      app,
+      model,
+      connection?.reasoningLevels[model],
+    );
+    if (
+      patch.reasoning &&
+      patch.reasoning !== "auto" &&
+      !supportedReasoning.includes(patch.reasoning)
+    ) {
+      toast.error(
+        dt(
+          "当前工具与模型组合暂无可写入的推理档位，请在工具内调整；不会伪装为已应用。",
+        ),
+      );
+      return;
+    }
     const requestedReasoning =
       patch.reasoning ?? reasoning[app] ?? status?.reasoning ?? "auto";
     const selectedReasoning: YuanhengReasoningLevel =
@@ -722,7 +742,7 @@ export function useModelSwitchCenter() {
           )
         : undefined;
       const supportedReasoning = model
-        ? (connection?.reasoningLevels[model] ?? [])
+        ? toolReasoningLevels(app, model, connection?.reasoningLevels[model])
         : [];
       const selectedReasoning = reasoning[app] ?? status?.reasoning ?? "auto";
       const normalizedReasoning: YuanhengReasoningLevel =

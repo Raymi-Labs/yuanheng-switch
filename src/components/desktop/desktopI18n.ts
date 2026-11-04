@@ -7,6 +7,13 @@ import { DESKTOP_ZH_TW } from "./desktopI18n.zhTW";
 type Values = Record<string, string | number | null | undefined>;
 
 export const DESKTOP_EN: Record<string, string> = {
+  "推理设置按各工具原生优先级生效；会话、环境变量或全局设置可能影响结果，必要时重开会话。":
+    "Reasoning follows each tool’s native precedence. Session, environment or global settings can affect the result; start a new session if needed.",
+  "当前工具与模型组合暂无可写入的推理档位，请在工具内调整；不会伪装为已应用。":
+    "No writable reasoning level is available for this tool/model combination. Adjust it in the tool; no application is claimed.",
+  "TRAE 暂无已验证的外部推理配置入口；请在工具内核对，此处不会宣称已应用。":
+    "No verified external reasoning configuration is available for TRAE. Check within TRAE; this setup does not claim to apply it.",
+
   "完成 Codex 首次登录": "Finish signing in to Codex",
   "已为本次配置准备好平台令牌，无需再去平台创建。按下面步骤完成登录即可。":
     "Your platform token is ready. Follow these steps to sign in; no need to create another token.",

@@ -1,6 +1,13 @@
 // Generated from the desktop Simplified Chinese source strings, then normalized for Taiwan terminology.
 import { MEDIA_ZH_TW } from "./mediaStudioTranslations";
 export const DESKTOP_ZH_TW: Record<string, string> = {
+  "推理设置按各工具原生优先级生效；会话、环境变量或全局设置可能影响结果，必要时重开会话。":
+    "推理設定按各工具原生優先順序生效；工作階段、環境變數或全域設定可能影響結果，必要時重開工作階段。",
+  "当前工具与模型组合暂无可写入的推理档位，请在工具内调整；不会伪装为已应用。":
+    "目前工具與模型組合暫無可寫入的推理檔位，請在工具內調整；不會偽裝為已套用。",
+  "TRAE 暂无已验证的外部推理配置入口；请在工具内核对，此处不会宣称已应用。":
+    "TRAE 暫無已驗證的外部推理設定入口；請在工具內核對，此處不會宣稱已套用。",
+
   "完成 Codex 首次登录": "完成 Codex 首次登入",
   "已为本次配置准备好平台令牌，无需再去平台创建。按下面步骤完成登录即可。":
     "已為本次設定準備好平台權杖，無需再去平台建立。依下列步驟完成登入即可。",

@@ -675,7 +675,10 @@ mod tests {
             normalize_project_dir("/nonexistent/dir/"),
             "/nonexistent/dir"
         );
-        assert_eq!(normalize_project_dir("/"), "/");
+        let root = Path::new("/")
+            .canonicalize()
+            .unwrap_or_else(|_| PathBuf::from("/"));
+        assert_eq!(normalize_project_dir("/"), root.to_string_lossy());
         assert_eq!(normalize_project_dir("  "), "");
     }
 
@@ -773,7 +776,7 @@ mod e2e_tests {
 
     struct Home {
         dir: tempfile::TempDir,
-        previous: Option<std::ffi::OsString>,
+        previous: Vec<(&'static str, Option<std::ffi::OsString>)>,
     }
 
     impl Home {
@@ -784,17 +787,30 @@ mod e2e_tests {
 
     impl Drop for Home {
         fn drop(&mut self) {
-            match &self.previous {
-                Some(v) => std::env::set_var("YUANHENG_SWITCH_TEST_HOME", v),
-                None => std::env::remove_var("YUANHENG_SWITCH_TEST_HOME"),
+            for (name, value) in &self.previous {
+                match value {
+                    Some(v) => std::env::set_var(name, v),
+                    None => std::env::remove_var(name),
+                }
             }
+            crate::settings::reload_settings().expect("restore test settings");
         }
     }
 
     fn setup_home() -> Home {
-        let previous = std::env::var_os("YUANHENG_SWITCH_TEST_HOME");
         let dir = tempfile::tempdir().expect("home");
-        std::env::set_var("YUANHENG_SWITCH_TEST_HOME", dir.path());
+        let mut previous = Vec::new();
+        for (name, relative) in [
+            ("YUANHENG_SWITCH_TEST_HOME", ""),
+            ("XDG_DATA_HOME", ".local/share"),
+            ("HERMES_HOME", ".hermes"),
+            ("DSH_HOME", ".dsh"),
+            ("OPENCODE_DB", ".local/share/opencode/opencode.db"),
+        ] {
+            previous.push((name, std::env::var_os(name)));
+            std::env::set_var(name, dir.path().join(relative));
+        }
+        crate::settings::reload_settings().expect("isolated test settings");
         Home { dir, previous }
     }
 
@@ -807,11 +823,11 @@ mod e2e_tests {
         std::fs::write(
             &path,
             format!(
-                "{{\"timestamp\":\"{now}\",\"type\":\"session_meta\",\"payload\":{{\"id\":\"0199aaaa-0000-7000-8000-000000000001\",\"cwd\":\"{}\"}}}}\n\
+                "{{\"timestamp\":\"{now}\",\"type\":\"session_meta\",\"payload\":{{\"id\":\"0199aaaa-0000-7000-8000-000000000001\",\"cwd\":{}}}}}\n\
                  {{\"timestamp\":\"{now}\",\"type\":\"response_item\",\"payload\":{{\"type\":\"message\",\"role\":\"user\",\"content\":[{{\"type\":\"input_text\",\"text\":\"# AGENTS.md instructions for x\"}}]}}}}\n\
                  {{\"timestamp\":\"{now}\",\"type\":\"response_item\",\"payload\":{{\"type\":\"message\",\"role\":\"user\",\"content\":[{{\"type\":\"input_text\",\"text\":\"暗号是蓝色大象\"}}]}}}}\n\
                  {{\"timestamp\":\"{now}\",\"type\":\"response_item\",\"payload\":{{\"type\":\"message\",\"role\":\"assistant\",\"content\":[{{\"type\":\"output_text\",\"text\":\"记住了\"}}]}}}}\n",
-                project.display()
+                serde_json::to_string(&project.to_string_lossy()).unwrap()
             ),
         )
         .unwrap();
@@ -1025,9 +1041,9 @@ mod e2e_tests {
         std::fs::write(
             dir.join("5b1f0000-0000-4000-8000-000000000002.jsonl"),
             format!(
-                "{{\"type\":\"user\",\"sessionId\":\"5b1f0000-0000-4000-8000-000000000002\",\"cwd\":\"{p}\",\"timestamp\":\"{now}\",\"message\":{{\"role\":\"user\",\"content\":\"红色狐狸\"}}}}\n\
-                 {{\"type\":\"assistant\",\"sessionId\":\"5b1f0000-0000-4000-8000-000000000002\",\"cwd\":\"{p}\",\"timestamp\":\"{now}\",\"message\":{{\"role\":\"assistant\",\"content\":[{{\"type\":\"text\",\"text\":\"好\"}}]}}}}\n",
-                p = project.display()
+                "{{\"type\":\"user\",\"sessionId\":\"5b1f0000-0000-4000-8000-000000000002\",\"cwd\":{p},\"timestamp\":\"{now}\",\"message\":{{\"role\":\"user\",\"content\":\"红色狐狸\"}}}}\n\
+                 {{\"type\":\"assistant\",\"sessionId\":\"5b1f0000-0000-4000-8000-000000000002\",\"cwd\":{p},\"timestamp\":\"{now}\",\"message\":{{\"role\":\"assistant\",\"content\":[{{\"type\":\"text\",\"text\":\"好\"}}]}}}}\n",
+                p = serde_json::to_string(&project.to_string_lossy()).unwrap()
             ),
         )
         .unwrap();
