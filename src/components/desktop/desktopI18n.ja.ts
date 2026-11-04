@@ -1,6 +1,8 @@
 // Japanese translations for the desktop Simplified Chinese source strings.
 import { MEDIA_JA } from "./mediaStudioTranslations";
+import { COMMERCE_JA } from "./accioCommerceTranslations";
 export const DESKTOP_JA: Record<string, string> = {
+  ...COMMERCE_JA,
   "完成 Codex 首次登录": "Codex の初回ログインを完了",
   "已为本次配置准备好平台令牌，无需再去平台创建。按下面步骤完成登录即可。":
     "この設定用のプラットフォームトークンを用意しました。新しく作成せず、以下の手順でログインできます。",

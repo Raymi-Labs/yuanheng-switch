@@ -1,4 +1,5 @@
 import i18n from "@/i18n";
+import { COMMERCE_EN } from "./accioCommerceTranslations";
 import { MEDIA_EN } from "./mediaStudioTranslations";
 import { DESKTOP_JA } from "./desktopI18n.ja";
 import { DESKTOP_KO } from "./desktopI18n.ko";
@@ -7,6 +8,7 @@ import { DESKTOP_ZH_TW } from "./desktopI18n.zhTW";
 type Values = Record<string, string | number | null | undefined>;
 
 export const DESKTOP_EN: Record<string, string> = {
+  ...COMMERCE_EN,
   "完成 Codex 首次登录": "Finish signing in to Codex",
   "已为本次配置准备好平台令牌，无需再去平台创建。按下面步骤完成登录即可。":
     "Your platform token is ready. Follow these steps to sign in; no need to create another token.",

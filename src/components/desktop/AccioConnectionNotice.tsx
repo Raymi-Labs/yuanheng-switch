@@ -2,6 +2,7 @@ import type { YuanhengToolStatus } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { dt } from "./desktopI18n";
 import { AccioReleaseNotice } from "./AccioReleaseNotice";
+import { AccioCommerceGuide } from "./AccioCommerceGuide";
 
 export function AccioConnectionNotice({
   status,
@@ -73,6 +74,7 @@ export function AccioConnectionNotice({
           )}
         </p>
       </details>
+      <AccioCommerceGuide />
       {status.runtimeWarning && (
         <p
           role="alert"

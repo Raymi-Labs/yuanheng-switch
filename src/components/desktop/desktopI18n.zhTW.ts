@@ -1,6 +1,8 @@
 // Generated from the desktop Simplified Chinese source strings, then normalized for Taiwan terminology.
 import { MEDIA_ZH_TW } from "./mediaStudioTranslations";
+import { COMMERCE_ZH_TW } from "./accioCommerceTranslations";
 export const DESKTOP_ZH_TW: Record<string, string> = {
+  ...COMMERCE_ZH_TW,
   "完成 Codex 首次登录": "完成 Codex 首次登入",
   "已为本次配置准备好平台令牌，无需再去平台创建。按下面步骤完成登录即可。":
     "已為本次設定準備好平台權杖，無需再去平台建立。依下列步驟完成登入即可。",

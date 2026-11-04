@@ -1,6 +1,8 @@
 // ko translations for the desktop Simplified Chinese source strings.
 import { MEDIA_KO } from "./mediaStudioTranslations";
+import { COMMERCE_KO } from "./accioCommerceTranslations";
 export const DESKTOP_KO: Record<string, string> = {
+  ...COMMERCE_KO,
   "完成 Codex 首次登录": "Codex 첫 로그인 완료",
   "已为本次配置准备好平台令牌，无需再去平台创建。按下面步骤完成登录即可。":
     "이번 설정에 사용할 플랫폼 토큰이 준비되었습니다. 새로 만들 필요 없이 아래 단계로 로그인하세요.",

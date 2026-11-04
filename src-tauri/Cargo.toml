@@ -1,6 +1,6 @@
 [package]
 name = "yuanheng-switch"
-version = "0.1.128"
+version = "0.1.129"
 description = "YuanHeng API desktop companion for local AI coding tools"
 authors = ["nanashiwang"]
 license = "MIT"
