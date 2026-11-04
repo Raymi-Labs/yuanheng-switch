@@ -38,6 +38,10 @@ Status: implemented
 
 ## Delivery boundary
 
+最终候选顺延：伙伴合入61373b9e的Codex首次登录指引并发布0.1.128，Accio分支合并其完整修改，候选改为0.1.129；四份词条冲突保留双方内容，公告保留最近两版。最终候选产品SHA为ee6b31f3，签名流水线41840594288的三个平台全部成功，正式发布与分发job均skipped。该SHA的跨平台CI41840603029全部通过，合并后本地1271项前端测试通过。
+
+Apple Silicon artifact完整49863568字节下载并核对官方摘要，receipt中的版本/SHA/run/平台及三文件摘要一致。在独立QA先确认无Accio/活跃请求，关闭空闲旧GUI/Core；验证官方签名、Gatekeeper、版本后备份旧应用和数据库再安装0.1.129。安装前后Accio profile完全相同，未启动新GUI、未调用模型、未操作鼠标或键盘。随后正常关闭QA，避免等待人工验收期间空跑。新入口的原生目录picker/取消/创建/复制/检查实际点击验收尚待用户进行，PR不合并、无正式标签或官网更新。旧候选两次取消不算通过。
+
 整合后Windows CI暴露伙伴DSH同步模块的Unix专用LOCK_FILENAME在Windows未使用，补cfg(unix)与实际调用端保持一致，不改变锁或同步行为。首轮候选构建主动取消，按修复后的新SHA重新构建；不能把取消的候选视为验收成功。
 
 Windows后续五项会话同步测试失败来自测试fixture把带反斜杠路径直接拼入JSON，以及根目录断言写死Unix。修复仅限cfg(test)：路径用serde_json编码、根目录使用系统canonicalize。本机复测暴露XDG/OpenCode目录未隔离，补XDG_DATA_HOME、DSH_HOME、外部CLI路径隔离与设置重载/恢复；真实会话不进入测试fixture或公开日志。修复后本机会话同步43项通过、5项原有外部CLI测试忽略。候选构建7833d70b的产品代码不变；后续此提交只改测试与笔记，签名候选仍按其原SHA记录，不冒充新SHA构建。
