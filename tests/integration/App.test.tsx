@@ -1259,54 +1259,82 @@ describe("App integration with MSW", { timeout: 15_000 }, () => {
     expect(getConfiguredToolCalls()).toEqual([]);
   });
 
-  it("configures Codex Desktop and WorkBuddy as desktop apps", async () => {
-    setSettings({ firstRunNoticeConfirmed: true });
-    setYuanhengConnection({
-      connected: true,
-      userId: "1024",
-      models: ["gpt-5.6", "k3"],
-      reasoningLevels: {
-        "gpt-5.6": ["low", "medium", "high", "xhigh"],
-        k3: ["minimal", "low", "medium", "high", "xhigh"],
-      },
-    });
+  it.each([false, true])(
+    "configures desktop apps with first Codex login = %s",
+    async (firstLogin) => {
+      if (firstLogin) {
+        server.use(
+          http.post("http://tauri.local/get_codex_login_guide", () =>
+            HttpResponse.json({
+              apiKey: "sk-synthetic-first-login",
+              group: "default",
+            }),
+          ),
+        );
+      }
+      setSettings({ firstRunNoticeConfirmed: true });
+      setYuanhengConnection({
+        connected: true,
+        userId: "1024",
+        models: ["gpt-5.6", "k3"],
+        reasoningLevels: {
+          "gpt-5.6": ["low", "medium", "high", "xhigh"],
+          k3: ["minimal", "low", "medium", "high", "xhigh"],
+        },
+      });
 
-    const { default: App } = await import("@/App");
-    renderApp(App);
-    await screen.findByRole("heading", {
-      name: "工作台",
-    });
-    fireEvent.click(screen.getByRole("button", { name: "工具管理" }));
+      const { default: App } = await import("@/App");
+      renderApp(App);
+      await screen.findByRole("heading", {
+        name: "工作台",
+      });
+      fireEvent.click(screen.getByRole("button", { name: "工具管理" }));
 
-    fireEvent.click(await screen.findByLabelText("Codex Desktop 模型供应商"));
-    fireEvent.click(await screen.findByRole("option", { name: "月之暗面" }));
-    fireEvent.click(screen.getByLabelText("Codex Desktop 分组与模型"));
-    fireEvent.change(screen.getByPlaceholderText("搜索分组或模型…"), {
-      target: { value: "k3" },
-    });
-    fireEvent.click(await screen.findByRole("option", { name: /^default / }));
-    fireEvent.click(await screen.findByRole("option", { name: "k3" }));
-    expect(screen.getByLabelText("Codex Desktop 分组与模型")).toHaveTextContent(
-      "k3",
-    );
+      fireEvent.click(await screen.findByLabelText("Codex Desktop 模型供应商"));
+      fireEvent.click(await screen.findByRole("option", { name: "月之暗面" }));
+      fireEvent.click(screen.getByLabelText("Codex Desktop 分组与模型"));
+      fireEvent.change(screen.getByPlaceholderText("搜索分组或模型…"), {
+        target: { value: "k3" },
+      });
+      fireEvent.click(await screen.findByRole("option", { name: /^default / }));
+      fireEvent.click(await screen.findByRole("option", { name: "k3" }));
+      expect(
+        screen.getByLabelText("Codex Desktop 分组与模型"),
+      ).toHaveTextContent("k3");
 
-    fireEvent.click(screen.getByRole("button", { name: "配置 Codex Desktop" }));
-    await waitFor(() =>
-      expect(getConfiguredToolCalls()).toEqual([["chatgpt-desktop"]]),
-    );
-    fireEvent.click(screen.getByRole("button", { name: "启动 Codex Desktop" }));
-    await waitFor(() =>
-      expect(getRestartedToolCalls()).toEqual(["chatgpt-desktop"]),
-    );
+      fireEvent.click(
+        screen.getByRole("button", { name: "配置 Codex Desktop" }),
+      );
+      await waitFor(() =>
+        expect(getConfiguredToolCalls()).toEqual([["chatgpt-desktop"]]),
+      );
+      if (firstLogin) {
+        expect(
+          await screen.findByText("sk-synthetic-first-login"),
+        ).toBeInTheDocument();
+        fireEvent.click(screen.getByRole("button", { name: "稍后登录" }));
+      }
+      await waitFor(() =>
+        expect(
+          screen.getByRole("button", { name: "启动 Codex Desktop" }),
+        ).toBeEnabled(),
+      );
+      fireEvent.click(
+        screen.getByRole("button", { name: "启动 Codex Desktop" }),
+      );
+      await waitFor(() =>
+        expect(getRestartedToolCalls()).toEqual(["chatgpt-desktop"]),
+      );
 
-    fireEvent.click(screen.getByRole("button", { name: "配置 WorkBuddy" }));
-    await waitFor(() =>
-      expect(getConfiguredToolCalls()).toEqual([
-        ["chatgpt-desktop"],
-        ["workbuddy"],
-      ]),
-    );
-  });
+      fireEvent.click(screen.getByRole("button", { name: "配置 WorkBuddy" }));
+      await waitFor(() =>
+        expect(getConfiguredToolCalls()).toEqual([
+          ["chatgpt-desktop"],
+          ["workbuddy"],
+        ]),
+      );
+    },
+  );
 
   it.each(["home", "tools"] as const)(
     "selects a DSH Grok group/model pair without carrying over the enterprise group in %s",

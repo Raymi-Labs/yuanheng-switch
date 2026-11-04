@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { offerSessionSyncBeforeLaunch } from "@/lib/sessionSyncLaunch";
+import { captureCodexLoginGuide } from "@/lib/codexLoginGuide";
 import type { AppId } from "./types";
 import {
   ensureClaudeWorkspaceReady,
@@ -377,6 +378,7 @@ export const yuanhengApi = {
     groups?: Partial<Record<YuanhengToolId, string>>,
     reasoning?: Partial<Record<YuanhengToolId, YuanhengReasoningLevel>>,
   ): Promise<YuanhengToolConfigureResult[]> {
+    const showCodexLoginGuide = captureCodexLoginGuide();
     // Save the selected account/model/group through the existing transactional
     // path before a required reboot; no credentials go into the UI resume marker.
     const result = await invoke<YuanhengToolConfigureResult[]>(
@@ -388,6 +390,11 @@ export const yuanhengApi = {
         reasoning,
       },
     );
+    if (
+      result.some((item) => item.app === "chatgpt-desktop" && item.configured)
+    ) {
+      await showCodexLoginGuide();
+    }
     if (
       result.some((item) => item.app === "claude-desktop" && item.configured)
     ) {

@@ -1,5 +1,7 @@
 mod accio;
 mod account_http;
+mod codex_login_guide;
+pub use codex_login_guide::*;
 #[cfg(any(target_os = "macos", test))]
 pub(crate) mod credential_session;
 mod desktop_feedback;
@@ -2838,6 +2840,8 @@ async fn configure_codex_surface(
         reasoning,
     )?;
     selected.settings_config["yuanhengSurface"] = json!(surface.marker());
+    selected.settings_config["yuanhengLoginGuideOwner"] =
+        json!(get_yuanheng_secret(state, USER_ID_KEY)?);
     let terminal_before = managed_codex_provider_for_namespace(state, AppType::Codex.as_str())?;
     let desktop_before = managed_codex_provider_for_namespace(state, CHATGPT_DESKTOP_NAMESPACE)?;
     let previous_selected = match surface {

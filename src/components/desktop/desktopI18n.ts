@@ -14,6 +14,22 @@ export const DESKTOP_EN: Record<string, string> = {
   "TRAE 暂无已验证的外部推理配置入口；请在工具内核对，此处不会宣称已应用。":
     "No verified external reasoning configuration is available for TRAE. Check within TRAE; this setup does not claim to apply it.",
 
+  "完成 Codex 首次登录": "Finish signing in to Codex",
+  "已为本次配置准备好平台令牌，无需再去平台创建。按下面步骤完成登录即可。":
+    "Your platform token is ready. Follow these steps to sign in; no need to create another token.",
+  "平台令牌（API Key）": "Platform token (API Key)",
+  复制令牌: "Copy token",
+  "复制上方令牌，然后打开 Codex。": "Copy the token above, then open Codex.",
+  "在登录页面选择 Sign in with an API key（使用 API Key 登录）；如果先显示其他登录方式，请展开后选择 API Key。":
+    "Choose Sign in with an API key on the login screen. If other sign-in options appear first, expand them and select API Key.",
+  "将令牌粘贴到 API Key 输入框，点击继续完成登录。":
+    "Paste the token into the API Key field and continue to finish signing in.",
+  "若 Codex 已直接进入主界面，即可开始使用。需要再次查看令牌时，重新应用 Codex 配置即可。":
+    "If Codex opens its main screen, you can start using it. Apply the Codex configuration again to reopen this guide while signed out.",
+  "已复制，继续": "Copied, continue",
+  稍后登录: "Sign in later",
+  "配置已保存，登录指引读取失败，请重新应用配置查看。":
+    "Configuration saved, but the sign-in guide could not load. Apply the configuration again to retry.",
   显示密码: "Show password",
   隐藏密码: "Hide password",
   显示确认密码: "Show confirmation password",

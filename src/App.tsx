@@ -47,6 +47,7 @@ import { UpdateBadge } from "@/components/UpdateBadge";
 import { useUpdate } from "@/contexts/UpdateContext";
 import { ClaudeWorkspacePreparation } from "@/components/desktop/ClaudeWorkspacePreparation";
 import { SessionSyncLaunchPrompt } from "@/components/sessions/SessionSyncLaunchPrompt";
+import { CodexLoginGuide } from "@/components/desktop/CodexLoginGuide";
 import { ModeToggle } from "@/components/mode-toggle";
 import { LanguageSwitcher } from "@/components/desktop/LanguageSwitcher";
 import { EnvWarningBanner } from "@/components/env/EnvWarningBanner";
@@ -755,6 +756,12 @@ function App() {
     >
       <ClaudeWorkspacePreparation onContinue={() => setView("tools")} />
       <SessionSyncLaunchPrompt />
+      {yuanhengConnection?.connected && yuanhengConnection.userId && (
+        <CodexLoginGuide
+          key={`${yuanhengConnection.baseUrl}:${yuanhengConnection.userId}`}
+          userId={yuanhengConnection.userId}
+        />
+      )}
       {(dragBarHeight > 0 || useAppWindowControls) && (
         <div
           className={cn(
