@@ -776,7 +776,7 @@ mod e2e_tests {
 
     struct Home {
         dir: tempfile::TempDir,
-        previous: Option<std::ffi::OsString>,
+        previous: Vec<(&'static str, Option<std::ffi::OsString>)>,
     }
 
     impl Home {
@@ -787,17 +787,30 @@ mod e2e_tests {
 
     impl Drop for Home {
         fn drop(&mut self) {
-            match &self.previous {
-                Some(v) => std::env::set_var("YUANHENG_SWITCH_TEST_HOME", v),
-                None => std::env::remove_var("YUANHENG_SWITCH_TEST_HOME"),
+            for (name, value) in &self.previous {
+                match value {
+                    Some(v) => std::env::set_var(name, v),
+                    None => std::env::remove_var(name),
+                }
             }
+            crate::settings::reload_settings().expect("restore test settings");
         }
     }
 
     fn setup_home() -> Home {
-        let previous = std::env::var_os("YUANHENG_SWITCH_TEST_HOME");
         let dir = tempfile::tempdir().expect("home");
-        std::env::set_var("YUANHENG_SWITCH_TEST_HOME", dir.path());
+        let mut previous = Vec::new();
+        for (name, relative) in [
+            ("YUANHENG_SWITCH_TEST_HOME", ""),
+            ("XDG_DATA_HOME", ".local/share"),
+            ("HERMES_HOME", ".hermes"),
+            ("DSH_HOME", ".dsh"),
+            ("OPENCODE_DB", ".local/share/opencode/opencode.db"),
+        ] {
+            previous.push((name, std::env::var_os(name)));
+            std::env::set_var(name, dir.path().join(relative));
+        }
+        crate::settings::reload_settings().expect("isolated test settings");
         Home { dir, previous }
     }
 
