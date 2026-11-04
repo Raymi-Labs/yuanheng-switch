@@ -157,6 +157,11 @@ function TraeSetupGuideContent({ connection, variant }: TraeSetupGuideProps) {
           "元衡准备地址和模型，你在 TRAE 填入 API Key 并保存。支持国内版与国际版。",
         )}
       </p>
+      <p className="mt-2 text-xs opacity-75">
+        {dt(
+          "TRAE 暂无已验证的外部推理配置入口；请在工具内核对，此处不会宣称已应用。",
+        )}
+      </p>
       <ol
         className={cn(
           "my-4 space-y-2 text-xs",

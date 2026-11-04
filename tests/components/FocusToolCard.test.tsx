@@ -89,6 +89,33 @@ function createSwitcher(
 }
 
 describe("FocusToolCard", () => {
+  it.each([
+    "claude",
+    "gemini",
+    "grokbuild",
+    "opencode",
+    "openclaw",
+    "hermes",
+    "workbuddy",
+    "dsh",
+    "accio-work",
+  ] as const)("shows and applies native reasoning for %s", (app) => {
+    const switcher = createSwitcher("ready");
+    const model = app === "gemini" ? "gemini-3-pro" : "gpt-6-astra";
+    switcher.rows = [app];
+    switcher.runnableRows = [app];
+    switcher.installedApps = new Set([app]);
+    switcher.models = { [app]: model };
+    switcher.connection!.models = [model];
+    switcher.connection!.reasoningLevels = { [model]: ["low", "high"] };
+    render(<FocusToolCard switcher={switcher} onOpenTools={vi.fn()} />);
+    const picker = screen.getByRole("combobox", { name: /推理等级/ });
+    expect(picker).toBeEnabled();
+    fireEvent.click(picker);
+    fireEvent.click(screen.getByRole("option", { name: "高" }));
+    expect(switcher.applyReasoning).toHaveBeenCalledWith(app, "high");
+  });
+
   it("launches an unverified installed Accio through the usual action", () => {
     const switcher = createSwitcher("ready");
     switcher.runnableRows = ["accio-work"];

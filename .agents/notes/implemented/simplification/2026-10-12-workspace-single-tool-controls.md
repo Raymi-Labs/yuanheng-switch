@@ -2,6 +2,8 @@
 
 Status: implemented
 
+The later [Agent reasoning integration](../../implemented/feature/2026-11-04-agent-reasoning-controls.md) supersedes the three-tool selector boundary. Both entry points use native tool/model capabilities; the single-workspace-entry decision remains unchanged.
+
 ## Problem
 
 工作台同时显示当前工具卡片与快捷控制台，重复呈现模型、分组、启动操作；工具管理又提供全部工具维护。首页纵向列表过长，让日常操作缺少明确入口。

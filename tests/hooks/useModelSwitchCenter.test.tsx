@@ -1091,4 +1091,15 @@ describe("useModelSwitchCenter", () => {
       restart: false,
     });
   });
+  it("rejects an explicit unsupported native effort rather than silently applying auto", async () => {
+    connection.reasoningLevels = { "model-a": ["low", "ultra"] };
+    const { wrapper } = createWrapper();
+    const { result } = renderHook(() => useModelSwitchCenter(), { wrapper });
+    await waitFor(() => expect(result.current.models.claude).toBe("model-a"));
+    await act(async () => {
+      await result.current.applyReasoning("claude", "ultra");
+    });
+    expect(configureResolvers.size).toBe(0);
+    expect(result.current.reasoning.claude).toBe("auto");
+  });
 });

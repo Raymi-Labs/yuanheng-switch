@@ -129,7 +129,7 @@ Claude diagnostic persistence uses a bounded background writer, not disk I/O on 
 
 ## 工作台操作入口精简（2026-10-12）
 
-[WorkspaceDashboard](../src/components/desktop/WorkspaceDashboard.tsx) 只保留 [FocusToolCard](../src/components/desktop/FocusToolCard.tsx) 作为当前工具的模型、分组、推理等级和启动入口；当前工具卡内的下拉选择持久化当前工具（见下方 2026-10-13 入口更新）。删除重复的 ModelSwitchCenter 展示列表，复用 useModelSwitchCenter 的配置/启动逻辑。推理等级仅在支持的工具和模型下出现，官方 Codex 账号仍由官方客户端管理，移除其底部重复说明及外层占位；保留终端待应用状态、旧快照提示与手动重新检测。空状态可重新检测；选中未安装工具后直接调用既有安装流程，显示执行/验证状态及共享取消，只有官方下载能力的桌面工具明确打开官方下载页；检测失败或已安装但不支持时进入工具管理恢复，多工具维护继续由 ToolSetupGrid 承载。当前工具卡铺满工作台内容宽度，下方依次为今日统计和智能体检；账号余额与充值使用左下角入口，移除工作台重复的账号用量卡；移除工作台重复的能力中心/工具管理导航卡及其数量查询，继续使用左侧导航，体检检查、修复和详情功能保留，检查操作与说明在同一行右侧；首次使用显示中性状态与“开始检查”，说明用于排查登录、凭据和本地路由问题，检查中保留卡片布局。决定见[工作台入口笔记](../.agents/notes/implemented/simplification/2026-10-12-workspace-single-tool-controls.md)。
+[WorkspaceDashboard](../src/components/desktop/WorkspaceDashboard.tsx) 只保留 [FocusToolCard](../src/components/desktop/FocusToolCard.tsx) 作为当前工具的模型、分组、推理等级和启动入口；当前工具卡内的下拉选择持久化当前工具（见下方 2026-10-13 入口更新）。删除重复的 ModelSwitchCenter 展示列表，复用 useModelSwitchCenter 的配置/启动逻辑。推理等级统一按工具原生能力与模型目录取交集；无可写档位时显示解释而非无说明隐藏，官方 Codex 账号仍由官方客户端管理，移除其底部重复说明及外层占位；保留终端待应用状态、旧快照提示与手动重新检测。空状态可重新检测；选中未安装工具后直接调用既有安装流程，显示执行/验证状态及共享取消，只有官方下载能力的桌面工具明确打开官方下载页；检测失败或已安装但不支持时进入工具管理恢复，多工具维护继续由 ToolSetupGrid 承载。当前工具卡铺满工作台内容宽度，下方依次为今日统计和智能体检；账号余额与充值使用左下角入口，移除工作台重复的账号用量卡；移除工作台重复的能力中心/工具管理导航卡及其数量查询，继续使用左侧导航，体检检查、修复和详情功能保留，检查操作与说明在同一行右侧；首次使用显示中性状态与“开始检查”，说明用于排查登录、凭据和本地路由问题，检查中保留卡片布局。决定见[工作台入口笔记](../.agents/notes/implemented/simplification/2026-10-12-workspace-single-tool-controls.md)。
 
 
 ## 更新下载择源与断流恢复（2026-10-12）
@@ -241,3 +241,7 @@ QA人工启动入口按2026-10-21用户授权启用剪贴板共享，并在guest
 ## Meta API 应用名称（2026-11-01）
 
 桌面登录页、侧栏、关于及系统托盘统一显示 Meta API，Android/iOS 主屏显示同名，官网为 meta-api.com。平台服务仍可称 YuanHeng API。桌面集中发布保留旧附件文件名，Windows 模板保留旧安装身份；手机包名、签名和凭据存储兼容。iOS 内部 ASCII 产品名保留，显示名来自 Info.plist。详见[品牌与升级兼容](../.agents/notes/implemented/process/2026-11-01-meta-api-brand.md)。
+
+## Agent 推理等级配置
+
+工作台FocusToolCard、工具管理ToolSetupGrid及useModelSwitchCenter共用[能力表](../src/data/agent-reasoning-controls.json)，后端预检/配置也读取同一表。新增Claude Code、Gemini CLI（Gemini 3离散档）、Grok Build、OpenCode、OpenClaw、Hermes、WorkBuddy、DSH原生字段写入，以及Accio既有路由入口；Codex/Claude Desktop维持原路径。WorkBuddy实际回读档位，DSH持久化等级；原生不接受的显式档位拒绝，不静默降auto。Gemini/OpenClaw/Hermes使用字段归属记录恢复，外部编辑保留并报冲突。TRAE保持辅助配置并明确没有已验证外部写入接口；Gemini2.5 budget不编造等级映射。原生会话/环境/全局优先级与Hermes同名模型跨供应商影响见[使用边界](guides/agent-reasoning.md)和[决定](../.agents/notes/implemented/feature/2026-11-04-agent-reasoning-controls.md)。本轮仅本地代码及隔离验证，无真实模型调用或发布。

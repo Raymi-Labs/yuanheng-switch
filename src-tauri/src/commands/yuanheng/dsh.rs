@@ -21,10 +21,16 @@ struct Record {
     group: String,
     models: Vec<String>,
     hashes: Vec<String>,
+    #[serde(default = "auto_reasoning")]
+    reasoning: String,
     #[serde(default)]
     pending: bool,
     #[serde(default)]
     previous_hashes: Vec<Option<String>>,
+}
+
+fn auto_reasoning() -> String {
+    "auto".into()
 }
 
 fn home() -> PathBuf {
@@ -259,6 +265,7 @@ fn profile_body(original: &str, model: &str, models: &[String]) -> Result<String
     let providers = config["providers"]
         .as_object_mut()
         .ok_or("DSH providers 不是对象")?;
+    let reasoning_profiles = load_local_reasoning_profiles();
     for (name, protocol) in [
         ("yuanheng-chat", "openai-completions"),
         ("yuanheng-responses", "openai-responses"),
@@ -270,7 +277,21 @@ fn profile_body(original: &str, model: &str, models: &[String]) -> Result<String
         let catalog = models
             .iter()
             .filter(|id| route(id).0 == name)
-            .map(|id| json!({"id": id, "name": id, "input": ["text"]}))
+            .map(|id| {
+                let mut entry = json!({"id":id,"name":id,"input":["text"]});
+                if let Some(profile) = reasoning_profile_for_model(id, &reasoning_profiles) {
+                    let levels =
+                        super::reasoning::tool_levels("dsh", id, &profile.supported_levels);
+                    let efforts: Map<String, Value> = levels
+                        .into_iter()
+                        .map(|l| (if l == "none" { "off".into() } else { l.clone() }, json!(l)))
+                        .collect();
+                    if !efforts.is_empty() {
+                        entry["reasoningEfforts"] = Value::Object(efforts);
+                    }
+                }
+                entry
+            })
             .collect::<Vec<_>>();
         if !catalog.is_empty() {
             let mut provider = json!({
@@ -368,12 +389,23 @@ fn check_global(home: &Path) -> Result<(), String> {
     Ok(())
 }
 
+#[cfg(test)]
 pub(super) fn configure(
     state: &AppState,
     token: &str,
     model: &str,
     models: &[String],
     group: &str,
+) -> Result<YuanhengToolConfigureResult, String> {
+    configure_reasoning(state, token, model, models, group, "auto")
+}
+pub(super) fn configure_reasoning(
+    state: &AppState,
+    token: &str,
+    model: &str,
+    models: &[String],
+    group: &str,
+    reasoning: &str,
 ) -> Result<YuanhengToolConfigureResult, String> {
     let home = home();
     if !home.is_absolute() {
@@ -425,6 +457,17 @@ pub(super) fn configure(
         }
         let original = empty_document_comments(&original)?;
         let body = profile_body(&original, model, &models)?;
+        let body = if reasoning == "auto" {
+            body
+        } else {
+            let mut v = yaml(&body)?;
+            v[1]["config"]["reasoningEffort"] = serde_yaml::Value::from(if reasoning == "none" {
+                "off"
+            } else {
+                reasoning
+            });
+            serde_yaml::to_string(&v).map_err(|_| "无法生成DSH推理配置")?
+        };
         let managed = block(&body);
         hashes.push(digest(&managed));
         let separator = if original.is_empty() || original.ends_with('\n') {
@@ -442,6 +485,7 @@ pub(super) fn configure(
         group: group.into(),
         models,
         hashes,
+        reasoning: reasoning.into(),
         pending: true,
         previous_hashes: (0..3)
             .map(|i| previous.as_ref().and_then(|r| r.hashes.get(i)).cloned())
@@ -628,7 +672,11 @@ pub(super) fn status(
         needs_update: r.is_some() && !configured,
         model: r.as_ref().map(|r| r.model.clone()),
         group: r.as_ref().map(|r| r.group.clone()),
-        reasoning: Some("auto".into()),
+        reasoning: Some(
+            r.as_ref()
+                .map(|r| r.reasoning.clone())
+                .unwrap_or_else(auto_reasoning),
+        ),
         recommended_model: recommended,
         message: Some(
             if configured {
@@ -717,6 +765,7 @@ mod tests {
             group: "default".into(),
             models,
             hashes,
+            reasoning: "auto".into(),
             pending: false,
             previous_hashes: vec![],
         };
@@ -888,6 +937,7 @@ mod tests {
             group: "default".into(),
             models: vec!["claude-opus-5-5".into(), "gpt-6.1-sol".into()],
             hashes: vec![],
+            reasoning: "auto".into(),
             pending: false,
             previous_hashes: vec![],
         };
