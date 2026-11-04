@@ -1642,6 +1642,8 @@ pub fn run() {
             commands::get_yuanheng_connection,
             commands::restore_yuanheng_keychain_access,
             commands::generate_yuanheng_voice_clone,
+            commands::prepare_accio_commerce,
+            commands::check_accio_commerce,
             commands::get_media_studio_models,
             commands::get_media_studio_history,
             commands::submit_media_studio,

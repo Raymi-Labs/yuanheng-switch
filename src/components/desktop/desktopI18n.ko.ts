@@ -1,6 +1,8 @@
 // ko translations for the desktop Simplified Chinese source strings.
 import { MEDIA_KO } from "./mediaStudioTranslations";
+import { COMMERCE_KO } from "./accioCommerceTranslations";
 export const DESKTOP_KO: Record<string, string> = {
+  ...COMMERCE_KO,
   部分检查未通过: "일부 항목을 확인해야 합니다",
   配置或修复通用凭据: "공통 인증 정보 설정 또는 복구",
   选择通用凭据分组: "공통 인증 정보 그룹 선택",

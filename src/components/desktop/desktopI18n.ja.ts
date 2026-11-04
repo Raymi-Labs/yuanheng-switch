@@ -1,6 +1,8 @@
 // Japanese translations for the desktop Simplified Chinese source strings.
 import { MEDIA_JA } from "./mediaStudioTranslations";
+import { COMMERCE_JA } from "./accioCommerceTranslations";
 export const DESKTOP_JA: Record<string, string> = {
+  ...COMMERCE_JA,
   部分检查未通过: "一部のチェックに対応が必要です",
   配置或修复通用凭据: "共通認証情報の設定・修復",
   选择通用凭据分组: "共通認証情報のグループを選択",

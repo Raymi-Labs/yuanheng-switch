@@ -1,4 +1,5 @@
 import i18n from "@/i18n";
+import { COMMERCE_EN } from "./accioCommerceTranslations";
 import { MEDIA_EN } from "./mediaStudioTranslations";
 import { DESKTOP_JA } from "./desktopI18n.ja";
 import { DESKTOP_KO } from "./desktopI18n.ko";
@@ -7,6 +8,7 @@ import { DESKTOP_ZH_TW } from "./desktopI18n.zhTW";
 type Values = Record<string, string | number | null | undefined>;
 
 export const DESKTOP_EN: Record<string, string> = {
+  ...COMMERCE_EN,
   部分检查未通过: "Some checks need attention",
   配置或修复通用凭据: "Configure or repair general credentials",
   选择通用凭据分组: "Choose a group for general credentials",

@@ -1,6 +1,8 @@
 // Generated from the desktop Simplified Chinese source strings, then normalized for Taiwan terminology.
 import { MEDIA_ZH_TW } from "./mediaStudioTranslations";
+import { COMMERCE_ZH_TW } from "./accioCommerceTranslations";
 export const DESKTOP_ZH_TW: Record<string, string> = {
+  ...COMMERCE_ZH_TW,
   部分检查未通过: "部分檢查未通過",
   配置或修复通用凭据: "設定或修復通用憑證",
   选择通用凭据分组: "選擇通用憑證群組",
