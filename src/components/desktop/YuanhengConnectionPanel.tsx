@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { BrowserAccountLogin } from "./BrowserAccountLogin";
 import {
   CheckCircle2,
   Cloud,
@@ -256,7 +257,7 @@ export function YuanhengConnectionPanel({
               {requiresTwoFactor
                 ? dt("输入认证器验证码或备用码，验证成功后即可继续。")
                 : dt(
-                    "直接使用账号密码登录或注册。密码不会保存在本机，登录后客户端会自动创建或复用本机专用工具凭据。",
+                    "可使用 GitHub、Google 或账号密码登录。密码不会保存在本机，工具凭据按所选分组配置。",
                   )}
             </p>
             {!requiresTwoFactor && (
@@ -279,6 +280,22 @@ export function YuanhengConnectionPanel({
               compact ? "p-3" : "p-4",
             )}
           >
+            {!requiresTwoFactor && (
+              <BrowserAccountLogin
+                key={authMode}
+                disabled={
+                  login.isPending ||
+                  register.isPending ||
+                  restoreAccess.isPending
+                }
+                onConnected={(connection) =>
+                  finishAuthentication({
+                    requiresTwoFactor: false,
+                    connection,
+                  })
+                }
+              />
+            )}
             {needsCredentialAccess && !requiresTwoFactor && (
               <div
                 role="alert"

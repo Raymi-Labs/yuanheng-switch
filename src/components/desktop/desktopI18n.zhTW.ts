@@ -1,6 +1,8 @@
 // Generated from the desktop Simplified Chinese source strings, then normalized for Taiwan terminology.
 import { MEDIA_ZH_TW } from "./mediaStudioTranslations";
+import { BROWSER_LOGIN_ZH_TW } from "./browserLoginTranslations";
 export const DESKTOP_ZH_TW: Record<string, string> = {
+  ...BROWSER_LOGIN_ZH_TW,
   "推理设置按各工具原生优先级生效；会话、环境变量或全局设置可能影响结果，必要时重开会话。":
     "推理設定按各工具原生優先順序生效；工作階段、環境變數或全域設定可能影響結果，必要時重開工作階段。",
   "当前工具与模型组合暂无可写入的推理档位，请在工具内调整；不会伪装为已应用。":

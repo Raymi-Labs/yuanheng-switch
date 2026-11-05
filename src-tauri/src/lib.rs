@@ -392,6 +392,8 @@ pub fn run() {
                 if window.label() != "main" {
                     return;
                 }
+                // Closing to tray must not silently complete a browser login.
+                let _ = commands::cancel_yuanheng_browser_login(None);
 
                 // 数据库版本过新的恢复模式下没有托盘可唤回，关闭即退出，避免应用隐身后台
                 let in_db_recovery = crate::init_status::get_init_error()
@@ -1681,6 +1683,10 @@ pub fn run() {
             commands::submit_desktop_feedback,
             commands::configure_yuanheng_tools,
             commands::login_yuanheng,
+            commands::get_yuanheng_browser_login_providers,
+            commands::start_yuanheng_browser_login,
+            commands::poll_yuanheng_browser_login,
+            commands::cancel_yuanheng_browser_login,
             commands::register_yuanheng,
             commands::verify_yuanheng_two_factor,
             commands::refresh_yuanheng_connection,

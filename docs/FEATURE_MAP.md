@@ -1,5 +1,7 @@
 # YuanHeng Desktop: capability map
 
+网站账号浏览器登录：[BrowserAccountLogin](../src/components/desktop/BrowserAccountLogin.tsx)复用登录面板 → [原生短期授权](../src-tauri/src/commands/yuanheng/browser_login.rs) → Meta `/api/desktop-auth`协议与网站显式确认。系统浏览器处理GitHub/Google账号，本机proof不进入URL或前端；取消/过期/切号阻止旧会话覆盖。不自动创建工具令牌。Meta由用户部署后才可用，密码入口保留，见[交付说明](guides/browser-account-login.md)。
+
 Accio官方包自动诊断：[维护者命令/工作流指南](guides/accio-compatibility-check.md) → [完整检查脚本](../scripts/check-accio-package.py) → 官方固定元数据与ARM64包 → SHA512/归档/签名核验 → [关键声明指纹匹配](../scripts/accio-protocol-fingerprint.cjs)及既有16项隔离协议回归。0.37.2签名及102个选定声明检查通过，[结果](reviews/2026-11-01-accio-0372-protocol.json)明确原生GUI未测。诊断不修改用户版本门禁或客户端自动查询；相关PR自动回归，完整官方包通过手动工作流触发，无周期任务。见[决定](../.agents/notes/implemented/testing/2026-11-01-accio-package-automation.md)。
 
 Verified from the local checkout on 2026-09-29. This is a scoped navigation aid, not a complete product audit or a replacement for [existing guidance](../README.md). Recheck implementation when using it; extend entries only as tasks confirm the relevant behavior. Do not treat roadmap ideas as implemented features.
