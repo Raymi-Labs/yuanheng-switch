@@ -1846,7 +1846,39 @@ fn managed_provider_with_models(
 ) -> Result<Provider, String> {
     let catalog_models = terminal_catalog_models(model, available_models);
     let mut settings = match app {
-        AppType::Claude | AppType::ClaudeDesktop => json!({
+        AppType::Claude => {
+            let role_model = |family: &str| {
+                catalog_models
+                    .iter()
+                    .find(|candidate| {
+                        candidate
+                            .to_ascii_lowercase()
+                            .contains(&format!("claude-{family}"))
+                    })
+                    .map(String::as_str)
+                    .unwrap_or(model)
+            };
+            json!({
+                "model": model,
+                "modelPicker": {
+                    "replaceBuiltInOptions": true,
+                    "options": catalog_models.iter().map(|candidate| json!({
+                        "model": candidate, "label": candidate
+                    })).collect::<Vec<_>>()
+                },
+                "env": {
+                    "ANTHROPIC_BASE_URL": BASE_URL,
+                    "ANTHROPIC_AUTH_TOKEN": token,
+                    "ANTHROPIC_API_KEY": "",
+                    "ANTHROPIC_MODEL": model,
+                    "ANTHROPIC_DEFAULT_HAIKU_MODEL": role_model("haiku"),
+                    "ANTHROPIC_DEFAULT_SONNET_MODEL": role_model("sonnet"),
+                    "ANTHROPIC_DEFAULT_OPUS_MODEL": role_model("opus"),
+                    "ANTHROPIC_DEFAULT_FABLE_MODEL": role_model("fable")
+                }
+            })
+        }
+        AppType::ClaudeDesktop => json!({
             "env": {
                 "ANTHROPIC_BASE_URL": BASE_URL,
                 "ANTHROPIC_AUTH_TOKEN": token,
@@ -3056,7 +3088,11 @@ fn provider_schema_current(provider: &Provider, app: &AppType) -> bool {
             provider.settings_config.get("name").and_then(Value::as_str)
                 == Some(MANAGED_PROVIDER_DISPLAY_NAME)
         }
-        AppType::Claude | AppType::Gemini | AppType::OpenClaw => true,
+        AppType::Claude => provider_model(provider, app).is_some_and(|model| {
+            crate::proxy::model_mapper::managed_claude_catalog_contains(provider, &model)
+                && provider.settings_config["modelPicker"]["replaceBuiltInOptions"] == true
+        }),
+        AppType::Gemini | AppType::OpenClaw => true,
     }
 }
 
@@ -5674,7 +5710,7 @@ pub async fn configure_yuanheng_tools(
             group_models_cache.insert(group.clone(), fetched.clone());
             fetched
         };
-        let (group_models, group_models_warning) = match group_models_result {
+        let (mut group_models, group_models_warning) = match group_models_result {
             Ok(models) if models.iter().any(|item| item == &model) => {
                 (terminal_catalog_models(&model, &models), None)
             }
@@ -5725,6 +5761,9 @@ pub async fn configure_yuanheng_tools(
         };
         match verified_models {
             Ok(models) if models.iter().any(|item| item == &model) => {
+                if matches!(&app, AppType::Claude) {
+                    group_models.retain(|candidate| models.contains(candidate));
+                }
                 verified_token_models.insert(group.clone(), models);
             }
             result => {
@@ -7881,6 +7920,182 @@ mod tests {
 
         std::fs::write(version_dir.join(".verified"), "ready").expect("mark verified");
         assert!(claude_desktop_runtime_status_from(support.path(), now).is_none());
+    }
+
+    #[test]
+    #[serial]
+    fn claude_group_picker_writes_catalog_and_preserves_explicit_models() {
+        let (_home, state) = isolated_state();
+        let models: Vec<String> = [
+            "claude-opus-5-5",
+            "claude-opus-4-8",
+            "claude-sonnet-5",
+            "claude-haiku-4-5",
+            "gpt-6.1-sol",
+            "deepseek-v4-pro",
+            "claude-opus-5-5",
+            "gpt-image-1",
+        ]
+        .into_iter()
+        .map(String::from)
+        .collect();
+        let provider = managed_provider_with_models(
+            &AppType::Claude,
+            "synthetic",
+            &models[0],
+            &models,
+            "group-a",
+            "auto",
+        )
+        .unwrap();
+        let options = provider.settings_config["modelPicker"]["options"]
+            .as_array()
+            .unwrap();
+        assert_eq!(options.len(), 6);
+        assert_eq!(options[0]["model"], models[0]);
+        assert_eq!(
+            provider.settings_config["env"]["ANTHROPIC_DEFAULT_SONNET_MODEL"],
+            models[2]
+        );
+        assert_eq!(
+            provider.settings_config["env"]["ANTHROPIC_DEFAULT_HAIKU_MODEL"],
+            models[3]
+        );
+        for (model, format) in [
+            (&models[1], "anthropic"),
+            (&models[4], "openai_responses"),
+            (&models[5], "openai_chat"),
+        ] {
+            let body = json!({"model":model});
+            assert_eq!(
+                crate::proxy::model_mapper::apply_model_mapping(body.clone(), &provider).0,
+                body
+            );
+            assert_eq!(
+                crate::proxy::providers::get_claude_api_format_for_body(&provider, &body),
+                format
+            );
+        }
+        let mut legacy = provider.clone();
+        legacy
+            .settings_config
+            .as_object_mut()
+            .unwrap()
+            .remove("modelPicker");
+        assert!(!provider_schema_current(&legacy, &AppType::Claude));
+        assert!(provider_schema_current(&provider, &AppType::Claude));
+        state.db.set_config_snippet("claude", Some(r#"{"model":"old","modelPicker":{"options":[{"model":"old"}]},"env":{"ANTHROPIC_DEFAULT_OPUS_MODEL":"old","ANTHROPIC_DEFAULT_SONNET_MODEL_NAME":"old"},"permissions":{"allow":["Read"]}}"#.to_string())).unwrap();
+        configure_tool_with_models(
+            &state,
+            AppType::Claude,
+            "synthetic",
+            &models[0],
+            &models,
+            "group-a",
+            "auto",
+        )
+        .unwrap();
+        let live: Value =
+            crate::config::read_json_file(&crate::config::get_claude_settings_path()).unwrap();
+        assert_eq!(live["modelPicker"], provider.settings_config["modelPicker"]);
+        assert_eq!(live["env"]["ANTHROPIC_MODEL"], models[0]);
+        assert_eq!(live["env"]["ANTHROPIC_DEFAULT_OPUS_MODEL"], models[0]);
+        assert!(live["env"]
+            .get("ANTHROPIC_DEFAULT_SONNET_MODEL_NAME")
+            .is_none());
+        assert_eq!(live["permissions"]["allow"], json!(["Read"]));
+        // Reconfiguration replaces the old group's lineup instead of appending.
+        configure_tool_with_models(
+            &state,
+            AppType::Claude,
+            "synthetic",
+            "k3",
+            &["k3".into()],
+            "group-b",
+            "auto",
+        )
+        .unwrap();
+        let live: Value =
+            crate::config::read_json_file(&crate::config::get_claude_settings_path()).unwrap();
+        assert_eq!(
+            live["modelPicker"]["options"],
+            json!([{"model":"k3", "label":"k3"}])
+        );
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn claude_group_picker_routes_each_model_and_converts_responses() {
+        use axum::{extract::OriginalUri, routing::post, Json, Router};
+        let (_home, state) = isolated_state();
+        let received = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let capture = received.clone();
+        let upstream = Router::new().fallback(post(move |OriginalUri(uri): OriginalUri, Json(body): Json<Value>| {
+            let capture = capture.clone();
+            async move {
+                let model = body["model"].as_str().unwrap().to_string();
+                capture.lock().unwrap().push((uri.path().to_string(), model.clone()));
+                Json(match uri.path() {
+                    "/v1/responses" => json!({"id":"resp-test", "object":"response", "status":"completed", "model":model, "output":[{"id":"msg-test", "type":"message", "role":"assistant", "status":"completed", "content":[{"type":"output_text", "text":"ok"}]}], "usage":{"input_tokens":1,"output_tokens":1}}),
+                    "/v1/chat/completions" => json!({"id":"chat-test", "object":"chat.completion", "model":model,"choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":1}}),
+                    _ => json!({"id":"msg-test", "type":"message", "role":"assistant", "model":model,"content":[{"type":"text","text":"ok"}],"stop_reason":"end_turn","usage":{"input_tokens":1,"output_tokens":1}})
+                })
+            }
+        }));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move { axum::serve(listener, upstream).await.unwrap() });
+        let models: Vec<String> = [
+            "claude-opus-5-5",
+            "claude-opus-4-8",
+            "gpt-6.1-sol",
+            "deepseek-v4-pro",
+        ]
+        .into_iter()
+        .map(String::from)
+        .collect();
+        let mut provider = managed_provider_with_models(
+            &AppType::Claude,
+            "synthetic",
+            &models[0],
+            &models,
+            "group-a",
+            "auto",
+        )
+        .unwrap();
+        provider.settings_config["env"]["ANTHROPIC_BASE_URL"] = json!(format!("http://{address}"));
+        state.db.save_provider("claude", &provider).unwrap();
+        state
+            .db
+            .set_current_provider("claude", &provider.id)
+            .unwrap();
+        crate::settings::set_current_provider(&AppType::Claude, Some(&provider.id)).unwrap();
+        let mut config = state.db.get_proxy_config().await.unwrap();
+        config.listen_port = 0;
+        state.db.update_proxy_config(config).await.unwrap();
+        let proxy = state.proxy_service.start().await.unwrap();
+        let client = reqwest::Client::builder().no_proxy().build().unwrap();
+        for model in &models {
+            let response = client.post(format!("http://127.0.0.1:{}/v1/messages", proxy.port))
+                .json(&json!({"model":model,"max_tokens":16,"stream":false,"messages":[{"role":"user","content":"test"}]}))
+                .send().await.unwrap();
+            let status = response.status();
+            let body: Value = response.json().await.unwrap();
+            assert!(status.is_success(), "{model}: {body}");
+            assert_eq!(body["type"], "message", "{model}: {body}");
+            assert_eq!(body["content"][0]["text"], "ok", "{model}: {body}");
+        }
+        assert_eq!(
+            *received.lock().unwrap(),
+            vec![
+                ("/v1/messages".into(), models[0].clone()),
+                ("/v1/messages".into(), models[1].clone()),
+                ("/v1/responses".into(), models[2].clone()),
+                ("/v1/chat/completions".into(), models[3].clone())
+            ]
+        );
+        state.proxy_service.stop().await.unwrap();
+        server.abort();
     }
 
     #[test]

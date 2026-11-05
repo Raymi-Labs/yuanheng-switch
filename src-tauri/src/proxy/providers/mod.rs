@@ -52,6 +52,7 @@ pub const XAI_API_BASE_URL: &str = "https://api.x.ai/v1";
 // 公开导出
 pub use adapter::ProviderAdapter;
 pub use auth::{AuthInfo, AuthStrategy};
+pub(crate) use claude::get_claude_api_format_for_body;
 pub use claude::{
     claude_api_format_needs_transform, get_claude_api_format,
     normalize_anthropic_messages_for_provider, transform_claude_request_for_api_format,

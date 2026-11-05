@@ -113,6 +113,28 @@ impl ModelMapping {
     }
 }
 
+/// Only the platform-owned Claude Code lineup opts out of legacy role remapping.
+/// The picker uses full IDs; choosing a second Opus version must keep that version.
+pub(crate) fn managed_claude_catalog_contains(provider: &Provider, model: &str) -> bool {
+    provider.id == "yuanheng-managed"
+        && provider.category.as_deref() == Some("managed")
+        && provider
+            .settings_config
+            .pointer("/modelPicker/options")
+            .and_then(Value::as_array)
+            .is_some_and(|options| {
+                options.iter().any(|option| {
+                    option
+                        .get("model")
+                        .and_then(Value::as_str)
+                        .is_some_and(|candidate| {
+                            strip_one_m_suffix_for_upstream(candidate)
+                                == strip_one_m_suffix_for_upstream(model)
+                        })
+                })
+            })
+}
+
 /// 对请求体应用模型映射
 ///
 /// 返回 (映射后的请求体, 原始模型名, 映射后模型名)
@@ -120,6 +142,14 @@ pub fn apply_model_mapping(
     mut body: Value,
     provider: &Provider,
 ) -> (Value, Option<String>, Option<String>) {
+    if body
+        .get("model")
+        .and_then(Value::as_str)
+        .is_some_and(|model| managed_claude_catalog_contains(provider, model))
+    {
+        let original = body.get("model").and_then(Value::as_str).map(String::from);
+        return (body, original, None);
+    }
     let mapping = ModelMapping::from_provider(provider);
 
     // 如果没有配置映射，直接返回

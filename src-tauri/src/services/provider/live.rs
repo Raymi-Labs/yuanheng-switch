@@ -690,6 +690,43 @@ pub(crate) fn build_effective_settings_with_common_config(
     if matches!(app_type, AppType::Claude) {
         apply_codex_oauth_claude_context_defaults(&mut effective_settings, provider);
         apply_kimi_for_coding_context_defaults(&mut effective_settings, provider);
+        // A legacy shared snippet must not restore another group's picker or
+        // overwrite the selected model after the platform generated its lineup.
+        if provider
+            .settings_config
+            .pointer("/env/ANTHROPIC_MODEL")
+            .and_then(Value::as_str)
+            .is_some_and(|model| {
+                crate::proxy::model_mapper::managed_claude_catalog_contains(provider, model)
+            })
+        {
+            for key in ["model", "modelPicker"] {
+                effective_settings[key] = provider.settings_config[key].clone();
+            }
+            let is_model_key = |key: &str| {
+                key == "ANTHROPIC_MODEL"
+                    || key == "ANTHROPIC_SMALL_FAST_MODEL"
+                    || key.starts_with("ANTHROPIC_DEFAULT_")
+            };
+            if let Some(env) = effective_settings
+                .get_mut("env")
+                .and_then(Value::as_object_mut)
+            {
+                env.retain(|key, _| !is_model_key(key));
+                if let Some(source) = provider
+                    .settings_config
+                    .get("env")
+                    .and_then(Value::as_object)
+                {
+                    env.extend(
+                        source
+                            .iter()
+                            .filter(|(key, _)| is_model_key(key))
+                            .map(|(key, value)| (key.clone(), value.clone())),
+                    );
+                }
+            }
+        }
     }
 
     Ok(effective_settings)

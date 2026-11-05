@@ -2726,7 +2726,7 @@ impl RequestForwarder {
         is_copilot: bool,
     ) -> String {
         if !is_copilot {
-            return super::providers::get_claude_api_format(provider).to_string();
+            return super::providers::get_claude_api_format_for_body(provider, body).to_string();
         }
 
         let model = body.get("model").and_then(|value| value.as_str());
