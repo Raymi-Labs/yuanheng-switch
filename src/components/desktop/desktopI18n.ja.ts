@@ -1,6 +1,8 @@
 // Japanese translations for the desktop Simplified Chinese source strings.
 import { MEDIA_JA } from "./mediaStudioTranslations";
+import { BROWSER_LOGIN_JA } from "./browserLoginTranslations";
 export const DESKTOP_JA: Record<string, string> = {
+  ...BROWSER_LOGIN_JA,
   "推理设置按各工具原生优先级生效；会话、环境变量或全局设置可能影响结果，必要时重开会话。":
     "推論設定は各ツールの優先順位に従います。セッション・環境変数・全体設定の影響を受けます。必要に応じて新規セッションを開始してください。",
   "当前工具与模型组合暂无可写入的推理档位，请在工具内调整；不会伪装为已应用。":

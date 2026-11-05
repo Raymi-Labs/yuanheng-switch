@@ -1,4 +1,5 @@
 import i18n from "@/i18n";
+import { BROWSER_LOGIN_EN } from "./browserLoginTranslations";
 import { MEDIA_EN } from "./mediaStudioTranslations";
 import { DESKTOP_JA } from "./desktopI18n.ja";
 import { DESKTOP_KO } from "./desktopI18n.ko";
@@ -7,6 +8,7 @@ import { DESKTOP_ZH_TW } from "./desktopI18n.zhTW";
 type Values = Record<string, string | number | null | undefined>;
 
 export const DESKTOP_EN: Record<string, string> = {
+  ...BROWSER_LOGIN_EN,
   "推理设置按各工具原生优先级生效；会话、环境变量或全局设置可能影响结果，必要时重开会话。":
     "Reasoning follows each tool’s native precedence. Session, environment or global settings can affect the result; start a new session if needed.",
   "当前工具与模型组合暂无可写入的推理档位，请在工具内调整；不会伪装为已应用。":

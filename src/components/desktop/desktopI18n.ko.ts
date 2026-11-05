@@ -1,6 +1,8 @@
 // ko translations for the desktop Simplified Chinese source strings.
 import { MEDIA_KO } from "./mediaStudioTranslations";
+import { BROWSER_LOGIN_KO } from "./browserLoginTranslations";
 export const DESKTOP_KO: Record<string, string> = {
+  ...BROWSER_LOGIN_KO,
   "推理设置按各工具原生优先级生效；会话、环境变量或全局设置可能影响结果，必要时重开会话。":
     "추론 설정은 각 도구의 기본 우선순위를 따릅니다. 세션·환경 변수·전역 설정이 영향을 줄 수 있으므로 필요하면 새 세션을 시작하세요.",
   "当前工具与模型组合暂无可写入的推理档位，请在工具内调整；不会伪装为已应用。":

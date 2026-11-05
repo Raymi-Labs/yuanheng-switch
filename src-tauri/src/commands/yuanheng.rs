@@ -1,5 +1,7 @@
 mod accio;
 mod account_http;
+mod browser_login;
+pub use browser_login::*;
 mod codex_login_guide;
 pub use codex_login_guide::*;
 #[cfg(any(target_os = "macos", test))]
@@ -1592,6 +1594,7 @@ async fn login_with_credentials(
     username: &str,
     password: &str,
 ) -> Result<YuanhengAuthResult, String> {
+    browser_login::invalidate();
     validate_login_credentials(username, password)?;
     let client = yuanheng_client()?;
     let (value, headers) = post_json(
@@ -5870,6 +5873,7 @@ pub async fn register_yuanheng(
     username: String,
     password: String,
 ) -> Result<YuanhengAuthResult, String> {
+    browser_login::invalidate();
     let username = username.trim();
     validate_registration_credentials(username, &password)?;
     let client = yuanheng_client()?;
@@ -5891,6 +5895,7 @@ pub async fn verify_yuanheng_two_factor(
     state: State<'_, AppState>,
     code: String,
 ) -> Result<YuanhengAuthResult, String> {
+    browser_login::invalidate();
     let code = code.trim();
     if code.is_empty() || code.len() > 64 || code.contains(['\n', '\r']) {
         return Err("请输入有效的两步验证码或备用码".to_string());
@@ -6141,6 +6146,7 @@ pub async fn open_yuanheng_pulse(
 
 #[tauri::command]
 pub fn sign_out_yuanheng(app: AppHandle, state: State<'_, AppState>) -> Result<bool, String> {
+    browser_login::invalidate();
     for label in [TOPUP_WINDOW_LABEL, PULSE_WINDOW_LABEL] {
         if let Some(window) = app.get_webview_window(label) {
             let _ = window.close();
@@ -6155,6 +6161,7 @@ pub async fn disconnect_yuanheng(
     app: AppHandle,
     state: State<'_, AppState>,
 ) -> Result<YuanhengDisconnectResult, String> {
+    browser_login::invalidate();
     for label in [TOPUP_WINDOW_LABEL, PULSE_WINDOW_LABEL] {
         if let Some(window) = app.get_webview_window(label) {
             let _ = window.close();
