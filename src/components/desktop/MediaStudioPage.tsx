@@ -21,6 +21,8 @@ import {
   referenceBytes,
   referencesFit,
 } from "@/lib/mediaReferences";
+import { MediaInspirationGallery } from "./MediaInspirationGallery";
+import type { MediaInspiration } from "@/lib/mediaInspiration";
 import { PageHeader } from "./PageHeader";
 import { dt } from "./desktopI18n";
 
@@ -57,6 +59,7 @@ export function MediaStudioContent({ scope }: { scope: string }) {
     retry: false,
     refetchOnWindowFocus: false,
   });
+  const [view, setView] = useState<"explore" | "create" | "history">("explore");
   const [kind, setKind] = useState<"image" | "video">("image");
   const [model, setModel] = useState("");
   const [size, setSize] = useState("");
@@ -74,6 +77,8 @@ export function MediaStudioContent({ scope }: { scope: string }) {
     url: string;
     mime: string;
   } | null>(null);
+  const pageRef = useRef<HTMLDivElement>(null);
+  const focusDraft = useRef(false);
   const fileInput = useRef<HTMLInputElement>(null);
   const formRef = useRef<HTMLFormElement>(null);
   const alive = useRef(true);
@@ -141,6 +146,14 @@ export function MediaStudioContent({ scope }: { scope: string }) {
     readSequence.current++;
     if (fileInput.current) fileInput.current.value = "";
   }, [model]);
+
+  useEffect(() => {
+    pageRef.current?.scrollTo?.({ top: 0 });
+    if (view === "create" && focusDraft.current) {
+      focusDraft.current = false;
+      formRef.current?.querySelector<HTMLTextAreaElement>("textarea")?.focus();
+    }
+  }, [view]);
 
   const update = (record: MediaRecord) => {
     client.setQueryData<MediaRecord[]>(historyKey, (rows) =>
@@ -368,6 +381,7 @@ export function MediaStudioContent({ scope }: { scope: string }) {
     const url = URL.createObjectURL(new Blob([bytes], { type: result.mime }));
     activeUrl.current = url;
     setPreview({ id: record.id, url, mime: result.mime });
+    setView("create");
   };
   const save = async (record: MediaRecord) => {
     const result =
@@ -439,403 +453,544 @@ export function MediaStudioContent({ scope }: { scope: string }) {
     setMessage(
       dt("参考图已准备，请填写运动描述并确认模型后点击生成；尚未提交视频。"),
     );
-    formRef.current?.scrollIntoView?.({ block: "start", behavior: "smooth" });
+    setView("create");
+  };
+
+  const useInspiration = (example: MediaInspiration): boolean => {
+    if (
+      submitLock.current ||
+      actionLock.current ||
+      readLock.current ||
+      busy ||
+      action ||
+      reading ||
+      models.isFetching ||
+      models.isError
+    )
+      return false;
+    const target = models.data?.find(
+      (m) => m.id === example.model && m.kind === example.kind,
+    );
+    if (!target) return false;
+    if (
+      (prompt.trim() || referenceList.length) &&
+      !window.confirm(dt("使用此灵感会替换当前描述并移除参考图，是否继续？"))
+    )
+      return false;
+    readSequence.current++;
+    stagedReference.current = null;
+    setReference(null);
+    setExtraReferences([]);
+    if (fileInput.current) fileInput.current.value = "";
+    setKind(target.kind);
+    setModel(target.id);
+    setSize(target.sizes[0] ?? "");
+    setDuration(target.durations[0] ?? null);
+    setPrompt(dt(example.prompt));
+    focusDraft.current = true;
+    setMessage(
+      dt("灵感已带入草稿，请确认描述和参数后点击生成；尚未提交请求。"),
+    );
+    setView("create");
+    return true;
   };
 
   return (
-    <div className="h-full overflow-y-auto p-4 md:p-6">
+    <div
+      ref={pageRef}
+      className="media-studio-shell h-full overflow-y-auto p-4 md:p-6"
+    >
       <PageHeader
         title={dt("图片与视频")}
         description={dt("描述你的想法，选择模型，直接生成图片或视频。")}
       />
-      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-        <div role="tablist" aria-label={dt("创作类型")} className="flex gap-2">
-          {(["image", "video"] as const).map((tab) => (
-            <Button
-              key={tab}
-              role="tab"
-              aria-selected={kind === tab}
-              variant={kind === tab ? "default" : "outline"}
-              disabled={busy || !!action}
-              onClick={() => {
-                setKind(tab);
-                setModel("");
-              }}
-            >
-              {dt(tab === "image" ? "图片生成" : "视频生成")}
-            </Button>
-          ))}
-        </div>
-        <span className="rounded-full bg-primary/10 px-3 py-1 text-xs">
-          {dt("分组：生图和视频")}
-        </span>
-      </div>
-      <div className="grid gap-5 xl:grid-cols-[minmax(280px,1fr)_minmax(300px,1.3fr)]">
-        <form
-          ref={formRef}
-          onPaste={pasteReference}
-          className="space-y-4 rounded-2xl border bg-card p-5"
-          onSubmit={(e) => {
-            e.preventDefault();
-            void generate();
-          }}
-        >
-          <div className="flex items-end gap-2">
-            <label className="min-w-0 flex-1 space-y-2 text-sm">
-              {dt("生成模型")}
-              <select
-                className="block w-full rounded-md border bg-background p-2"
-                value={model}
-                disabled={busy || !!action || models.isFetching}
-                onChange={(e) => setModel(e.target.value)}
-              >
-                {!model && <option value="">{dt("请选择模型")}</option>}
-                {model && !selected && (
-                  <option value={model} disabled>
-                    {model}
-                  </option>
-                )}
-                {available.map((m) => (
-                  <option key={m.id} value={m.id}>
-                    {m.id}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <Button
-              type="button"
-              variant="outline"
-              disabled={busy || !!action || models.isFetching}
-              aria-label={dt("刷新模型")}
-              onClick={() => void models.refetch()}
-            >
-              <RefreshCw className="h-4 w-4" />
-            </Button>
-          </div>
-          {models.isError && (
-            <p role="alert" className="text-sm text-destructive">
-              {extractErrorMessage(models.error)}
-            </p>
-          )}
-          {selected && (
-            <p className="text-xs text-muted-foreground">
-              {dt(
-                selected.kind === "video"
-                  ? selected.reference === "none"
-                    ? "此模型当前仅支持文生视频，不接受参考图。"
-                    : "此模型支持文生视频和图生视频。"
-                  : selected.reference === "none"
-                    ? "此模型当前仅支持文生图。"
-                    : "此模型支持文字生成和参考图创作。",
-              )}
-            </p>
-          )}
-          {model && !selected && !models.isPending && (
-            <p role="alert" className="text-sm text-destructive">
-              {dt("所选模型已不可用，请重新选择；不会自动换模型。")}
-            </p>
-          )}
-          {!models.isPending && !models.isError && available.length === 0 && (
-            <p className="text-sm text-muted-foreground">
-              {dt("此分组暂无本版支持的模型，请检查分组权限或刷新目录。")}
-            </p>
-          )}
-          <label className="block space-y-2 text-sm">
-            {dt("画面描述")}
-            <Textarea
-              value={prompt}
-              onChange={(e) => setPrompt(e.target.value)}
-              rows={6}
-              maxLength={promptLimit * 2}
-              disabled={busy || !!action}
-              placeholder={dt(
-                "例如：清晨的海边书店，阳光穿过落地窗，温暖的胶片色调…",
-              )}
-            />
-          </label>
-          <p className="text-xs text-muted-foreground">
-            {Array.from(prompt).length} / {promptLimit}
+      <nav
+        className="media-studio-nav"
+        role="tablist"
+        aria-label={dt("创作导航")}
+      >
+        {(["explore", "create", "history"] as const).map((tab) => (
+          <button
+            type="button"
+            role="tab"
+            id={`studio-tab-${tab}`}
+            aria-controls={`studio-panel-${tab}`}
+            aria-selected={view === tab}
+            key={tab}
+            onClick={() => setView(tab)}
+            onKeyDown={(event) => {
+              const tabs = ["explore", "create", "history"] as const;
+              const index = tabs.indexOf(tab);
+              const next =
+                event.key === "ArrowRight"
+                  ? (index + 1) % 3
+                  : event.key === "ArrowLeft"
+                    ? (index + 2) % 3
+                    : event.key === "Home"
+                      ? 0
+                      : event.key === "End"
+                        ? 2
+                        : null;
+              if (next !== null) {
+                event.preventDefault();
+                setView(tabs[next]);
+                event.currentTarget.parentElement
+                  ?.querySelector<HTMLButtonElement>(
+                    `#studio-tab-${tabs[next]}`,
+                  )
+                  ?.focus();
+              }
+            }}
+            tabIndex={view === tab ? 0 : -1}
+          >
+            {dt(
+              tab === "explore"
+                ? "灵感广场"
+                : tab === "create"
+                  ? "创作工作台"
+                  : "我的作品",
+            )}
+            {tab === "history" && (
+              <span className="studio-count">{history.data?.length ?? 0}</span>
+            )}
+          </button>
+        ))}
+        <span className="studio-badge">{dt("灵感在这里，创作由你决定")}</span>
+      </nav>
+      <div
+        role="tabpanel"
+        id="studio-panel-explore"
+        aria-labelledby="studio-tab-explore"
+        hidden={view !== "explore"}
+      >
+        <MediaInspirationGallery
+          models={models.data ?? []}
+          unavailable={models.isError || models.isFetching || models.isPending}
+          locked={busy || !!action || reading}
+          onUse={useInspiration}
+          onCreate={() => setView("create")}
+        />
+        {models.isError && (
+          <p role="alert" className="mt-4 text-sm text-destructive">
+            {dt("模型目录读取失败，请到创作工作台刷新；不会自动选择其他模型。")}
           </p>
-          {selected && selected.reference !== "none" && (
-            <div className="space-y-2">
-              <input
-                ref={fileInput}
-                type="file"
-                accept={referencePolicy.mimeTypes.join(",")}
-                multiple={referencePolicy.maxCount > 1}
-                className="hidden"
-                aria-label={dt("选择参考图")}
-                onChange={(e) => {
-                  const files = Array.from(e.target.files ?? []);
-                  e.target.value = "";
-                  void pick(files);
+        )}
+      </div>
+      <div
+        role="tabpanel"
+        id="studio-panel-create"
+        aria-labelledby="studio-tab-create"
+        hidden={view !== "create"}
+      >
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+          <div
+            role="tablist"
+            aria-label={dt("创作类型")}
+            className="flex gap-2"
+          >
+            {(["image", "video"] as const).map((tab) => (
+              <Button
+                key={tab}
+                role="tab"
+                aria-selected={kind === tab}
+                variant={kind === tab ? "default" : "outline"}
+                disabled={busy || !!action}
+                onClick={() => {
+                  setKind(tab);
+                  setModel("");
                 }}
-                disabled={busy || !!action || reading}
-              />
+              >
+                {dt(tab === "image" ? "图片生成" : "视频生成")}
+              </Button>
+            ))}
+          </div>
+          <span className="rounded-full bg-primary/10 px-3 py-1 text-xs">
+            {dt("分组：生图和视频")}
+          </span>
+        </div>
+        <div className="grid gap-5 xl:grid-cols-[minmax(280px,1fr)_minmax(300px,1.3fr)]">
+          <form
+            ref={formRef}
+            onPaste={pasteReference}
+            className="space-y-4 rounded-2xl border bg-card p-5"
+            onSubmit={(e) => {
+              e.preventDefault();
+              void generate();
+            }}
+          >
+            <div className="flex items-end gap-2">
+              <label className="min-w-0 flex-1 space-y-2 text-sm">
+                {dt("生成模型")}
+                <select
+                  className="block w-full rounded-md border bg-background p-2"
+                  value={model}
+                  disabled={busy || !!action || models.isFetching}
+                  onChange={(e) => setModel(e.target.value)}
+                >
+                  {!model && <option value="">{dt("请选择模型")}</option>}
+                  {model && !selected && (
+                    <option value={model} disabled>
+                      {model}
+                    </option>
+                  )}
+                  {available.map((m) => (
+                    <option key={m.id} value={m.id}>
+                      {m.id}
+                    </option>
+                  ))}
+                </select>
+              </label>
               <Button
                 type="button"
                 variant="outline"
-                disabled={busy || !!action || reading}
-                onClick={() => fileInput.current?.click()}
+                disabled={busy || !!action || models.isFetching}
+                aria-label={dt("刷新模型")}
+                onClick={() => void models.refetch()}
               >
-                <ImagePlus className="h-4 w-4" />
-                {dt(
-                  selected.reference === "required"
-                    ? "上传参考图（必选）"
-                    : "上传参考图（可选）",
-                )}
+                <RefreshCw className="h-4 w-4" />
               </Button>
+            </div>
+            {models.isError && (
+              <p role="alert" className="text-sm text-destructive">
+                {extractErrorMessage(models.error)}
+              </p>
+            )}
+            {selected && (
               <p className="text-xs text-muted-foreground">
                 {dt(
-                  "也可在此表单按 ⌘V / Ctrl+V 粘贴复制的图片或截图，点击生成后才会上传。",
+                  selected.kind === "video"
+                    ? selected.reference === "none"
+                      ? "此模型当前仅支持文生视频，不接受参考图。"
+                      : "此模型支持文生视频和图生视频。"
+                    : selected.reference === "none"
+                      ? "此模型当前仅支持文生图。"
+                      : "此模型支持文字生成和参考图创作。",
                 )}
               </p>
-              {isGptImage && (
+            )}
+            {model && !selected && !models.isPending && (
+              <p role="alert" className="text-sm text-destructive">
+                {dt("所选模型已不可用，请重新选择；不会自动换模型。")}
+              </p>
+            )}
+            {!models.isPending && !models.isError && available.length === 0 && (
+              <p className="text-sm text-muted-foreground">
+                {dt("此分组暂无本版支持的模型，请检查分组权限或刷新目录。")}
+              </p>
+            )}
+            <label className="block space-y-2 text-sm">
+              {dt("画面描述")}
+              <Textarea
+                value={prompt}
+                onChange={(e) => setPrompt(e.target.value)}
+                rows={6}
+                maxLength={promptLimit * 2}
+                disabled={busy || !!action}
+                placeholder={dt(
+                  "例如：清晨的海边书店，阳光穿过落地窗，温暖的胶片色调…",
+                )}
+              />
+            </label>
+            <p className="text-xs text-muted-foreground">
+              {Array.from(prompt).length} / {promptLimit}
+            </p>
+            {selected && selected.reference !== "none" && (
+              <div className="space-y-2">
+                <input
+                  ref={fileInput}
+                  type="file"
+                  accept={referencePolicy.mimeTypes.join(",")}
+                  multiple={referencePolicy.maxCount > 1}
+                  className="hidden"
+                  aria-label={dt("选择参考图")}
+                  onChange={(e) => {
+                    const files = Array.from(e.target.files ?? []);
+                    e.target.value = "";
+                    void pick(files);
+                  }}
+                  disabled={busy || !!action || reading}
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={busy || !!action || reading}
+                  onClick={() => fileInput.current?.click()}
+                >
+                  <ImagePlus className="h-4 w-4" />
+                  {dt(
+                    selected.reference === "required"
+                      ? "上传参考图（必选）"
+                      : "上传参考图（可选）",
+                  )}
+                </Button>
                 <p className="text-xs text-muted-foreground">
                   {dt(
-                    "GPT Image最多16张PNG、JPEG或WebP参考图，每张须小于50MB。",
+                    "也可在此表单按 ⌘V / Ctrl+V 粘贴复制的图片或截图，点击生成后才会上传。",
                   )}
                 </p>
-              )}
-              {!referencesValid && (
-                <p role="alert" className="text-sm text-destructive">
-                  {dt(
-                    "参考图不符合当前模型的数量、格式或大小要求，请调整后再生成；原图已保留。",
-                  )}
-                </p>
-              )}
-              {referenceList.map((raw, index) => (
-                <div
-                  key={`${index}-${raw.slice(-16)}`}
-                  className="flex flex-wrap items-start gap-2"
-                >
-                  {referencePolicy.maxCount > 1 && (
-                    <span className="text-xs">
-                      {index + 1} ·{" "}
-                      {dt(isMuse && index === 0 ? "首帧" : "参考图")}
-                    </span>
-                  )}
-                  <img
-                    src={raw}
-                    alt={
-                      index === 0
-                        ? dt("参考图")
-                        : `${dt("参考图")} ${index + 1}`
-                    }
-                    className="h-24 max-w-full rounded-md object-contain"
-                  />
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    disabled={busy || !!action || reading}
-                    aria-label={dt("移除参考图")}
-                    onClick={() => {
-                      readSequence.current++;
-                      const next = referenceList.filter((_, i) => i !== index);
-                      setReference(next[0] ?? null);
-                      setExtraReferences(next.slice(1));
-                      if (fileInput.current) fileInput.current.value = "";
-                    }}
+                {isGptImage && (
+                  <p className="text-xs text-muted-foreground">
+                    {dt(
+                      "GPT Image最多16张PNG、JPEG或WebP参考图，每张须小于50MB。",
+                    )}
+                  </p>
+                )}
+                {!referencesValid && (
+                  <p role="alert" className="text-sm text-destructive">
+                    {dt(
+                      "参考图不符合当前模型的数量、格式或大小要求，请调整后再生成；原图已保留。",
+                    )}
+                  </p>
+                )}
+                {referenceList.map((raw, index) => (
+                  <div
+                    key={`${index}-${raw.slice(-16)}`}
+                    className="flex flex-wrap items-start gap-2"
                   >
-                    <X className="h-4 w-4" />
-                  </Button>
-                  {index > 0 && (
+                    {referencePolicy.maxCount > 1 && (
+                      <span className="text-xs">
+                        {index + 1} ·{" "}
+                        {dt(isMuse && index === 0 ? "首帧" : "参考图")}
+                      </span>
+                    )}
+                    <img
+                      src={raw}
+                      alt={
+                        index === 0
+                          ? dt("参考图")
+                          : `${dt("参考图")} ${index + 1}`
+                      }
+                      className="h-24 max-w-full rounded-md object-contain"
+                    />
                     <Button
                       type="button"
                       variant="ghost"
                       disabled={busy || !!action || reading}
+                      aria-label={dt("移除参考图")}
                       onClick={() => {
-                        const next = [...referenceList];
-                        [next[index - 1], next[index]] = [
-                          next[index],
-                          next[index - 1],
-                        ];
-                        setReference(next[0]);
+                        readSequence.current++;
+                        const next = referenceList.filter(
+                          (_, i) => i !== index,
+                        );
+                        setReference(next[0] ?? null);
                         setExtraReferences(next.slice(1));
+                        if (fileInput.current) fileInput.current.value = "";
                       }}
                     >
-                      {dt("前移")}
+                      <X className="h-4 w-4" />
                     </Button>
+                    {index > 0 && (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        disabled={busy || !!action || reading}
+                        onClick={() => {
+                          const next = [...referenceList];
+                          [next[index - 1], next[index]] = [
+                            next[index],
+                            next[index - 1],
+                          ];
+                          setReference(next[0]);
+                          setExtraReferences(next.slice(1));
+                        }}
+                      >
+                        {dt("前移")}
+                      </Button>
+                    )}
+                  </div>
+                ))}
+                {isMuse && (
+                  <p className="text-xs text-muted-foreground">
+                    {dt(
+                      "最多4张：第一张是首帧，其余为人物、场景或画风参考，最后一张不是尾帧。",
+                    )}
+                  </p>
+                )}
+                {isMuse && referenceList.length > 1 && (
+                  <p
+                    role="note"
+                    className="text-xs text-amber-700 dark:text-amber-300"
+                  >
+                    {dt(
+                      "多图参考为实验功能：已测样本主要采纳首图，第2–4张的效果不保证。",
+                    )}
+                  </p>
+                )}
+                <p className="text-xs text-muted-foreground">
+                  {dt("仅发送你选择的参考图和描述；请确认拥有素材使用权。")}
+                </p>
+              </div>
+            )}
+            {selected && (
+              <details className="rounded-lg bg-muted/30 p-3">
+                <summary className="cursor-pointer text-sm">
+                  {dt("更多设置")}
+                </summary>
+                <div className="mt-3 grid grid-cols-2 gap-3">
+                  <label className="text-xs">
+                    {dt("尺寸或比例")}
+                    <select
+                      className="mt-1 block w-full rounded border bg-background p-2"
+                      value={size}
+                      disabled={busy || !!action}
+                      onChange={(e) => setSize(e.target.value)}
+                    >
+                      {selected.sizes.map((s) => (
+                        <option key={s}>{s}</option>
+                      ))}
+                    </select>
+                  </label>
+                  {kind === "video" && (
+                    <label className="text-xs">
+                      {dt("请求时长（秒）")}
+                      {isMuse ? (
+                        <input
+                          type="number"
+                          min={4}
+                          max={180}
+                          step={1}
+                          aria-label={dt("Muse时长（秒）")}
+                          className="mt-1 block w-full rounded border bg-background p-2"
+                          value={duration ?? ""}
+                          disabled={busy || !!action}
+                          onChange={(e) =>
+                            setDuration(
+                              e.target.value === ""
+                                ? null
+                                : Number(e.target.value),
+                            )
+                          }
+                        />
+                      ) : (
+                        <select
+                          className="mt-1 block w-full rounded border bg-background p-2"
+                          value={duration ?? ""}
+                          disabled={busy || !!action}
+                          onChange={(e) => setDuration(Number(e.target.value))}
+                        >
+                          {selected.durations.map((d) => (
+                            <option key={d} value={d}>
+                              {d}
+                            </option>
+                          ))}
+                        </select>
+                      )}
+                    </label>
                   )}
                 </div>
-              ))}
-              {isMuse && (
-                <p className="text-xs text-muted-foreground">
-                  {dt(
-                    "最多4张：第一张是首帧，其余为人物、场景或画风参考，最后一张不是尾帧。",
-                  )}
-                </p>
-              )}
-              {isMuse && referenceList.length > 1 && (
-                <p
-                  role="note"
-                  className="text-xs text-amber-700 dark:text-amber-300"
-                >
-                  {dt(
-                    "多图参考为实验功能：已测样本主要采纳首图，第2–4张的效果不保证。",
-                  )}
-                </p>
-              )}
-              <p className="text-xs text-muted-foreground">
-                {dt("仅发送你选择的参考图和描述；请确认拥有素材使用权。")}
-              </p>
-            </div>
-          )}
-          {selected && (
-            <details className="rounded-lg bg-muted/30 p-3">
-              <summary className="cursor-pointer text-sm">
-                {dt("更多设置")}
-              </summary>
-              <div className="mt-3 grid grid-cols-2 gap-3">
-                <label className="text-xs">
-                  {dt("尺寸或比例")}
-                  <select
-                    className="mt-1 block w-full rounded border bg-background p-2"
-                    value={size}
-                    disabled={busy || !!action}
-                    onChange={(e) => setSize(e.target.value)}
-                  >
-                    {selected.sizes.map((s) => (
-                      <option key={s}>{s}</option>
-                    ))}
-                  </select>
-                </label>
                 {kind === "video" && (
-                  <label className="text-xs">
-                    {dt("请求时长（秒）")}
-                    {isMuse ? (
-                      <input
-                        type="number"
-                        min={4}
-                        max={180}
-                        step={1}
-                        aria-label={dt("Muse时长（秒）")}
-                        className="mt-1 block w-full rounded border bg-background p-2"
-                        value={duration ?? ""}
-                        disabled={busy || !!action}
-                        onChange={(e) =>
-                          setDuration(
-                            e.target.value === ""
-                              ? null
-                              : Number(e.target.value),
-                          )
-                        }
-                      />
-                    ) : (
-                      <select
-                        className="mt-1 block w-full rounded border bg-background p-2"
-                        value={duration ?? ""}
-                        disabled={busy || !!action}
-                        onChange={(e) => setDuration(Number(e.target.value))}
-                      >
-                        {selected.durations.map((d) => (
-                          <option key={d} value={d}>
-                            {d}
-                          </option>
-                        ))}
-                      </select>
+                  <p className="mt-2 text-xs text-muted-foreground">
+                    {dt(
+                      "实际时长可能由供应商调整；Grok 当前使用 480p，其他型号按所选尺寸生成。",
                     )}
-                  </label>
+                  </p>
                 )}
-              </div>
-              {kind === "video" && (
-                <p className="mt-2 text-xs text-muted-foreground">
-                  {dt(
-                    "实际时长可能由供应商调整；Grok 当前使用 480p，其他型号按所选尺寸生成。",
-                  )}
-                </p>
-              )}
-            </details>
-          )}
-          <p className="text-xs leading-relaxed text-muted-foreground">
-            {dt(
-              "点击生成会按所选模型及生图和视频分组计费。暂不提供精确估价，费用以平台实际用量为准。",
+              </details>
             )}
-          </p>
-          {kind === "video" && (
-            <p className="text-xs text-muted-foreground">
-              {dt(
-                isMuse
-                  ? "Muse提交最长等待30分钟。返回任务编号后继续查询；超时不会自动重发。"
-                  : "视频提交最长等待 10 分钟。返回任务编号后继续查询；超时不会自动重发。",
-              )}
-            </p>
-          )}
-          {isMuse && (
             <p className="text-xs leading-relaxed text-muted-foreground">
               {dt(
-                "Muse文档支持4–180秒、720p；超过30秒会分段拼接，请按段描述镜头，并非单个连续长镜头。新能力正在实际验证。",
+                "点击生成会按所选模型及生图和视频分组计费。暂不提供精确估价，费用以平台实际用量为准。",
               )}
             </p>
-          )}
-          {isMuse && (
-            <p className="text-xs text-muted-foreground">
-              {dt(
-                "Muse自动查询约30分钟；长片建议直接保存，超过64MB不在页面内预览。下载最长15分钟、上限256MB，失败可重下原任务。",
-              )}
-            </p>
-          )}
-          <Button
-            type="submit"
-            className="w-full"
-            disabled={
-              busy ||
-              !!action ||
-              !referencesValid ||
-              reading ||
-              !selected ||
-              !prompt.trim() ||
-              Array.from(prompt).length > promptLimit ||
-              (kind === "video" &&
-                !selected?.durations.includes(duration ?? 0)) ||
-              models.isError ||
-              !selected.sizes.includes(size) ||
-              (selected.reference === "required" && !reference)
-            }
-          >
-            {busy ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <Sparkles className="h-4 w-4" />
-            )}
-            {dt(busy ? "正在提交，请勿重复生成" : "生成")}
-          </Button>
-          {busy && (
-            <p className="text-xs text-muted-foreground">
-              {dt("离开页面不会撤销已提交的生成，返回后请先查看作品记录。")}
-            </p>
-          )}
-        </form>
-        <section
-          className="min-w-0 rounded-2xl border bg-card p-5"
-          aria-label={dt("作品预览")}
-        >
-          <h2 className="mb-3 font-medium">{dt("作品预览")}</h2>
-          <div className="flex min-h-72 items-center justify-center overflow-hidden rounded-xl bg-muted/30">
-            {preview ? (
-              preview.mime === "video/mp4" ? (
-                <video
-                  key={preview.url}
-                  controls
-                  src={preview.url}
-                  className="max-h-[520px] w-full"
-                />
-              ) : (
-                <img
-                  src={preview.url}
-                  alt={dt("生成结果")}
-                  className="max-h-[520px] max-w-full object-contain"
-                />
-              )
-            ) : (
-              <p className="p-6 text-center text-sm text-muted-foreground">
-                {dt("生成完成后，从下方作品记录打开预览。")}
+            {kind === "video" && (
+              <p className="text-xs text-muted-foreground">
+                {dt(
+                  isMuse
+                    ? "Muse提交最长等待30分钟。返回任务编号后继续查询；超时不会自动重发。"
+                    : "视频提交最长等待 10 分钟。返回任务编号后继续查询；超时不会自动重发。",
+                )}
               </p>
             )}
-          </div>
-        </section>
+            {isMuse && (
+              <p className="text-xs leading-relaxed text-muted-foreground">
+                {dt(
+                  "Muse文档支持4–180秒、720p；超过30秒会分段拼接，请按段描述镜头，并非单个连续长镜头。新能力正在实际验证。",
+                )}
+              </p>
+            )}
+            {isMuse && (
+              <p className="text-xs text-muted-foreground">
+                {dt(
+                  "Muse自动查询约30分钟；长片建议直接保存，超过64MB不在页面内预览。下载最长15分钟、上限256MB，失败可重下原任务。",
+                )}
+              </p>
+            )}
+            <Button
+              type="submit"
+              className="w-full"
+              disabled={
+                busy ||
+                !!action ||
+                !referencesValid ||
+                reading ||
+                !selected ||
+                !prompt.trim() ||
+                Array.from(prompt).length > promptLimit ||
+                (kind === "video" &&
+                  !selected?.durations.includes(duration ?? 0)) ||
+                models.isError ||
+                !selected.sizes.includes(size) ||
+                (selected.reference === "required" && !reference)
+              }
+            >
+              {busy ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Sparkles className="h-4 w-4" />
+              )}
+              {dt(busy ? "正在提交，请勿重复生成" : "生成")}
+            </Button>
+            {busy && (
+              <p className="text-xs text-muted-foreground">
+                {dt("离开页面不会撤销已提交的生成，返回后请先查看作品记录。")}
+              </p>
+            )}
+          </form>
+          <section
+            className="min-w-0 rounded-2xl border bg-card p-5"
+            aria-label={dt("作品预览")}
+          >
+            <h2 className="mb-3 font-medium">{dt("作品预览")}</h2>
+            <div className="flex min-h-72 items-center justify-center overflow-hidden rounded-xl bg-muted/30">
+              {preview ? (
+                preview.mime === "video/mp4" ? (
+                  <video
+                    key={preview.url}
+                    controls
+                    src={preview.url}
+                    className="max-h-[520px] w-full"
+                  />
+                ) : (
+                  <img
+                    src={preview.url}
+                    alt={dt("生成结果")}
+                    className="max-h-[520px] max-w-full object-contain"
+                  />
+                )
+              ) : (
+                <p className="p-6 text-center text-sm text-muted-foreground">
+                  {dt("生成完成后，从下方作品记录打开预览。")}
+                </p>
+              )}
+            </div>
+          </section>
+        </div>
       </div>
-      {message && (
+      {busy && view !== "create" && (
+        <p role="status" className="mt-3 rounded-xl border p-3 text-sm">
+          {dt("生成正在提交，请勿重复操作。切换视图不会取消任务。")}
+        </p>
+      )}
+      {waiting && view !== "history" && (
+        <button
+          type="button"
+          className="mt-3 text-sm underline underline-offset-4"
+          onClick={() => setView("history")}
+        >
+          {dt("有视频任务正在查询，查看我的作品")}
+        </button>
+      )}
+      {message && view !== "explore" && (
         <p
           role="status"
           className="mt-4 whitespace-pre-wrap rounded-lg border bg-muted/30 p-3 text-sm"
@@ -843,7 +998,13 @@ export function MediaStudioContent({ scope }: { scope: string }) {
           {dt(message)}
         </p>
       )}
-      <section className="mt-6 space-y-3">
+      <section
+        role={view === "history" ? "tabpanel" : undefined}
+        id="studio-panel-history"
+        aria-labelledby="studio-tab-history"
+        hidden={view === "explore"}
+        className="mt-6 space-y-3"
+      >
         <div className="flex items-center justify-between">
           <h2 className="font-medium">{dt("本机作品记录")}</h2>
           <Button

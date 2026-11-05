@@ -1,3 +1,4 @@
+import { MEDIA_INSPIRATION } from "@/lib/mediaInspiration";
 import {
   act,
   cleanup,
@@ -77,13 +78,16 @@ const profiles = [
   },
 ];
 let client: ReturnType<typeof createTestQueryClient>;
-function mount() {
+function mount(explore = false) {
   client = createTestQueryClient();
-  return render(
+  const view = render(
     <QueryClientProvider client={client}>
       <MediaStudioPage />
     </QueryClientProvider>,
   );
+  if (!explore)
+    fireEvent.click(screen.getByRole("tab", { name: "创作工作台" }));
+  return view;
 }
 beforeEach(() => {
   vi.clearAllMocks();
@@ -145,6 +149,145 @@ function pasteImages(files: File[], itemsOnly = false) {
     },
   });
 }
+
+describe("inspiration gallery", () => {
+  it("opens on original inspiration art and applies an authorized template without submitting", async () => {
+    mount(true);
+    expect(screen.getByRole("tab", { name: "灵感广场" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+    expect(screen.getByText(/配图为原创灵感插画/)).toBeVisible();
+    const use = await screen.findByRole("button", {
+      name: "使用 Sunburst 灵感",
+    });
+    await waitFor(() => expect(use).toBeEnabled());
+    fireEvent.click(use);
+    expect(screen.getByRole("textbox")).toHaveValue(
+      MEDIA_INSPIRATION[0].prompt,
+    );
+    expect(screen.getByRole("combobox", { name: "生成模型" })).toHaveValue(
+      "gpt-image-2.5-sunburst",
+    );
+    expect(mocks.submit).not.toHaveBeenCalled();
+    expect(mocks.preview).not.toHaveBeenCalled();
+    expect(mocks.prepareVideoReference).not.toHaveBeenCalled();
+    expect(screen.getByRole("status")).toHaveTextContent("尚未提交请求");
+    fireEvent.click(screen.getByRole("button", { name: "生成" }));
+    await waitFor(() => expect(mocks.submit).toHaveBeenCalledTimes(1));
+    expect(mocks.submit.mock.calls[0][0]).toMatchObject({
+      model: "gpt-image-2.5-sunburst",
+      reference: null,
+    });
+  });
+  it("keeps unavailable model cards browsable but cannot apply them", async () => {
+    mount(true);
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: "使用 Sunburst 灵感" }),
+      ).toBeEnabled(),
+    );
+    expect(
+      screen.getByRole("button", { name: "使用 Flare 灵感" }),
+    ).toBeDisabled();
+    fireEvent.click(
+      screen.getByRole("button", { name: "查看灵感：日常，也有诗意。" }),
+    );
+    expect(screen.getByRole("dialog")).toHaveTextContent("试试这样描述");
+    expect(screen.getByRole("dialog")).toHaveTextContent("非模型实测结果");
+    expect(mocks.submit).not.toHaveBeenCalled();
+  });
+  it("preserves draft and reference on cancelled replacement and clears only after confirmation", async () => {
+    mount();
+    await screen.findByRole("button", { name: "上传参考图（可选）" });
+    fireEvent.change(screen.getByRole("textbox"), {
+      target: { value: "my draft" },
+    });
+    pasteImages([clipboardImage("my-image")]);
+    await screen.findByRole("img", { name: "参考图" });
+    fireEvent.click(screen.getByRole("tab", { name: "灵感广场" }));
+    vi.mocked(window.confirm).mockReturnValueOnce(false);
+    fireEvent.click(screen.getByRole("button", { name: "使用 Sunburst 灵感" }));
+    expect(screen.getByRole("tab", { name: "灵感广场" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+    fireEvent.click(screen.getByRole("tab", { name: "创作工作台" }));
+    expect(screen.getByRole("textbox")).toHaveValue("my draft");
+    expect(screen.getByRole("img", { name: "参考图" })).toBeVisible();
+    fireEvent.click(screen.getByRole("tab", { name: "灵感广场" }));
+    fireEvent.click(screen.getByRole("button", { name: "使用 Sunburst 灵感" }));
+    expect(
+      screen.queryByRole("img", { name: "参考图" }),
+    ).not.toBeInTheDocument();
+    expect(mocks.submit).not.toHaveBeenCalled();
+  });
+  it("filters video ideas and brings Muse into a video draft with valid defaults", async () => {
+    mount(true);
+    fireEvent.click(screen.getByRole("button", { name: "镜头灵感" }));
+    expect(
+      screen.queryByRole("button", { name: "使用 Sunburst 灵感" }),
+    ).not.toBeInTheDocument();
+    const use = screen.getByRole("button", { name: "使用 Muse 灵感" });
+    await waitFor(() => expect(use).toBeEnabled());
+    fireEvent.click(use);
+    expect(screen.getByRole("tab", { name: "视频生成" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+    expect(screen.getByRole("combobox", { name: "生成模型" })).toHaveValue(
+      "muse-video",
+    );
+    expect(screen.getByRole("textbox")).toHaveValue(
+      MEDIA_INSPIRATION[3].prompt,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "生成" }));
+    await waitFor(() => expect(mocks.submit).toHaveBeenCalledTimes(1));
+    expect(mocks.submit.mock.calls[0][0]).toMatchObject({
+      model: "muse-video",
+      duration: 4,
+      reference: null,
+    });
+  });
+  it("does not replace a draft during submission even after navigating to gallery", async () => {
+    let done!: (record: MediaRecord) => void;
+    mocks.submit.mockImplementation(
+      () =>
+        new Promise((r) => {
+          done = r;
+        }),
+    );
+    mount();
+    await screen.findByRole("button", { name: "上传参考图（可选）" });
+    fireEvent.change(screen.getByRole("textbox"), {
+      target: { value: "busy draft" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "生成" }));
+    fireEvent.click(screen.getByRole("tab", { name: "灵感广场" }));
+    expect(
+      screen.getByRole("button", { name: "使用 Sunburst 灵感" }),
+    ).toBeDisabled();
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "切换视图不会取消任务",
+    );
+    await act(async () => done(item({ status: "completed" })));
+    fireEvent.click(screen.getByRole("tab", { name: "创作工作台" }));
+    expect(screen.getByRole("textbox")).toHaveValue("busy draft");
+  });
+  it("fails closed when the model directory errors and retains manual refresh", async () => {
+    mocks.models.mockRejectedValue(new Error("catalog failed"));
+    mount(true);
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "模型目录读取失败",
+    );
+    expect(
+      screen.getByRole("button", { name: "使用 Sunburst 灵感" }),
+    ).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "自由创作" }));
+    expect(screen.getByRole("button", { name: "刷新模型" })).toBeEnabled();
+    expect(mocks.submit).not.toHaveBeenCalled();
+  });
+});
 
 describe("reference image paste", () => {
   it("appends GPT clipboard images and submits only on Generate", async () => {
@@ -355,6 +498,7 @@ describe("reference image paste", () => {
             <MediaStudioPage />
           </QueryClientProvider>,
         );
+        fireEvent.click(screen.getByRole("tab", { name: "创作工作台" }));
         await screen.findByRole("button", { name: "上传参考图（可选）" });
       } else {
         fireEvent.change(screen.getByRole("combobox", { name: "生成模型" }), {
@@ -842,6 +986,11 @@ describe("media creation workflow", () => {
     );
     await act(async () => resolve(item({ message: "private-old-result" })));
     expect(screen.queryByText("private-old-result")).not.toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "灵感广场" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+    fireEvent.click(screen.getByRole("tab", { name: "创作工作台" }));
     expect(screen.getByRole("textbox")).toHaveValue("");
     expect(mocks.refresh).not.toHaveBeenCalled();
   });
