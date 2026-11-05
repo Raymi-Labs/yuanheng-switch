@@ -781,6 +781,7 @@ mod tests {
 
     #[test]
     #[allow(deprecated)] // set_var/remove_var deprecated since Rust 1.81; safe here under mutex
+    #[serial_test::serial]
     fn scan_sessions_sqlite_reads_temp_database() {
         let _guard = opencode_env_lock().lock().expect("lock");
         let temp = tempdir().expect("tempdir");
@@ -895,6 +896,7 @@ mod tests {
     }
 
     #[test]
+    #[serial_test::serial]
     fn delete_session_sqlite_removes_session() {
         let _guard = opencode_env_lock().lock().expect("lock");
         let temp = tempdir().expect("tempdir");
@@ -965,6 +967,7 @@ mod tests {
     }
 
     #[test]
+    #[serial_test::serial]
     fn delete_session_sqlite_rejects_foreign_db_path() {
         let _guard = opencode_env_lock().lock().expect("lock");
         let temp = tempdir().expect("tempdir");
