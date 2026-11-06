@@ -179,3 +179,9 @@ OpenCode    ─ 读 ─┤        + 同步账本            ├─ 写 ─ OpenC
 - 续聊转换后的会话整段重发历史、无缓存命中：弹窗"更多选项"显示预计消息数，默认范围已限制。
 - 目录编码、Codex Desktop 列表可见性、Claude Desktop 内置 Claude Code 的目录归属、OpenCode/Hermes schema 稳定性均未核验，列为各期首批任务，核验失败只调整写入位置不改交互。
 - 用户在多端同时续聊同一会话产生分叉：只提示不合并。
+
+## 2026-11-04 跨平台测试修正
+
+完整Windows CI暴露测试夹具把canonical Windows路径直接拼入JSON，反斜杠未转义导致源会话不可读；使用serde_json编码cwd，根目录断言按平台canonicalize，保留原同步/撤销断言，不跳过Windows用例。DSH writer锁文件常量按其消费函数加cfg(unix)，不改变平台锁行为。
+
+本机定向运行发现只覆盖TEST_HOME仍让OpenCode通过XDG/真实HOME读到用户来源，已明确告知用户，原始日志未上传；生成副本位于临时HOME并随测试销毁，未修改原会话。测试夹具补隔离XDG_DATA_HOME、HERMES_HOME、DSH_HOME、OPENCODE_DB，并重载隔离设置、Drop恢复环境与设置。不得把仅设置HOME等同于全部来源隔离。此修正不改生产会话同步逻辑。

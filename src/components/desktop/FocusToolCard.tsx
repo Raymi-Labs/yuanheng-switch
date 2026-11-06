@@ -1,3 +1,4 @@
+import { toolReasoningLevels } from "@/lib/agentReasoning";
 import { ToolInstallProgress } from "./ToolInstallProgress";
 import { CodexHistoryHint } from "./CodexHistoryHint";
 import { useEffect, useState, type ReactNode } from "react";
@@ -350,15 +351,15 @@ export function FocusToolCard({
   const isCodexSurface = app === "codex" || app === "chatgpt-desktop";
   const usesOfficialCodexAccount =
     isCodexSurface && codexAccountMode.data?.mode === "official";
-  const supportedReasoning = current
-    ? (connection?.reasoningLevels[current] ?? [])
-    : [];
+  const supportedReasoning = toolReasoningLevels(
+    app,
+    current ?? undefined,
+    current ? connection?.reasoningLevels[current] : [],
+  );
   const defaultReasoning = current
     ? connection?.reasoningDefaults?.[current]
     : undefined;
-  const showReasoning =
-    (app === "claude-desktop" || isCodexSurface) &&
-    supportedReasoning.length > 0;
+  const showReasoning = true;
   const selectedReasoning =
     currentReasoning === "auto" || supportedReasoning.includes(currentReasoning)
       ? currentReasoning
@@ -514,7 +515,7 @@ export function FocusToolCard({
             </p>
             <p className="mt-0.5 text-[9px] text-white/45">
               {usesOfficialCodexAccount
-                ? dt("使用 Codex 中已登录的 OpenAI 官方账号")
+                ? dt("重启 Codex 后使用 ChatGPT 官方账号登录")
                 : dt("使用元衡模型、分组与本地安全路由")}
             </p>
             <CodexHistoryHint status={codexAccountMode.data} />
@@ -546,6 +547,17 @@ export function FocusToolCard({
             })}
           </div>
         </div>
+      )}
+
+      {usesOfficialCodexAccount && (
+        <p
+          role="status"
+          className="relative mt-2 text-xs leading-relaxed text-white/70"
+        >
+          {dt(
+            "若当前使用 API Key，请先在 Codex 的账号菜单中退出登录，再选择 Sign in with ChatGPT；已登录官方账号可直接使用。",
+          )}
+        </p>
       )}
 
       <div className="relative mt-3">
@@ -598,7 +610,11 @@ export function FocusToolCard({
                     value: level,
                     label: reasoningLabel(level, defaultReasoning),
                   }))}
-                  disabled={pending || accioConfigurationBlocked(status)}
+                  disabled={
+                    pending ||
+                    !supportedReasoning.length ||
+                    accioConfigurationBlocked(status)
+                  }
                   triggerClassName="border-white/15 bg-white/[0.08] px-2.5 text-[10.5px] text-white transition-colors hover:bg-white/[0.12] focus:border-[#e9b67c]/70"
                   onChange={(level) =>
                     void applyReasoning(app, level as YuanhengReasoningLevel)
@@ -606,6 +622,13 @@ export function FocusToolCard({
                 />
               </label>
             )}
+            <p className="text-xs text-white/65">
+              {dt(
+                supportedReasoning.length
+                  ? "推理设置按各工具原生优先级生效；会话、环境变量或全局设置可能影响结果，必要时重开会话。"
+                  : "当前工具与模型组合暂无可写入的推理档位，请在工具内调整；不会伪装为已应用。",
+              )}
+            </p>
           </div>
         </div>
       )}

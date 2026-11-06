@@ -1,0 +1,39 @@
+{
+  "codex": {
+    "levels": null
+  },
+  "chatgpt-desktop": {
+    "levels": null
+  },
+  "claude-desktop": {
+    "levels": null
+  },
+  "grokbuild": {
+    "levels": null
+  },
+  "opencode": {
+    "levels": null
+  },
+  "hermes": {
+    "levels": null
+  },
+  "accio-work": {
+    "levels": null
+  },
+  "claude": {
+    "levels": ["low", "medium", "high", "xhigh", "max"]
+  },
+  "workbuddy": {
+    "levels": ["minimal", "low", "medium", "high", "xhigh", "max"]
+  },
+  "gemini": {
+    "levels": ["minimal", "low", "medium", "high"],
+    "modelPrefixes": ["gemini-3"]
+  },
+  "dsh": {
+    "levels": ["none", "minimal", "low", "medium", "high", "xhigh", "max"]
+  },
+  "openclaw": {
+    "levels": ["none", "minimal", "low", "medium", "high", "xhigh", "max"]
+  }
+}

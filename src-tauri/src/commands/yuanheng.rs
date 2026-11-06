@@ -1,5 +1,7 @@
 mod accio;
 mod account_http;
+mod browser_login;
+pub use browser_login::*;
 mod codex_login_guide;
 pub use codex_login_guide::*;
 #[cfg(any(target_os = "macos", test))]
@@ -12,6 +14,7 @@ mod imagegen_connection;
 mod imagegen_credentials;
 mod media_studio;
 mod model_catalog;
+mod reasoning;
 pub use media_studio::*;
 
 pub use desktop_feedback::*;
@@ -88,7 +91,6 @@ const CHATGPT_DESKTOP_NAMESPACE: &str = "chatgpt-desktop";
 const LOCAL_PROXY_TOKEN: &str = "PROXY_MANAGED";
 const NO_PREVIOUS_VALUE: &str = "__none__";
 const CODEX_OFFICIAL_PROVIDER_ID: &str = crate::database::CODEX_OFFICIAL_PROVIDER_ID;
-const CODEX_OFFICIAL_LOGIN_REQUIRED: &str = "未检测到 OpenAI 官方登录。中转账号请使用“元衡中转”；如需官方模式，请先在 Codex 中登录 ChatGPT 官方账号";
 
 /// Shared, bounded catalog sync. A failed refresh never destroys the last good
 /// account-scoped price book, and pricing failure cannot prevent tool use.
@@ -1591,6 +1593,7 @@ async fn login_with_credentials(
     username: &str,
     password: &str,
 ) -> Result<YuanhengAuthResult, String> {
+    browser_login::invalidate();
     validate_login_credentials(username, password)?;
     let client = yuanheng_client()?;
     let (value, headers) = post_json(
@@ -1765,6 +1768,25 @@ fn grokbuild_models_config(token: &str, selected: &str, available_models: &[Stri
     config
 }
 
+fn grokbuild_reasoning_config(token: &str, model: &str, models: &[String], level: &str) -> String {
+    let raw = grokbuild_models_config(token, model, models);
+    if level == "auto" {
+        return raw;
+    }
+    let mut config: toml::Value = toml::from_str(&raw).expect("generated Grok configuration");
+    if level != "auto" {
+        config["model"][model].as_table_mut().unwrap().insert(
+            "supports_reasoning_effort".into(),
+            toml::Value::Boolean(true),
+        );
+        config["model"][model]
+            .as_table_mut()
+            .unwrap()
+            .insert("reasoning_effort".into(), toml::Value::String(level.into()));
+    }
+    toml::to_string(&config).expect("generated Grok configuration")
+}
+
 fn provider_meta(app: &AppType, model: &str, reasoning: &str) -> ProviderMeta {
     let claude_api_format = yuanheng_model_api_format(model);
     let mut meta = ProviderMeta {
@@ -1822,8 +1844,40 @@ fn managed_provider_with_models(
     reasoning: &str,
 ) -> Result<Provider, String> {
     let catalog_models = terminal_catalog_models(model, available_models);
-    let settings = match app {
-        AppType::Claude | AppType::ClaudeDesktop => json!({
+    let mut settings = match app {
+        AppType::Claude => {
+            let role_model = |family: &str| {
+                catalog_models
+                    .iter()
+                    .find(|candidate| {
+                        candidate
+                            .to_ascii_lowercase()
+                            .contains(&format!("claude-{family}"))
+                    })
+                    .map(String::as_str)
+                    .unwrap_or(model)
+            };
+            json!({
+                "model": model,
+                "modelPicker": {
+                    "replaceBuiltInOptions": true,
+                    "options": catalog_models.iter().map(|candidate| json!({
+                        "model": candidate, "label": candidate
+                    })).collect::<Vec<_>>()
+                },
+                "env": {
+                    "ANTHROPIC_BASE_URL": BASE_URL,
+                    "ANTHROPIC_AUTH_TOKEN": token,
+                    "ANTHROPIC_API_KEY": "",
+                    "ANTHROPIC_MODEL": model,
+                    "ANTHROPIC_DEFAULT_HAIKU_MODEL": role_model("haiku"),
+                    "ANTHROPIC_DEFAULT_SONNET_MODEL": role_model("sonnet"),
+                    "ANTHROPIC_DEFAULT_OPUS_MODEL": role_model("opus"),
+                    "ANTHROPIC_DEFAULT_FABLE_MODEL": role_model("fable")
+                }
+            })
+        }
+        AppType::ClaudeDesktop => json!({
             "env": {
                 "ANTHROPIC_BASE_URL": BASE_URL,
                 "ANTHROPIC_AUTH_TOKEN": token,
@@ -1860,7 +1914,7 @@ fn managed_provider_with_models(
             }
         }),
         AppType::GrokBuild => json!({
-            "config": grokbuild_models_config(token, model, &catalog_models)
+            "config": grokbuild_reasoning_config(token, model, &catalog_models, reasoning)
         }),
         AppType::OpenCode => {
             let mut models = Map::new();
@@ -1900,6 +1954,7 @@ fn managed_provider_with_models(
         }),
     };
 
+    reasoning::project(app, model, reasoning, &mut settings);
     let mut provider = Provider::with_id(
         MANAGED_PROVIDER_ID.to_string(),
         MANAGED_PROVIDER_DISPLAY_NAME.to_string(),
@@ -2053,7 +2108,9 @@ fn codex_account_mode_status_inner(state: &AppState) -> Result<CodexAccountModeS
         "unknown"
     };
     let message = match mode {
-        "official" => Some("Codex CLI 与 Codex App 当前使用 OpenAI 官方账号".to_string()),
+        "official" => {
+            Some("Codex CLI 与 Codex App 已配置为官方模式，登录状态请在 Codex 中确认".to_string())
+        }
         "yuanheng" => Some("Codex CLI 与 Codex App 当前使用元衡中转".to_string()),
         _ => Some("Codex CLI 与 Codex App 的配置状态不一致，请重新选择使用方式".to_string()),
     };
@@ -2309,9 +2366,8 @@ fn switch_codex_account_mode_at_origin(
 
     let operation = (|| -> Result<(), String> {
         if target_mode == "official" {
-            if !codex_official_login_available()? {
-                return Err(CODEX_OFFICIAL_LOGIN_REQUIRED.to_string());
-            }
+            // Selecting a route must work before first login, including when
+            // Codex owns credentials in the OS keyring. Never mutate auth here.
             read_owned_codex_terminal_profile()?;
             state
                 .db
@@ -2375,7 +2431,7 @@ fn switch_codex_account_mode_at_origin(
     remember_tool_configured_at(state, CHATGPT_DESKTOP_NAMESPACE);
     status.restart_required = true;
     status.message = Some(if target_mode == "official" {
-        "已切换到 OpenAI 官方账号，请重启 Codex CLI 与 Codex App".to_string()
+        "已切换到 OpenAI 官方模式，请重启 Codex；若当前使用 API Key，请在 Codex 中退出登录后选择 Sign in with ChatGPT".to_string()
     } else {
         "已切换到元衡中转，请重启 Codex CLI 与 Codex App".to_string()
     });
@@ -2933,6 +2989,9 @@ fn provider_reasoning(provider: &Provider) -> Option<String> {
 }
 
 fn provider_schema_current(provider: &Provider, app: &AppType) -> bool {
+    if !reasoning::projection_current(provider, app) {
+        return false;
+    }
     if provider.name != MANAGED_PROVIDER_DISPLAY_NAME {
         return false;
     }
@@ -3029,7 +3088,11 @@ fn provider_schema_current(provider: &Provider, app: &AppType) -> bool {
             provider.settings_config.get("name").and_then(Value::as_str)
                 == Some(MANAGED_PROVIDER_DISPLAY_NAME)
         }
-        AppType::Claude | AppType::Gemini | AppType::OpenClaw => true,
+        AppType::Claude => provider_model(provider, app).is_some_and(|model| {
+            crate::proxy::model_mapper::managed_claude_catalog_contains(provider, &model)
+                && provider.settings_config["modelPicker"]["replaceBuiltInOptions"] == true
+        }),
+        AppType::Gemini | AppType::OpenClaw => true,
     }
 }
 
@@ -3342,7 +3405,14 @@ fn tool_status(
         || std::fs::read_to_string(codex_terminal_profile_path())
             .ok()
             .is_some_and(|config| config.contains("/codex/v1"));
-    let schema_current = provider_schema_current && surface_config_current;
+    let reasoning_current = provider.as_ref().is_none_or(|p| {
+        reasoning::current(
+            state,
+            app.as_str(),
+            &provider_reasoning(p).unwrap_or_else(|| "auto".into()),
+        )
+    });
+    let schema_current = provider_schema_current && surface_config_current && reasoning_current;
     let needs_update =
         provider.is_some() && (!live_selected || !credentials_current || !schema_current);
     let configured = provider.is_some() && !needs_update;
@@ -3496,6 +3566,19 @@ fn workbuddy_status(state: &AppState, connection: &YuanhengConnectionStatus) -> 
                         && workbuddy_config_covers_models(value, &expected_models)
                 })
         });
+    let reasoning = stored_model
+        .as_deref()
+        .and_then(|model| {
+            read_workbuddy_config().and_then(|v| {
+                v["models"]
+                    .as_array()?
+                    .iter()
+                    .find(|m| m["id"].as_str() == Some(model))?["reasoning"]["defaultEffort"]
+                    .as_str()
+                    .map(str::to_string)
+            })
+        })
+        .unwrap_or_else(|| "auto".into());
     let supported = recommended.is_some();
     YuanhengToolStatus {
         app: "workbuddy".to_string(),
@@ -3504,7 +3587,7 @@ fn workbuddy_status(state: &AppState, connection: &YuanhengConnectionStatus) -> 
         needs_update: was_managed && !configured,
         model: stored_model,
         group: stored_group,
-        reasoning: Some("auto".to_string()),
+        reasoning: Some(reasoning),
         recommended_model: recommended,
         message: if !supported {
             Some("账号中暂时没有可用于 WorkBuddy 的文本模型".to_string())
@@ -3838,28 +3921,34 @@ fn protect_workbuddy_config() -> Result<(), String> {
     Ok(())
 }
 
+#[cfg(test)]
 fn configure_workbuddy(
+    state: &AppState,
+    token: &str,
+    model: &str,
+    models: &[String],
+    group: &str,
+) -> Result<YuanhengToolConfigureResult, String> {
+    configure_workbuddy_reasoning(state, token, model, models, group, "auto")
+}
+fn configure_workbuddy_reasoning(
     state: &AppState,
     token: &str,
     model: &str,
     available_models: &[String],
     group: &str,
+    reasoning: &str,
 ) -> Result<YuanhengToolConfigureResult, String> {
+    let _reasoning_guard = reasoning::configuration_lock()?;
     remember_workbuddy_state(state)?;
     let catalog_models = terminal_catalog_models(model, available_models);
+    let profiles = load_local_reasoning_profiles();
     let config = json!({
-        "models": catalog_models.iter().map(|catalog_model| json!({
-            "id": catalog_model,
-            "name": catalog_model,
-            "vendor": MANAGED_PROVIDER_DISPLAY_NAME,
-            "url": format!("{OPENAI_BASE_URL}/chat/completions"),
-            "apiKey": token,
-            "maxInputTokens": 200000,
-            "maxOutputTokens": 8192,
-            "supportsToolCall": true,
-            "supportsImages": true
-        })).collect::<Vec<_>>(),
-        "availableModels": catalog_models
+        "models":catalog_models.iter().map(|id| {
+            let mut entry=reasoning::workbuddy_model(id,model,reasoning,&profiles);
+            entry["apiKey"]=json!(token); entry
+        }).collect::<Vec<_>>(),
+        "availableModels":catalog_models
     });
     crate::config::write_json_file(&workbuddy_config_path(), &config)
         .map_err(|error| format!("写入 WorkBuddy 配置失败: {error}"))?;
@@ -4038,6 +4127,13 @@ fn restore_managed_tools_inner(state: &AppState) -> Result<YuanhengDisconnectRes
     };
     let mut codex_restored = false;
     for app in AppType::all() {
+        if matches!(app, AppType::Gemini | AppType::Hermes | AppType::OpenClaw) {
+            if let Err(error) = reasoning::restore(state, app.as_str()) {
+                result.retained_tools.push(app.as_str().into());
+                result.warnings.push(error);
+                continue;
+            }
+        }
         match remove_managed_tool(state, app.clone()) {
             Ok(Some(true)) => {
                 codex_restored |= matches!(app, AppType::Codex);
@@ -4406,8 +4502,12 @@ async fn preflight_yuanheng_tool_at(
         );
     }
 
-    let reasoning =
-        resolve_reasoning_level(requested_reasoning, model, &connection.reasoning_levels);
+    let reasoning = reasoning::resolve(
+        app_name,
+        model,
+        requested_reasoning,
+        &connection.reasoning_levels,
+    );
     match reasoning {
         Ok(_) => push_preflight_check(
             &mut checks,
@@ -4539,7 +4639,7 @@ async fn preflight_yuanheng_tool_at(
         reasoning_supported: connection
             .reasoning_levels
             .get(model)
-            .is_some_and(|levels| !levels.is_empty()),
+            .is_some_and(|levels| !reasoning::tool_levels(app_name, model, levels).is_empty()),
         image_input: preflight_image_input(model).to_string(),
         checks,
         message: match status {
@@ -4552,6 +4652,43 @@ async fn preflight_yuanheng_tool_at(
 }
 
 fn configure_tool_with_models(
+    state: &AppState,
+    app: AppType,
+    token: &str,
+    model: &str,
+    models: &[String],
+    group: &str,
+    level: &str,
+) -> Result<YuanhengToolConfigureResult, String> {
+    let _reasoning_guard = reasoning::configuration_lock()?;
+    let change = reasoning::apply(state, app.as_str(), model, level)?;
+    match configure_tool_with_models_inner(state, app.clone(), token, model, models, group, level) {
+        Ok(mut result) => {
+            if !reasoning::current(state, app.as_str(), level) {
+                if let Some(change) = change {
+                    reasoning::rollback(state, app.as_str(), &change)?;
+                }
+                return Err("工具推理配置未通过写入后核验，请检查原生配置冲突".into());
+            }
+            if level != "auto" && matches!(app, AppType::Hermes) {
+                result.warnings.push("Hermes原生推理覆盖按模型名匹配，同模型的其他供应商也可能采用该默认值；会话设置优先。".into());
+            }
+            if level != "auto" {
+                result.warnings.push("推理设置按各工具原生优先级生效；会话、环境变量或全局设置可能影响结果，必要时重开会话。".into());
+            }
+            Ok(result)
+        }
+        Err(error) => {
+            if let Some(change) = change {
+                reasoning::rollback(state, app.as_str(), &change)
+                    .map_err(|restore| format!("{error}；推理配置恢复失败：{restore}"))?;
+            }
+            Err(error)
+        }
+    }
+}
+
+fn configure_tool_with_models_inner(
     state: &AppState,
     app: AppType,
     token: &str,
@@ -4707,13 +4844,10 @@ pub async fn switch_codex_account_mode(
         return Err("Codex 配置刚刚被其他程序修改，请重新检测后再切换".to_string());
     }
 
-    // 先完成所有只读前置校验，再启动 Core。这样登录缺失、配置冲突或
-    // 非法参数不会留下一个本次操作并不需要的后台服务。
+    // 先完成配置与拥有权校验，再启动 Core。官方登录由 Codex 管理，
+    // 缺少 auth.json 不能阻止首次登录或系统凭据库用户选择官方模式。
     read_owned_codex_terminal_profile()?;
     if mode == "official" {
-        if !codex_official_login_available()? {
-            return Err(CODEX_OFFICIAL_LOGIN_REQUIRED.to_string());
-        }
         let snapshot = capture_codex_mode_switch_snapshot(&state)?;
         build_codex_official_mode_config(
             snapshot.live_config.as_deref().unwrap_or_default(),
@@ -5541,12 +5675,17 @@ pub async fn configure_yuanheng_tools(
                 continue;
             }
         };
-        let reasoning = match resolve_reasoning_level(
+        let reasoning = match reasoning::resolve(
+            &app_name,
+            &model,
             requested_reasoning
                 .get(&app_name)
                 .map(String::as_str)
-                .or_else(|| previous.and_then(|item| item.reasoning.as_deref())),
-            &model,
+                .or_else(|| {
+                    previous
+                        .filter(|item| item.model.as_deref() == Some(model.as_str()))
+                        .and_then(|item| item.reasoning.as_deref())
+                }),
             &connection.reasoning_levels,
         ) {
             Ok(reasoning) => reasoning,
@@ -5568,7 +5707,7 @@ pub async fn configure_yuanheng_tools(
             group_models_cache.insert(group.clone(), fetched.clone());
             fetched
         };
-        let (group_models, group_models_warning) = match group_models_result {
+        let (mut group_models, group_models_warning) = match group_models_result {
             Ok(models) if models.iter().any(|item| item == &model) => {
                 (terminal_catalog_models(&model, &models), None)
             }
@@ -5619,6 +5758,9 @@ pub async fn configure_yuanheng_tools(
         };
         match verified_models {
             Ok(models) if models.iter().any(|item| item == &model) => {
+                if matches!(&app, AppType::Claude) {
+                    group_models.retain(|candidate| models.contains(candidate));
+                }
                 verified_token_models.insert(group.clone(), models);
             }
             result => {
@@ -5687,9 +5829,9 @@ pub async fn configure_yuanheng_tools(
         let configured = if app_name == crate::accio_work::SCOPE {
             accio::configure(&state, &token, &model, &group_models, &group, &reasoning)
         } else if app_name == "dsh" {
-            dsh::configure(&state, &token, &model, &group_models, &group)
+            dsh::configure_reasoning(&state, &token, &model, &group_models, &group, &reasoning)
         } else if is_workbuddy {
-            configure_workbuddy(&state, &token, &model, &group_models, &group)
+            configure_workbuddy_reasoning(&state, &token, &model, &group_models, &group, &reasoning)
         } else if matches!(&app, AppType::Codex) {
             configure_codex_surface(
                 &state,
@@ -5767,6 +5909,7 @@ pub async fn register_yuanheng(
     username: String,
     password: String,
 ) -> Result<YuanhengAuthResult, String> {
+    browser_login::invalidate();
     let username = username.trim();
     validate_registration_credentials(username, &password)?;
     let client = yuanheng_client()?;
@@ -5788,6 +5931,7 @@ pub async fn verify_yuanheng_two_factor(
     state: State<'_, AppState>,
     code: String,
 ) -> Result<YuanhengAuthResult, String> {
+    browser_login::invalidate();
     let code = code.trim();
     if code.is_empty() || code.len() > 64 || code.contains(['\n', '\r']) {
         return Err("请输入有效的两步验证码或备用码".to_string());
@@ -6038,6 +6182,7 @@ pub async fn open_yuanheng_pulse(
 
 #[tauri::command]
 pub fn sign_out_yuanheng(app: AppHandle, state: State<'_, AppState>) -> Result<bool, String> {
+    browser_login::invalidate();
     for label in [TOPUP_WINDOW_LABEL, PULSE_WINDOW_LABEL] {
         if let Some(window) = app.get_webview_window(label) {
             let _ = window.close();
@@ -6052,6 +6197,7 @@ pub async fn disconnect_yuanheng(
     app: AppHandle,
     state: State<'_, AppState>,
 ) -> Result<YuanhengDisconnectResult, String> {
+    browser_login::invalidate();
     for label in [TOPUP_WINDOW_LABEL, PULSE_WINDOW_LABEL] {
         if let Some(window) = app.get_webview_window(label) {
             let _ = window.close();
@@ -7774,6 +7920,182 @@ mod tests {
     }
 
     #[test]
+    #[serial]
+    fn claude_group_picker_writes_catalog_and_preserves_explicit_models() {
+        let (_home, state) = isolated_state();
+        let models: Vec<String> = [
+            "claude-opus-5-5",
+            "claude-opus-4-8",
+            "claude-sonnet-5",
+            "claude-haiku-4-5",
+            "gpt-6.1-sol",
+            "deepseek-v4-pro",
+            "claude-opus-5-5",
+            "gpt-image-1",
+        ]
+        .into_iter()
+        .map(String::from)
+        .collect();
+        let provider = managed_provider_with_models(
+            &AppType::Claude,
+            "synthetic",
+            &models[0],
+            &models,
+            "group-a",
+            "auto",
+        )
+        .unwrap();
+        let options = provider.settings_config["modelPicker"]["options"]
+            .as_array()
+            .unwrap();
+        assert_eq!(options.len(), 6);
+        assert_eq!(options[0]["model"], models[0]);
+        assert_eq!(
+            provider.settings_config["env"]["ANTHROPIC_DEFAULT_SONNET_MODEL"],
+            models[2]
+        );
+        assert_eq!(
+            provider.settings_config["env"]["ANTHROPIC_DEFAULT_HAIKU_MODEL"],
+            models[3]
+        );
+        for (model, format) in [
+            (&models[1], "anthropic"),
+            (&models[4], "openai_responses"),
+            (&models[5], "openai_chat"),
+        ] {
+            let body = json!({"model":model});
+            assert_eq!(
+                crate::proxy::model_mapper::apply_model_mapping(body.clone(), &provider).0,
+                body
+            );
+            assert_eq!(
+                crate::proxy::providers::get_claude_api_format_for_body(&provider, &body),
+                format
+            );
+        }
+        let mut legacy = provider.clone();
+        legacy
+            .settings_config
+            .as_object_mut()
+            .unwrap()
+            .remove("modelPicker");
+        assert!(!provider_schema_current(&legacy, &AppType::Claude));
+        assert!(provider_schema_current(&provider, &AppType::Claude));
+        state.db.set_config_snippet("claude", Some(r#"{"model":"old","modelPicker":{"options":[{"model":"old"}]},"env":{"ANTHROPIC_DEFAULT_OPUS_MODEL":"old","ANTHROPIC_DEFAULT_SONNET_MODEL_NAME":"old"},"permissions":{"allow":["Read"]}}"#.to_string())).unwrap();
+        configure_tool_with_models(
+            &state,
+            AppType::Claude,
+            "synthetic",
+            &models[0],
+            &models,
+            "group-a",
+            "auto",
+        )
+        .unwrap();
+        let live: Value =
+            crate::config::read_json_file(&crate::config::get_claude_settings_path()).unwrap();
+        assert_eq!(live["modelPicker"], provider.settings_config["modelPicker"]);
+        assert_eq!(live["env"]["ANTHROPIC_MODEL"], models[0]);
+        assert_eq!(live["env"]["ANTHROPIC_DEFAULT_OPUS_MODEL"], models[0]);
+        assert!(live["env"]
+            .get("ANTHROPIC_DEFAULT_SONNET_MODEL_NAME")
+            .is_none());
+        assert_eq!(live["permissions"]["allow"], json!(["Read"]));
+        // Reconfiguration replaces the old group's lineup instead of appending.
+        configure_tool_with_models(
+            &state,
+            AppType::Claude,
+            "synthetic",
+            "k3",
+            &["k3".into()],
+            "group-b",
+            "auto",
+        )
+        .unwrap();
+        let live: Value =
+            crate::config::read_json_file(&crate::config::get_claude_settings_path()).unwrap();
+        assert_eq!(
+            live["modelPicker"]["options"],
+            json!([{"model":"k3", "label":"k3"}])
+        );
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn claude_group_picker_routes_each_model_and_converts_responses() {
+        use axum::{extract::OriginalUri, routing::post, Json, Router};
+        let (_home, state) = isolated_state();
+        let received = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let capture = received.clone();
+        let upstream = Router::new().fallback(post(move |OriginalUri(uri): OriginalUri, Json(body): Json<Value>| {
+            let capture = capture.clone();
+            async move {
+                let model = body["model"].as_str().unwrap().to_string();
+                capture.lock().unwrap().push((uri.path().to_string(), model.clone()));
+                Json(match uri.path() {
+                    "/v1/responses" => json!({"id":"resp-test", "object":"response", "status":"completed", "model":model, "output":[{"id":"msg-test", "type":"message", "role":"assistant", "status":"completed", "content":[{"type":"output_text", "text":"ok"}]}], "usage":{"input_tokens":1,"output_tokens":1}}),
+                    "/v1/chat/completions" => json!({"id":"chat-test", "object":"chat.completion", "model":model,"choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":1}}),
+                    _ => json!({"id":"msg-test", "type":"message", "role":"assistant", "model":model,"content":[{"type":"text","text":"ok"}],"stop_reason":"end_turn","usage":{"input_tokens":1,"output_tokens":1}})
+                })
+            }
+        }));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move { axum::serve(listener, upstream).await.unwrap() });
+        let models: Vec<String> = [
+            "claude-opus-5-5",
+            "claude-opus-4-8",
+            "gpt-6.1-sol",
+            "deepseek-v4-pro",
+        ]
+        .into_iter()
+        .map(String::from)
+        .collect();
+        let mut provider = managed_provider_with_models(
+            &AppType::Claude,
+            "synthetic",
+            &models[0],
+            &models,
+            "group-a",
+            "auto",
+        )
+        .unwrap();
+        provider.settings_config["env"]["ANTHROPIC_BASE_URL"] = json!(format!("http://{address}"));
+        state.db.save_provider("claude", &provider).unwrap();
+        state
+            .db
+            .set_current_provider("claude", &provider.id)
+            .unwrap();
+        crate::settings::set_current_provider(&AppType::Claude, Some(&provider.id)).unwrap();
+        let mut config = state.db.get_proxy_config().await.unwrap();
+        config.listen_port = 0;
+        state.db.update_proxy_config(config).await.unwrap();
+        let proxy = state.proxy_service.start().await.unwrap();
+        let client = reqwest::Client::builder().no_proxy().build().unwrap();
+        for model in &models {
+            let response = client.post(format!("http://127.0.0.1:{}/v1/messages", proxy.port))
+                .json(&json!({"model":model,"max_tokens":16,"stream":false,"messages":[{"role":"user","content":"test"}]}))
+                .send().await.unwrap();
+            let status = response.status();
+            let body: Value = response.json().await.unwrap();
+            assert!(status.is_success(), "{model}: {body}");
+            assert_eq!(body["type"], "message", "{model}: {body}");
+            assert_eq!(body["content"][0]["text"], "ok", "{model}: {body}");
+        }
+        assert_eq!(
+            *received.lock().unwrap(),
+            vec![
+                ("/v1/messages".into(), models[0].clone()),
+                ("/v1/messages".into(), models[1].clone()),
+                ("/v1/responses".into(), models[2].clone()),
+                ("/v1/chat/completions".into(), models[3].clone())
+            ]
+        );
+        state.proxy_service.stop().await.unwrap();
+        server.abort();
+    }
+
+    #[test]
     fn builds_hidden_managed_configs_for_each_tool() {
         let cases = [
             (AppType::Claude, "claude-sonnet-4-6"),
@@ -9058,33 +9380,66 @@ mod tests {
 
     #[test]
     #[serial]
-    fn codex_account_mode_rejects_official_without_oauth_and_keeps_managed_state() {
-        let (_home, state) = isolated_state();
-        prepare_managed_codex_mode(&state, false);
-        let live_before = crate::codex_config::read_codex_config_text().unwrap();
-        let profile_before = std::fs::read_to_string(codex_terminal_profile_path()).unwrap();
+    fn codex_account_mode_allows_first_official_login_without_mutating_auth() {
+        for auth in [
+            None,
+            Some("{}"),
+            Some(r#"{"auth_mode":"apikey","OPENAI_API_KEY":"sk-relay-test"}"#),
+            Some("invalid-json"),
+        ] {
+            let (_home, state) = isolated_state();
+            prepare_managed_codex_mode(&state, false);
+            let path = crate::codex_config::get_codex_auth_path();
+            restore_optional_text_file(&path, auth).unwrap();
+            let providers_before =
+                [AppType::Codex.as_str(), CHATGPT_DESKTOP_NAMESPACE].map(|namespace| {
+                    managed_codex_provider_for_namespace(&state, namespace)
+                        .unwrap()
+                        .unwrap()
+                        .settings_config
+                });
 
-        let error = switch_codex_account_mode_at_origin(
-            &state,
-            "official",
-            Some("yuanheng"),
-            "http://127.0.0.1:15721",
-        )
-        .expect_err("没有 OAuth 时必须拒绝切换");
+            let official = switch_codex_account_mode_at_origin(
+                &state,
+                "official",
+                Some("yuanheng"),
+                "http://127.0.0.1:15721",
+            )
+            .expect("route selection must allow native first login");
+            assert_eq!(official.mode, "official");
+            assert!(!official.official_login_available);
+            assert!(official.restart_required);
+            assert!(official.message.unwrap().contains("Sign in with ChatGPT"));
+            assert!(!codex_terminal_profile_path().exists());
+            let live = crate::codex_config::read_codex_config_text().unwrap();
+            assert!(crate::codex_config::codex_config_has_official_proxy_route(
+                &live
+            ));
+            assert!(!live.contains("experimental_bearer_token"));
+            assert_eq!(std::fs::read_to_string(&path).ok().as_deref(), auth);
 
-        assert!(error.contains("未检测到 OpenAI 官方登录"));
-        assert_eq!(
-            crate::codex_config::read_codex_config_text().unwrap(),
-            live_before
-        );
-        assert_eq!(
-            std::fs::read_to_string(codex_terminal_profile_path()).unwrap(),
-            profile_before
-        );
-        assert_eq!(
-            ProviderService::current(&state, AppType::Codex).unwrap(),
-            MANAGED_PROVIDER_ID
-        );
+            let managed = switch_codex_account_mode_at_origin(
+                &state,
+                "yuanheng",
+                Some("official"),
+                "http://127.0.0.1:15721",
+            )
+            .unwrap();
+            assert_eq!(managed.mode, "yuanheng");
+            assert_eq!(std::fs::read_to_string(&path).ok().as_deref(), auth);
+            for (namespace, original) in [AppType::Codex.as_str(), CHATGPT_DESKTOP_NAMESPACE]
+                .into_iter()
+                .zip(providers_before)
+            {
+                assert_eq!(
+                    managed_codex_provider_for_namespace(&state, namespace)
+                        .unwrap()
+                        .unwrap()
+                        .settings_config,
+                    original
+                );
+            }
+        }
     }
 
     #[test]

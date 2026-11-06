@@ -89,6 +89,33 @@ function createSwitcher(
 }
 
 describe("FocusToolCard", () => {
+  it.each([
+    "claude",
+    "gemini",
+    "grokbuild",
+    "opencode",
+    "openclaw",
+    "hermes",
+    "workbuddy",
+    "dsh",
+    "accio-work",
+  ] as const)("shows and applies native reasoning for %s", (app) => {
+    const switcher = createSwitcher("ready");
+    const model = app === "gemini" ? "gemini-3-pro" : "gpt-6-astra";
+    switcher.rows = [app];
+    switcher.runnableRows = [app];
+    switcher.installedApps = new Set([app]);
+    switcher.models = { [app]: model };
+    switcher.connection!.models = [model];
+    switcher.connection!.reasoningLevels = { [model]: ["low", "high"] };
+    render(<FocusToolCard switcher={switcher} onOpenTools={vi.fn()} />);
+    const picker = screen.getByRole("combobox", { name: /推理等级/ });
+    expect(picker).toBeEnabled();
+    fireEvent.click(picker);
+    fireEvent.click(screen.getByRole("option", { name: "高" }));
+    expect(switcher.applyReasoning).toHaveBeenCalledWith(app, "high");
+  });
+
   it("launches an unverified installed Accio through the usual action", () => {
     const switcher = createSwitcher("ready");
     switcher.runnableRows = ["accio-work"];
@@ -415,6 +442,37 @@ describe("FocusToolCard", () => {
     fireEvent.click(directoryButton);
     expect(switcher.chooseLaunchDirectory).toHaveBeenCalledWith("claude");
   });
+
+  it.each(["codex", "chatgpt-desktop"] as const)(
+    "%s 未登录也可选择官方模式并查看登录步骤",
+    (app) => {
+      const switcher = createSwitcher("ready");
+      switcher.rows = [app];
+      switcher.runnableRows = [app];
+      switcher.installedApps = new Set([app]);
+      switcher.codexAccountMode.data!.mode = "yuanheng";
+      const { rerender } = render(
+        <FocusToolCard switcher={switcher} onOpenTools={vi.fn()} />,
+      );
+      const official = screen.getByRole("button", { name: "OpenAI 官方" });
+      expect(official).toBeEnabled();
+      fireEvent.click(official);
+      expect(switcher.switchCodexMode).toHaveBeenCalledWith("official");
+      switcher.codexAccountMode.data!.mode = "official";
+      rerender(<FocusToolCard switcher={switcher} onOpenTools={vi.fn()} />);
+      expect(
+        screen.getByText("重启 Codex 后使用 ChatGPT 官方账号登录"),
+      ).toBeVisible();
+      expect(screen.getByText(/若当前使用 API Key/)).toHaveTextContent(
+        "Sign in with ChatGPT",
+      );
+      expect(
+        screen.queryByText("使用 Codex 中已登录的 OpenAI 官方账号"),
+      ).not.toBeInTheDocument();
+      fireEvent.click(screen.getByRole("button", { name: "元衡中转" }));
+      expect(switcher.switchCodexMode).toHaveBeenCalledWith("yuanheng");
+    },
+  );
 
   it("官方模式隐藏元衡模型控件并允许切回中转", () => {
     const switcher = createSwitcher("ready");

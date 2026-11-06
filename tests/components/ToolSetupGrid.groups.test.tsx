@@ -59,6 +59,7 @@ vi.mock("@/lib/query/toolInventory", () => ({
       "chatgpt-desktop",
       "grok",
       "accio-work",
+      "workbuddy",
     ].map((name) => ({ name, version: "test" })),
     refetch: vi.fn(),
   }),
@@ -158,6 +159,23 @@ const chooseGroup = async (
 };
 
 describe("tool group restoration", () => {
+  it("WorkBuddy reasoning is a draft until configure and passes the selected effort", async () => {
+    mocks.statuses = [...mocks.statuses!, status("workbuddy")];
+    mocks.connection!.reasoningLevels = { "model-a": ["low", "high", "ultra"] };
+    render(<ToolSetupGrid />);
+    fireEvent.click(screen.getByLabelText("WorkBuddy 推理等级"));
+    expect(
+      screen.queryByRole("option", { name: "超高" }),
+    ).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("option", { name: "高" }));
+    expect(mocks.configure).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByLabelText("配置 WorkBuddy"));
+    await waitFor(() => expect(mocks.configure).toHaveBeenCalled());
+    expect(mocks.configure.mock.calls[0][0]).toMatchObject({
+      reasoning: { workbuddy: "high" },
+    });
+  });
+
   it("allows unknown Accio in individual and batch controls", async () => {
     mocks.statuses = [
       ...mocks.statuses!,

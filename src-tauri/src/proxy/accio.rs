@@ -24,6 +24,12 @@ use std::{
 const BODY_LIMIT: usize = 16 * 1024 * 1024;
 const EVENT_LIMIT: usize = 16 * 1024 * 1024;
 
+fn apply_default_reasoning(body: &mut Value, selected_model: &str, level: &str) {
+    if body.get("reasoning").is_none() && body["model"] == selected_model && level != "auto" {
+        body["reasoning"] = json!({"effort":level});
+    }
+}
+
 pub(super) fn routes() -> Router<ProxyState> {
     if crate::accio_work::EXPERIMENTAL_ENABLED {
         Router::new()
@@ -298,12 +304,7 @@ async fn handle(
         Ok(body) => body,
         Err(error) => return model_error(&error),
     };
-    if body.get("reasoning").is_none()
-        && body["model"] == profile.model
-        && profile.reasoning != "auto"
-    {
-        body["reasoning"] = json!({"effort":profile.reasoning});
-    }
+    apply_default_reasoning(&mut body, &profile.model, &profile.reasoning);
     // All official headers/body metadata have now been discarded.
     drop(input);
     let log_scope = profile.request_log_scope();
@@ -485,6 +486,20 @@ pub(super) fn convert_stream(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn managed_default_reaches_request_without_overriding_native_choice_or_other_model() {
+        let mut request = serde_json::json!({"model":"gpt-6-astra"});
+        super::apply_default_reasoning(&mut request, "gpt-6-astra", "high");
+        assert_eq!(request["reasoning"]["effort"], "high");
+        super::apply_default_reasoning(&mut request, "gpt-6-astra", "low");
+        assert_eq!(request["reasoning"]["effort"], "high");
+        for (model, level) in [("gpt-6-sol", "high"), ("gpt-6-astra", "auto")] {
+            let mut request = serde_json::json!({"model":model});
+            super::apply_default_reasoning(&mut request, "gpt-6-astra", level);
+            assert!(request.get("reasoning").is_none());
+        }
+    }
+
     use super::*;
     #[test]
     fn rejects_remote_origin_host_and_missing_peer() {

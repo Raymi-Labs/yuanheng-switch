@@ -302,7 +302,31 @@ impl ProxyService {
             ClaudeTakeoverAuthPolicy::PreserveExistingOrAuthToken
         };
         // Copilot/Codex 接管时 live config 可能还是旧供应商；显示模型必须跟随目标 provider。
-        let takeover_model_fields = if provider.uses_managed_account_auth() {
+        let platform_catalog = provider
+            .settings_config
+            .pointer("/env/ANTHROPIC_MODEL")
+            .and_then(Value::as_str)
+            .is_some_and(|model| {
+                crate::proxy::model_mapper::managed_claude_catalog_contains(provider, model)
+            });
+        let takeover_model_fields = if platform_catalog {
+            // Full catalog IDs must survive takeover; stable role aliases would
+            // collide with selectable versions and pin the session to Sonnet.
+            for key in ["model", "modelPicker"] {
+                config[key] = provider.settings_config[key].clone();
+            }
+            CLAUDE_MODEL_OVERRIDE_ENV_KEYS
+                .iter()
+                .filter_map(|key| {
+                    provider
+                        .settings_config
+                        .get("env")
+                        .and_then(|env| env.get(*key))
+                        .and_then(Value::as_str)
+                        .map(|value| (*key, value.to_string()))
+                })
+                .collect()
+        } else if provider.uses_managed_account_auth() {
             Self::build_claude_takeover_model_fields(&provider.settings_config)
         } else {
             Self::build_claude_takeover_model_fields(config)
@@ -3740,6 +3764,40 @@ mod tests {
             .expect("serialize models_cache"),
         )
         .expect("write models_cache.json");
+    }
+
+    #[test]
+    fn managed_claude_catalog_takeover_preserves_picker_and_default() {
+        let settings = json!({
+            "model":"claude-opus-5-5",
+            "modelPicker":{"replaceBuiltInOptions":true,"options":[{"model":"claude-opus-5-5"},{"model":"claude-opus-4-8"}]},
+            "env":{"ANTHROPIC_MODEL":"claude-opus-5-5","ANTHROPIC_DEFAULT_OPUS_MODEL":"claude-opus-5-5","ANTHROPIC_AUTH_TOKEN":"synthetic"}
+        });
+        let mut provider = Provider::with_id(
+            "yuanheng-managed".into(),
+            "元衡".into(),
+            settings.clone(),
+            None,
+        );
+        provider.category = Some("managed".into());
+        let mut live =
+            json!({"env":{"ANTHROPIC_MODEL":"old","ANTHROPIC_DEFAULT_SONNET_MODEL_NAME":"old"}});
+        ProxyService::apply_claude_takeover_fields_for_provider(
+            &mut live,
+            "http://127.0.0.1:12345",
+            &provider,
+        );
+        assert_eq!(live["modelPicker"], settings["modelPicker"]);
+        assert_eq!(live["model"], settings["model"]);
+        assert_eq!(live["env"]["ANTHROPIC_MODEL"], "claude-opus-5-5");
+        assert_eq!(
+            live["env"]["ANTHROPIC_DEFAULT_OPUS_MODEL"],
+            "claude-opus-5-5"
+        );
+        assert_eq!(live["env"]["ANTHROPIC_AUTH_TOKEN"], PROXY_TOKEN_PLACEHOLDER);
+        assert!(live["env"]
+            .get("ANTHROPIC_DEFAULT_SONNET_MODEL_NAME")
+            .is_none());
     }
 
     #[test]

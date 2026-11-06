@@ -3111,6 +3111,8 @@ impl ProviderService {
         ];
 
         const TOP_LEVEL_EXCLUDES: &[&str] = &[
+            "model",
+            "modelPicker",
             "apiBaseUrl",
             // Legacy model fields
             "primaryModel",

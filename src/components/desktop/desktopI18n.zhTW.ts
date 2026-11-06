@@ -1,8 +1,17 @@
 // Generated from the desktop Simplified Chinese source strings, then normalized for Taiwan terminology.
 import { MEDIA_ZH_TW } from "./mediaStudioTranslations";
 import { COMMERCE_ZH_TW } from "./accioCommerceTranslations";
+import { BROWSER_LOGIN_ZH_TW } from "./browserLoginTranslations";
 export const DESKTOP_ZH_TW: Record<string, string> = {
   ...COMMERCE_ZH_TW,
+  ...BROWSER_LOGIN_ZH_TW,
+  "推理设置按各工具原生优先级生效；会话、环境变量或全局设置可能影响结果，必要时重开会话。":
+    "推理設定按各工具原生優先順序生效；工作階段、環境變數或全域設定可能影響結果，必要時重開工作階段。",
+  "当前工具与模型组合暂无可写入的推理档位，请在工具内调整；不会伪装为已应用。":
+    "目前工具與模型組合暫無可寫入的推理檔位，請在工具內調整；不會偽裝為已套用。",
+  "TRAE 暂无已验证的外部推理配置入口；请在工具内核对，此处不会宣称已应用。":
+    "TRAE 暫無已驗證的外部推理設定入口；請在工具內核對，此處不會宣稱已套用。",
+
   "完成 Codex 首次登录": "完成 Codex 首次登入",
   "已为本次配置准备好平台令牌，无需再去平台创建。按下面步骤完成登录即可。":
     "已為本次設定準備好平台權杖，無需再去平台建立。依下列步驟完成登入即可。",
@@ -653,6 +662,10 @@ export const DESKTOP_ZH_TW: Record<string, string> = {
   正在读取本机工具与配置状态: "正在讀取本機工具與設定狀態",
   当前模型: "目前模型",
   使用方式: "使用方式",
+  "重启 Codex 后使用 ChatGPT 官方账号登录":
+    "重新啟動 Codex 後使用 ChatGPT 官方帳號登入",
+  "若当前使用 API Key，请先在 Codex 的账号菜单中退出登录，再选择 Sign in with ChatGPT；已登录官方账号可直接使用。":
+    "若目前使用 API Key，請先在 Codex 的帳號選單中登出，再選擇 Sign in with ChatGPT；已登入官方帳號可直接使用。",
   "OpenAI 官方账号": "OpenAI 官方帳號",
   "使用 Codex 中已登录的 OpenAI 官方账号":
     "使用 Codex 中已登入的 OpenAI 官方帳號",

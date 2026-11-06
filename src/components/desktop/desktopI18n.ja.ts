@@ -1,8 +1,17 @@
 // Japanese translations for the desktop Simplified Chinese source strings.
 import { MEDIA_JA } from "./mediaStudioTranslations";
 import { COMMERCE_JA } from "./accioCommerceTranslations";
+import { BROWSER_LOGIN_JA } from "./browserLoginTranslations";
 export const DESKTOP_JA: Record<string, string> = {
   ...COMMERCE_JA,
+  ...BROWSER_LOGIN_JA,
+  "推理设置按各工具原生优先级生效；会话、环境变量或全局设置可能影响结果，必要时重开会话。":
+    "推論設定は各ツールの優先順位に従います。セッション・環境変数・全体設定の影響を受けます。必要に応じて新規セッションを開始してください。",
+  "当前工具与模型组合暂无可写入的推理档位，请在工具内调整；不会伪装为已应用。":
+    "このツールとモデルの組み合わせでは推論レベルを書き込めません。ツール内で調整してください。適用済みとは表示しません。",
+  "TRAE 暂无已验证的外部推理配置入口；请在工具内核对，此处不会宣称已应用。":
+    "TRAEには検証済みの外部推論設定入口がありません。TRAE内で確認してください。適用済みとは表示しません。",
+
   "完成 Codex 首次登录": "Codex の初回ログインを完了",
   "已为本次配置准备好平台令牌，无需再去平台创建。按下面步骤完成登录即可。":
     "この設定用のプラットフォームトークンを用意しました。新しく作成せず、以下の手順でログインできます。",
@@ -691,6 +700,10 @@ export const DESKTOP_JA: Record<string, string> = {
   正在读取本机工具与配置状态: "ローカルツールと設定状態を読み込んでいます",
   当前模型: "現在のモデル",
   使用方式: "接続モード",
+  "重启 Codex 后使用 ChatGPT 官方账号登录":
+    "Codex を再起動し、ChatGPT アカウントでログイン",
+  "若当前使用 API Key，请先在 Codex 的账号菜单中退出登录，再选择 Sign in with ChatGPT；已登录官方账号可直接使用。":
+    "API Key を使用中の場合、Codex のアカウントメニューからログアウトし、Sign in with ChatGPT を選択してください。ChatGPT にログイン済みの場合はそのまま利用できます。",
   "OpenAI 官方账号": "OpenAI公式アカウント",
   "使用 Codex 中已登录的 OpenAI 官方账号":
     "Codexにログイン済みのOpenAI公式アカウントを使用",

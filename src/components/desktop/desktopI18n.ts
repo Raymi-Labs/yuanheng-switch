@@ -1,5 +1,6 @@
 import i18n from "@/i18n";
 import { COMMERCE_EN } from "./accioCommerceTranslations";
+import { BROWSER_LOGIN_EN } from "./browserLoginTranslations";
 import { MEDIA_EN } from "./mediaStudioTranslations";
 import { DESKTOP_JA } from "./desktopI18n.ja";
 import { DESKTOP_KO } from "./desktopI18n.ko";
@@ -9,6 +10,14 @@ type Values = Record<string, string | number | null | undefined>;
 
 export const DESKTOP_EN: Record<string, string> = {
   ...COMMERCE_EN,
+  ...BROWSER_LOGIN_EN,
+  "推理设置按各工具原生优先级生效；会话、环境变量或全局设置可能影响结果，必要时重开会话。":
+    "Reasoning follows each tool’s native precedence. Session, environment or global settings can affect the result; start a new session if needed.",
+  "当前工具与模型组合暂无可写入的推理档位，请在工具内调整；不会伪装为已应用。":
+    "No writable reasoning level is available for this tool/model combination. Adjust it in the tool; no application is claimed.",
+  "TRAE 暂无已验证的外部推理配置入口；请在工具内核对，此处不会宣称已应用。":
+    "No verified external reasoning configuration is available for TRAE. Check within TRAE; this setup does not claim to apply it.",
+
   "完成 Codex 首次登录": "Finish signing in to Codex",
   "已为本次配置准备好平台令牌，无需再去平台创建。按下面步骤完成登录即可。":
     "Your platform token is ready. Follow these steps to sign in; no need to create another token.",
@@ -688,6 +697,10 @@ export const DESKTOP_EN: Record<string, string> = {
   正在读取本机工具与配置状态: "Reading local tool and configuration status",
   当前模型: "Current Model",
   使用方式: "Connection Mode",
+  "重启 Codex 后使用 ChatGPT 官方账号登录":
+    "Restart Codex and sign in with your ChatGPT account",
+  "若当前使用 API Key，请先在 Codex 的账号菜单中退出登录，再选择 Sign in with ChatGPT；已登录官方账号可直接使用。":
+    "If you currently use an API key, log out from the account menu in Codex, then select Sign in with ChatGPT. If already signed in with ChatGPT, you can continue.",
   "OpenAI 官方账号": "OpenAI Official Account",
   "使用 Codex 中已登录的 OpenAI 官方账号":
     "Use the OpenAI account already signed in to Codex",

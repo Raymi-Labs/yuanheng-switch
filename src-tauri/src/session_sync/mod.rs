@@ -675,10 +675,10 @@ mod tests {
             normalize_project_dir("/nonexistent/dir/"),
             "/nonexistent/dir"
         );
-        assert_eq!(
-            normalize_project_dir("/"),
-            Path::new("/").canonicalize().unwrap().to_string_lossy()
-        );
+        let root = Path::new("/")
+            .canonicalize()
+            .unwrap_or_else(|_| PathBuf::from("/"));
+        assert_eq!(normalize_project_dir("/"), root.to_string_lossy());
         assert_eq!(normalize_project_dir("  "), "");
     }
 
@@ -776,8 +776,7 @@ mod e2e_tests {
 
     struct Home {
         dir: tempfile::TempDir,
-        previous: Option<std::ffi::OsString>,
-        extra_env: Vec<(&'static str, Option<std::ffi::OsString>)>,
+        previous: Vec<(&'static str, Option<std::ffi::OsString>)>,
     }
 
     impl Home {
@@ -788,40 +787,31 @@ mod e2e_tests {
 
     impl Drop for Home {
         fn drop(&mut self) {
-            for (key, value) in &self.extra_env {
+            for (name, value) in &self.previous {
                 match value {
-                    Some(value) => std::env::set_var(key, value),
-                    None => std::env::remove_var(key),
+                    Some(v) => std::env::set_var(name, v),
+                    None => std::env::remove_var(name),
                 }
             }
-            match &self.previous {
-                Some(v) => std::env::set_var("YUANHENG_SWITCH_TEST_HOME", v),
-                None => std::env::remove_var("YUANHENG_SWITCH_TEST_HOME"),
-            }
-            let _ = crate::settings::reload_settings();
+            crate::settings::reload_settings().expect("restore test settings");
         }
     }
 
     fn setup_home() -> Home {
-        let previous = std::env::var_os("YUANHENG_SWITCH_TEST_HOME");
         let dir = tempfile::tempdir().expect("home");
-        std::env::set_var("YUANHENG_SWITCH_TEST_HOME", dir.path());
-        let mut extra_env = Vec::new();
-        for (key, child) in [
-            ("XDG_DATA_HOME", "data"),
-            ("DSH_HOME", "dsh"),
-            ("META_API_CODEX_BIN", "no-codex-test-binary"),
-            ("META_API_OPENCODE_BIN", "no-opencode-test-binary"),
+        let mut previous = Vec::new();
+        for (name, relative) in [
+            ("YUANHENG_SWITCH_TEST_HOME", ""),
+            ("XDG_DATA_HOME", ".local/share"),
+            ("HERMES_HOME", ".hermes"),
+            ("DSH_HOME", ".dsh"),
+            ("OPENCODE_DB", ".local/share/opencode/opencode.db"),
         ] {
-            extra_env.push((key, std::env::var_os(key)));
-            std::env::set_var(key, dir.path().join(child));
+            previous.push((name, std::env::var_os(name)));
+            std::env::set_var(name, dir.path().join(relative));
         }
-        crate::settings::reload_settings().expect("isolated settings");
-        Home {
-            dir,
-            previous,
-            extra_env,
-        }
+        crate::settings::reload_settings().expect("isolated test settings");
+        Home { dir, previous }
     }
 
     fn write_codex_source(home: &Path, project: &Path) -> PathBuf {

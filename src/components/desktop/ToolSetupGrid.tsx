@@ -1,3 +1,4 @@
+import { toolReasoningLevels } from "@/lib/agentReasoning";
 import { ToolInstallProgress } from "./ToolInstallProgress";
 import { AccioConnectionNotice } from "./AccioConnectionNotice";
 import { TraeSetupGuide } from "./TraeSetupGuide";
@@ -290,7 +291,9 @@ function ToolSetupGridContent({
 
   const selectedReasoningFor = (app: YuanhengToolId, model?: string | null) => {
     const selected = reasoning[app] ?? "auto";
-    const supported = model ? (connection?.reasoningLevels[model] ?? []) : [];
+    const supported = model
+      ? toolReasoningLevels(app, model, connection?.reasoningLevels[model])
+      : [];
     return selected === "auto" || supported.includes(selected)
       ? selected
       : "auto";
@@ -838,7 +841,11 @@ function ToolSetupGridContent({
             models[app] ?? status?.recommendedModel ?? undefined;
           const selectedGroup = groups[app];
           const supportedReasoning = selectedModel
-            ? (connection?.reasoningLevels[selectedModel] ?? [])
+            ? toolReasoningLevels(
+                app,
+                selectedModel,
+                connection?.reasoningLevels[selectedModel],
+              )
             : [];
           const defaultReasoning = selectedModel
             ? connection?.reasoningDefaults?.[selectedModel]
@@ -848,10 +855,7 @@ function ToolSetupGridContent({
             ...supportedReasoning,
           ];
           const selectedReasoning = selectedReasoningFor(app, selectedModel);
-          const controlsReasoning =
-            app === "claude-desktop" ||
-            app === "codex" ||
-            app === "chatgpt-desktop";
+          const controlsReasoning = true;
           const supportsCustomPath = isDesktopApp(app);
           const supportsLaunchDirectory = isYuanhengCliTool(app);
           const launchDirectory = launchDirectoryState.directories[app];
@@ -1161,8 +1165,11 @@ function ToolSetupGridContent({
                       setModels((current) => ({ ...current, [app]: model }));
                       setGroups((current) => ({ ...current, [app]: group }));
                       setReasoning((current) => {
-                        const supported =
-                          connection.reasoningLevels[model] ?? [];
+                        const supported = toolReasoningLevels(
+                          app,
+                          model,
+                          connection.reasoningLevels[model],
+                        );
                         const selected = current[app] ?? "auto";
                         return selected === "auto" ||
                           supported.includes(selected)
@@ -1211,6 +1218,13 @@ function ToolSetupGridContent({
                       />
                     </div>
                   )}
+                  <p className="mt-1 text-[10px] text-muted-foreground">
+                    {dt(
+                      supportedReasoning.length
+                        ? "推理设置按各工具原生优先级生效；会话、环境变量或全局设置可能影响结果，必要时重开会话。"
+                        : "当前工具与模型组合暂无可写入的推理档位，请在工具内调整；不会伪装为已应用。",
+                    )}
+                  </p>
                   {app === "claude-desktop" && (
                     <p className="mt-2 text-[9px] leading-4 text-amber-700 dark:text-amber-300">
                       {dt(
