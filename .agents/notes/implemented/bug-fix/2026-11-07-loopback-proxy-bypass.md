@@ -30,7 +30,7 @@ macOS 通过 KERN_PROCARGS2 核对实际环境，只返回进程数和保护布�
 
 原生 LaunchServices 合成应用验收通过显式 --env 启动、普通 GUI 启动继承、实际进程检查、受控退出、用户 LaunchAgent 应用/撤销及原值恢复；没有重启用户真实 Codex。隔离登录脚本 6 项通过，覆盖原值、大小写、重复执行、重新登录新条目、冲突、写入/恢复部分失败及特殊字符；纳入 CI。4 项 Rust 代理测试通过，另有显式原生 QA 与子进程 fixture 默认忽略。前端新增 4 项显式操作边界测试通过；全量 1315 项通过。本机 Node 25 原生 localStorage 干扰旧测试，使用 NODE_OPTIONS=--no-experimental-webstorage 后通过，与 CI Node 20 行为一致，不改业务代码绕过断言。
 
-Rust 全量 2706 项单元与 116 项集成测试通过（10 项既有/夹具忽略）；最终代理定向测试、Clippy、类型、格式、renderer/Core 构建、版本与笔记检查通过。发布与三平台安装包结果以 GitHub 工作流为准。
+Rust 全量 2706 项单元与 116 项集成测试通过（10 项既有/夹具忽略）；最终代理定向测试、Clippy、类型、格式、renderer/Core 构建、版本与笔记检查通过。远端 Linux Clippy 发现非 macOS 分支的 needless_return；修正该分支并停止未公开的 v0.2.1 发布，后续版本为 v0.2.2，不移动旧标签。发布与三平台安装包结果以 GitHub 工作流为准。
 
 ## Consequences
 

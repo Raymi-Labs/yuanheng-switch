@@ -133,7 +133,7 @@ pub async fn set_loopback_proxy_compatibility(
         #[cfg(not(target_os = "macos"))]
         {
             let _ = enabled;
-            return Err("当前平台不支持用户登录环境修复".into());
+            Err("当前平台不支持用户登录环境修复".into())
         }
         #[cfg(target_os = "macos")]
         status()
