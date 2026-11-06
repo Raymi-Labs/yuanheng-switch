@@ -695,6 +695,10 @@ export const DESKTOP_EN: Record<string, string> = {
   正在读取本机工具与配置状态: "Reading local tool and configuration status",
   当前模型: "Current Model",
   使用方式: "Connection Mode",
+  "重启 Codex 后使用 ChatGPT 官方账号登录":
+    "Restart Codex and sign in with your ChatGPT account",
+  "若当前使用 API Key，请先在 Codex 的账号菜单中退出登录，再选择 Sign in with ChatGPT；已登录官方账号可直接使用。":
+    "If you currently use an API key, log out from the account menu in Codex, then select Sign in with ChatGPT. If already signed in with ChatGPT, you can continue.",
   "OpenAI 官方账号": "OpenAI Official Account",
   "使用 Codex 中已登录的 OpenAI 官方账号":
     "Use the OpenAI account already signed in to Codex",

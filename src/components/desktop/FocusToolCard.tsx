@@ -515,7 +515,7 @@ export function FocusToolCard({
             </p>
             <p className="mt-0.5 text-[9px] text-white/45">
               {usesOfficialCodexAccount
-                ? dt("使用 Codex 中已登录的 OpenAI 官方账号")
+                ? dt("重启 Codex 后使用 ChatGPT 官方账号登录")
                 : dt("使用元衡模型、分组与本地安全路由")}
             </p>
             <CodexHistoryHint status={codexAccountMode.data} />
@@ -547,6 +547,17 @@ export function FocusToolCard({
             })}
           </div>
         </div>
+      )}
+
+      {usesOfficialCodexAccount && (
+        <p
+          role="status"
+          className="relative mt-2 text-xs leading-relaxed text-white/70"
+        >
+          {dt(
+            "若当前使用 API Key，请先在 Codex 的账号菜单中退出登录，再选择 Sign in with ChatGPT；已登录官方账号可直接使用。",
+          )}
+        </p>
       )}
 
       <div className="relative mt-3">

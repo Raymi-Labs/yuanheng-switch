@@ -1054,43 +1054,55 @@ describe("useModelSwitchCenter", () => {
     expect(result.current.restartRequiredApps.size).toBe(0);
   });
 
-  it("switches Codex to official mode without reapplying Yuanheng on launch", async () => {
-    const { wrapper } = createWrapper();
-    const { result } = renderHook(() => useModelSwitchCenter(), { wrapper });
+  it.each([true, false])(
+    "switches Codex to official mode without reapplying Yuanheng on launch (login observed: %s)",
+    async (officialLoginAvailable) => {
+      const original = invokeMock.getMockImplementation()!;
+      invokeMock.mockImplementation(async (command, payload) => {
+        const response = await original(command, payload);
+        return ["get_codex_account_mode", "switch_codex_account_mode"].includes(
+          command,
+        )
+          ? { ...response, officialLoginAvailable }
+          : response;
+      });
+      const { wrapper } = createWrapper();
+      const { result } = renderHook(() => useModelSwitchCenter(), { wrapper });
 
-    await waitFor(() => {
-      expect(result.current.codexAccountMode.data?.mode).toBe("yuanheng");
-    });
+      await waitFor(() => {
+        expect(result.current.codexAccountMode.data?.mode).toBe("yuanheng");
+      });
 
-    await act(async () => {
-      await result.current.switchCodexMode("official");
-    });
+      await act(async () => {
+        await result.current.switchCodexMode("official");
+      });
 
-    expect(invokeMock).toHaveBeenCalledWith("switch_codex_account_mode", {
-      mode: "official",
-      expectedMode: "yuanheng",
-    });
-    await waitFor(() => {
-      expect(result.current.restartRequiredApps.has("codex")).toBe(false);
-      expect(result.current.restartRequiredApps.has("chatgpt-desktop")).toBe(
-        true,
+      expect(invokeMock).toHaveBeenCalledWith("switch_codex_account_mode", {
+        mode: "official",
+        expectedMode: "yuanheng",
+      });
+      await waitFor(() => {
+        expect(result.current.restartRequiredApps.has("codex")).toBe(false);
+        expect(result.current.restartRequiredApps.has("chatgpt-desktop")).toBe(
+          true,
+        );
+      });
+
+      invokeMock.mockClear();
+      await act(async () => {
+        await result.current.launch("codex");
+      });
+
+      expect(invokeMock).not.toHaveBeenCalledWith(
+        "configure_yuanheng_tools",
+        expect.anything(),
       );
-    });
-
-    invokeMock.mockClear();
-    await act(async () => {
-      await result.current.launch("codex");
-    });
-
-    expect(invokeMock).not.toHaveBeenCalledWith(
-      "configure_yuanheng_tools",
-      expect.anything(),
-    );
-    expect(invokeMock).toHaveBeenCalledWith("launch_tool", {
-      tool: "codex",
-      restart: false,
-    });
-  });
+      expect(invokeMock).toHaveBeenCalledWith("launch_tool", {
+        tool: "codex",
+        restart: false,
+      });
+    },
+  );
   it("rejects an explicit unsupported native effort rather than silently applying auto", async () => {
     connection.reasoningLevels = { "model-a": ["low", "ultra"] };
     const { wrapper } = createWrapper();

@@ -660,6 +660,10 @@ export const DESKTOP_ZH_TW: Record<string, string> = {
   正在读取本机工具与配置状态: "正在讀取本機工具與設定狀態",
   当前模型: "目前模型",
   使用方式: "使用方式",
+  "重启 Codex 后使用 ChatGPT 官方账号登录":
+    "重新啟動 Codex 後使用 ChatGPT 官方帳號登入",
+  "若当前使用 API Key，请先在 Codex 的账号菜单中退出登录，再选择 Sign in with ChatGPT；已登录官方账号可直接使用。":
+    "若目前使用 API Key，請先在 Codex 的帳號選單中登出，再選擇 Sign in with ChatGPT；已登入官方帳號可直接使用。",
   "OpenAI 官方账号": "OpenAI 官方帳號",
   "使用 Codex 中已登录的 OpenAI 官方账号":
     "使用 Codex 中已登入的 OpenAI 官方帳號",
