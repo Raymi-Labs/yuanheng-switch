@@ -51,6 +51,9 @@ pub(super) fn validate_codex_official_authorization(
         Some(value) if value.contains(PROXY_AUTH_PLACEHOLDER) => Err(ProxyError::AuthError(
             "已切换到 OpenAI 官方供应商，请重启 Codex 或新建会话以加载官方登录配置".to_string(),
         )),
+        Some(value) if value.split_whitespace().nth(1).is_some_and(|token| token.starts_with("sk-")) => Err(ProxyError::AuthError(
+            "官方账号模式需要 ChatGPT 登录；请在 Codex 中退出 API Key 登录，再选择 Sign in with ChatGPT".to_string(),
+        )),
         Some(_) => Ok(()),
     }
 }
@@ -4675,6 +4678,28 @@ mod tests {
         let error = validate_codex_official_authorization(&headers)
             .expect_err("stale placeholder must be rejected");
         assert!(matches!(error, ProxyError::AuthError(message) if message.contains("重启 Codex")));
+    }
+
+    #[test]
+    fn official_codex_rejects_api_keys_but_preserves_native_oauth() {
+        for key in ["sk-relay-test", "sk-proj-official-api-test"] {
+            let mut headers = HeaderMap::new();
+            headers.insert(
+                http::header::AUTHORIZATION,
+                HeaderValue::from_str(&format!("Bearer {key}")).unwrap(),
+            );
+            let error = validate_codex_official_authorization(&headers).unwrap_err();
+            assert!(
+                matches!(error, ProxyError::AuthError(message) if message.contains("Sign in with ChatGPT") && !message.contains(key))
+            );
+        }
+        let mut headers = HeaderMap::new();
+        assert!(validate_codex_official_authorization(&headers).is_err());
+        headers.insert(
+            http::header::AUTHORIZATION,
+            HeaderValue::from_static("Bearer native-oauth-test"),
+        );
+        assert!(validate_codex_official_authorization(&headers).is_ok());
     }
 
     #[test]

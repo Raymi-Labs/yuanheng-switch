@@ -683,6 +683,10 @@ export const DESKTOP_KO: Record<string, string> = {
   正在读取本机工具与配置状态: "로컬 도구 및 구성 상태 읽기",
   当前模型: "현재 모델",
   使用方式: "연결 모드",
+  "重启 Codex 后使用 ChatGPT 官方账号登录":
+    "Codex를 다시 시작한 후 ChatGPT 계정으로 로그인",
+  "若当前使用 API Key，请先在 Codex 的账号菜单中退出登录，再选择 Sign in with ChatGPT；已登录官方账号可直接使用。":
+    "현재 API Key를 사용 중이면 Codex 계정 메뉴에서 로그아웃한 후 Sign in with ChatGPT를 선택하세요. 이미 ChatGPT에 로그인했다면 바로 사용할 수 있습니다.",
   "OpenAI 官方账号": "OpenAI 공식 계정",
   "使用 Codex 中已登录的 OpenAI 官方账号":
     "Codex에 로그인된 OpenAI 공식 계정 사용",

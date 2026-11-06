@@ -1167,6 +1167,14 @@ mod tests {
             prepare_request(&official(), &uri, &headers),
             Err(ProxyError::AuthError(_))
         ));
+        headers.insert(
+            "authorization",
+            HeaderValue::from_static("Bearer sk-relay-test"),
+        );
+        assert!(matches!(
+            prepare_request(&official(), &uri, &headers),
+            Err(ProxyError::AuthError(_))
+        ));
         let provider = Provider::with_id(
             "api".into(),
             "API".into(),

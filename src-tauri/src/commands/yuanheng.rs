@@ -91,7 +91,6 @@ const CHATGPT_DESKTOP_NAMESPACE: &str = "chatgpt-desktop";
 const LOCAL_PROXY_TOKEN: &str = "PROXY_MANAGED";
 const NO_PREVIOUS_VALUE: &str = "__none__";
 const CODEX_OFFICIAL_PROVIDER_ID: &str = crate::database::CODEX_OFFICIAL_PROVIDER_ID;
-const CODEX_OFFICIAL_LOGIN_REQUIRED: &str = "未检测到 OpenAI 官方登录。中转账号请使用“元衡中转”；如需官方模式，请先在 Codex 中登录 ChatGPT 官方账号";
 
 /// Shared, bounded catalog sync. A failed refresh never destroys the last good
 /// account-scoped price book, and pricing failure cannot prevent tool use.
@@ -2109,7 +2108,9 @@ fn codex_account_mode_status_inner(state: &AppState) -> Result<CodexAccountModeS
         "unknown"
     };
     let message = match mode {
-        "official" => Some("Codex CLI 与 Codex App 当前使用 OpenAI 官方账号".to_string()),
+        "official" => {
+            Some("Codex CLI 与 Codex App 已配置为官方模式，登录状态请在 Codex 中确认".to_string())
+        }
         "yuanheng" => Some("Codex CLI 与 Codex App 当前使用元衡中转".to_string()),
         _ => Some("Codex CLI 与 Codex App 的配置状态不一致，请重新选择使用方式".to_string()),
     };
@@ -2365,9 +2366,8 @@ fn switch_codex_account_mode_at_origin(
 
     let operation = (|| -> Result<(), String> {
         if target_mode == "official" {
-            if !codex_official_login_available()? {
-                return Err(CODEX_OFFICIAL_LOGIN_REQUIRED.to_string());
-            }
+            // Selecting a route must work before first login, including when
+            // Codex owns credentials in the OS keyring. Never mutate auth here.
             read_owned_codex_terminal_profile()?;
             state
                 .db
@@ -2431,7 +2431,7 @@ fn switch_codex_account_mode_at_origin(
     remember_tool_configured_at(state, CHATGPT_DESKTOP_NAMESPACE);
     status.restart_required = true;
     status.message = Some(if target_mode == "official" {
-        "已切换到 OpenAI 官方账号，请重启 Codex CLI 与 Codex App".to_string()
+        "已切换到 OpenAI 官方模式，请重启 Codex；若当前使用 API Key，请在 Codex 中退出登录后选择 Sign in with ChatGPT".to_string()
     } else {
         "已切换到元衡中转，请重启 Codex CLI 与 Codex App".to_string()
     });
@@ -4844,13 +4844,10 @@ pub async fn switch_codex_account_mode(
         return Err("Codex 配置刚刚被其他程序修改，请重新检测后再切换".to_string());
     }
 
-    // 先完成所有只读前置校验，再启动 Core。这样登录缺失、配置冲突或
-    // 非法参数不会留下一个本次操作并不需要的后台服务。
+    // 先完成配置与拥有权校验，再启动 Core。官方登录由 Codex 管理，
+    // 缺少 auth.json 不能阻止首次登录或系统凭据库用户选择官方模式。
     read_owned_codex_terminal_profile()?;
     if mode == "official" {
-        if !codex_official_login_available()? {
-            return Err(CODEX_OFFICIAL_LOGIN_REQUIRED.to_string());
-        }
         let snapshot = capture_codex_mode_switch_snapshot(&state)?;
         build_codex_official_mode_config(
             snapshot.live_config.as_deref().unwrap_or_default(),
@@ -9383,33 +9380,66 @@ mod tests {
 
     #[test]
     #[serial]
-    fn codex_account_mode_rejects_official_without_oauth_and_keeps_managed_state() {
-        let (_home, state) = isolated_state();
-        prepare_managed_codex_mode(&state, false);
-        let live_before = crate::codex_config::read_codex_config_text().unwrap();
-        let profile_before = std::fs::read_to_string(codex_terminal_profile_path()).unwrap();
+    fn codex_account_mode_allows_first_official_login_without_mutating_auth() {
+        for auth in [
+            None,
+            Some("{}"),
+            Some(r#"{"auth_mode":"apikey","OPENAI_API_KEY":"sk-relay-test"}"#),
+            Some("invalid-json"),
+        ] {
+            let (_home, state) = isolated_state();
+            prepare_managed_codex_mode(&state, false);
+            let path = crate::codex_config::get_codex_auth_path();
+            restore_optional_text_file(&path, auth).unwrap();
+            let providers_before =
+                [AppType::Codex.as_str(), CHATGPT_DESKTOP_NAMESPACE].map(|namespace| {
+                    managed_codex_provider_for_namespace(&state, namespace)
+                        .unwrap()
+                        .unwrap()
+                        .settings_config
+                });
 
-        let error = switch_codex_account_mode_at_origin(
-            &state,
-            "official",
-            Some("yuanheng"),
-            "http://127.0.0.1:15721",
-        )
-        .expect_err("没有 OAuth 时必须拒绝切换");
+            let official = switch_codex_account_mode_at_origin(
+                &state,
+                "official",
+                Some("yuanheng"),
+                "http://127.0.0.1:15721",
+            )
+            .expect("route selection must allow native first login");
+            assert_eq!(official.mode, "official");
+            assert!(!official.official_login_available);
+            assert!(official.restart_required);
+            assert!(official.message.unwrap().contains("Sign in with ChatGPT"));
+            assert!(!codex_terminal_profile_path().exists());
+            let live = crate::codex_config::read_codex_config_text().unwrap();
+            assert!(crate::codex_config::codex_config_has_official_proxy_route(
+                &live
+            ));
+            assert!(!live.contains("experimental_bearer_token"));
+            assert_eq!(std::fs::read_to_string(&path).ok().as_deref(), auth);
 
-        assert!(error.contains("未检测到 OpenAI 官方登录"));
-        assert_eq!(
-            crate::codex_config::read_codex_config_text().unwrap(),
-            live_before
-        );
-        assert_eq!(
-            std::fs::read_to_string(codex_terminal_profile_path()).unwrap(),
-            profile_before
-        );
-        assert_eq!(
-            ProviderService::current(&state, AppType::Codex).unwrap(),
-            MANAGED_PROVIDER_ID
-        );
+            let managed = switch_codex_account_mode_at_origin(
+                &state,
+                "yuanheng",
+                Some("official"),
+                "http://127.0.0.1:15721",
+            )
+            .unwrap();
+            assert_eq!(managed.mode, "yuanheng");
+            assert_eq!(std::fs::read_to_string(&path).ok().as_deref(), auth);
+            for (namespace, original) in [AppType::Codex.as_str(), CHATGPT_DESKTOP_NAMESPACE]
+                .into_iter()
+                .zip(providers_before)
+            {
+                assert_eq!(
+                    managed_codex_provider_for_namespace(&state, namespace)
+                        .unwrap()
+                        .unwrap()
+                        .settings_config,
+                    original
+                );
+            }
+        }
     }
 
     #[test]
