@@ -37,6 +37,8 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog";
 
+import { LoopbackProxyCompatibility } from "./LoopbackProxyCompatibility";
+
 interface YuanhengHealthCardProps {
   compact?: boolean;
   initiallyExpanded?: boolean;
@@ -408,6 +410,7 @@ export function YuanhengHealthCard({
               "默认体检不调用模型、不测试收费推理；服务运行、网关认证和桌面工作区是不同检查项。失败时可预览并导出同一份脱敏诊断。",
             )}
           </p>
+          <LoopbackProxyCompatibility />
           {report.checks.map((check) => (
             <div
               key={check.id}

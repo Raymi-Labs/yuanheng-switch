@@ -245,6 +245,16 @@ export interface YuanhengDiagnosticCheck {
     | null;
 }
 
+export interface LoopbackProxyCompatibility {
+  supported: boolean;
+  installed: boolean;
+  loginEnvironmentProtected: boolean;
+  desktopProcesses: number;
+  backendProcesses: number;
+  protectedProcesses: number;
+  unverifiedProcesses: number;
+}
+
 export interface YuanhengDiagnosticReport {
   status: YuanhengDiagnosticStatus;
   checkedAt: number;
@@ -358,6 +368,16 @@ export const yuanhengApi = {
     expectedMode?: CodexAccountMode,
   ): Promise<CodexAccountModeStatus> {
     return invoke("switch_codex_account_mode", { mode, expectedMode });
+  },
+
+  getLoopbackProxyCompatibility(): Promise<LoopbackProxyCompatibility> {
+    return invoke("get_loopback_proxy_compatibility");
+  },
+
+  setLoopbackProxyCompatibility(
+    enabled: boolean,
+  ): Promise<LoopbackProxyCompatibility> {
+    return invoke("set_loopback_proxy_compatibility", { enabled });
   },
 
   getDiagnostics(): Promise<YuanhengDiagnosticReport> {

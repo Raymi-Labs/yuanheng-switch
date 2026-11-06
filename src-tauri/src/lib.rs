@@ -26,6 +26,7 @@ mod init_status;
 mod lightweight;
 #[cfg(target_os = "linux")]
 mod linux_fix;
+mod loopback_proxy;
 #[cfg(target_os = "macos")]
 mod macos_keychain;
 mod mcp;
@@ -1655,6 +1656,8 @@ pub fn run() {
             commands::get_tool_launch_cwd,
             commands::set_tool_launch_cwd,
             commands::launch_tool,
+            loopback_proxy::get_loopback_proxy_compatibility,
+            loopback_proxy::set_loopback_proxy_compatibility,
             commands::get_codex_session_bridge_status,
             commands::get_yuanheng_connection,
             commands::restore_yuanheng_keychain_access,

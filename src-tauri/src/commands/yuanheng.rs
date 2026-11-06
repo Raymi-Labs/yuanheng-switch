@@ -5209,6 +5209,11 @@ pub async fn get_yuanheng_diagnostics(
             snapshot_id: None,
         },
     };
+    if connection.connected && managed_codex_routes_require_core(state.db.as_ref()) {
+        report
+            .checks
+            .extend(crate::loopback_proxy::diagnostic_checks(&state).await);
+    }
     let history_repaired = if let Ok(proxy) = state.proxy_service.get_status().await {
         if proxy.running {
             refresh_codex_history_routes_at_port(proxy.port)
@@ -5465,6 +5470,14 @@ pub async fn get_yuanheng_diagnostics(
         warnings.push("no_recent_local_installation_probe; use Redetect for installation details");
     }
     let snapshot_id = uuid::Uuid::new_v4().to_string();
+    report.status = if report.checks.iter().any(|c| c.status == "error") {
+        "error"
+    } else if report.checks.iter().any(|c| c.status == "warning") {
+        "warning"
+    } else {
+        "ok"
+    }
+    .into();
     let document = json!({
         "schemaVersion": 3, "snapshotId": snapshot_id,
         "product": "YuanHeng Desktop", "version": env!("CARGO_PKG_VERSION"),
