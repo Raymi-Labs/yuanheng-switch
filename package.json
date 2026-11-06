@@ -1,6 +1,6 @@
 {
   "name": "yuanheng-switch",
-  "version": "0.1.131",
+  "version": "0.2.0",
   "description": "Meta API desktop companion for local AI coding tools",
   "type": "module",
   "scripts": {
