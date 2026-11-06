@@ -1,403 +1,254 @@
 .media-studio-shell {
-  background: #f7f7f2;
+  background: #f7f7f4;
+  container-type: inline-size;
 }
 .dark .media-studio-shell {
-  background: #111a18;
+  background: #17191b;
 }
 .media-studio-nav {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 6px;
-  border-bottom: 1px solid #dce1d9;
-  padding: 0 0 14px;
-  margin: 0 0 28px;
+  border-bottom: 1px solid #e1e3df;
+  padding: 0 0 12px;
+  margin: 0 0 20px;
 }
 .media-studio-nav button {
-  padding: 9px 18px;
-  border-radius: 999px;
-  color: #63706a;
+  padding: 8px 14px;
+  border-radius: 8px;
+  color: #69716e;
   font-size: 13px;
-  transition: background 0.2s;
 }
 .media-studio-nav button[aria-selected="true"] {
-  background: #193e35;
-  color: #fff;
+  background: #e8efeb;
+  color: #17583f;
+  font-weight: 600;
 }
 .media-studio-nav button:hover:not([aria-selected="true"]) {
-  background: #e9ede5;
+  background: #eceeea;
 }
 .media-studio-nav button:focus-visible,
 .media-inspiration button:focus-visible {
-  outline: 3px solid #bd8254;
-  outline-offset: 4px;
+  outline: 3px solid #368769;
+  outline-offset: 3px;
 }
 .media-studio-nav .studio-count {
   margin-left: 7px;
-  opacity: 0.7;
   font-size: 11px;
 }
 .media-studio-nav .studio-badge {
   margin-left: auto;
   font-size: 11px;
-  color: #6c7d73;
+  color: #707874;
 }
 .media-inspiration {
-  --ink: #193b32;
-  --muted: #788079;
+  --ink: #202623;
+  --muted: #68736d;
   --paper: #fff;
-  --line: #e4e6de;
-  max-width: 1420px;
+  --line: #e2e6e2;
+  max-width: 1440px;
   margin: 0 auto;
   color: var(--ink);
 }
 .dark .media-inspiration {
-  --ink: #e7ece2;
-  --muted: #a1b2a8;
-  --paper: #1b2924;
-  --line: #30453a;
+  --ink: #edf0ed;
+  --muted: #adb6b0;
+  --paper: #222629;
+  --line: #393f3e;
 }
 .inspiration-intro {
   display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: 24px;
-  padding: 2px 0 20px;
-}
-.inspiration-eyebrow {
-  display: flex;
   align-items: center;
-  gap: 9px;
-  font-size: 10px;
-  letter-spacing: 2.5px;
-  font-weight: 600;
-  color: var(--muted);
-}
-.inspiration-eyebrow > span {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: #bd8254;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 0 0 18px;
 }
 .inspiration-intro h2 {
-  margin: 14px 0 10px;
-  font-family: "Songti SC", "Noto Serif SC", Georgia, serif;
-  font-size: clamp(28px, 3.7vw, 48px);
-  line-height: 1.25;
-  font-weight: 500;
-  letter-spacing: -1px;
+  font-size: clamp(25px, 3cqw, 34px);
+  font-weight: 650;
+  letter-spacing: -0.8px;
+  line-height: 1.3;
+  margin: 0 0 6px;
 }
 .inspiration-lede {
-  font-size: 13px;
-  line-height: 1.9;
   color: var(--muted);
+  font-size: 13px;
 }
 .inspiration-start {
   display: inline-flex;
-  gap: 12px;
   align-items: center;
-  flex-shrink: 0;
-  border: 1px solid var(--line, #d5ded5);
-  background: var(--paper, #fff);
-  padding: 12px 18px;
-  color: var(--ink, #193b32);
+  justify-content: center;
+  gap: 9px;
   border-radius: 999px;
-  font-size: 12px;
-  transition:
-    transform 0.2s,
-    background 0.2s;
+  padding: 10px 18px;
+  background: #17583f;
+  color: #fff;
+  font-size: 13px;
+  flex-shrink: 0;
 }
 .inspiration-start:hover:not(:disabled) {
-  background: #e5ecdf;
-  transform: translateY(-2px);
+  background: #216f51;
 }
-.inspiration-start:disabled {
-  opacity: 0.5;
+.inspiration-start:disabled,
+.inspiration-use:disabled {
+  opacity: 0.55;
   cursor: not-allowed;
 }
 .inspiration-toolbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
+  border-bottom: 1px solid var(--line);
   margin-bottom: 20px;
 }
 .inspiration-filters {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: 22px;
 }
 .inspiration-filters button {
-  border: 1px solid transparent;
-  padding: 7px 13px;
-  border-radius: 7px;
-  font-size: 11px;
   color: var(--muted);
+  font-size: 13px;
+  padding: 8px 0 12px;
+  border-bottom: 2px solid transparent;
 }
 .inspiration-filters button[aria-pressed="true"] {
   color: var(--ink);
-  border-color: var(--line);
-  background: var(--paper);
-}
-.inspiration-caption {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  font-size: 10px;
-  letter-spacing: 0.5px;
-  color: var(--muted);
+  border-color: #368769;
+  font-weight: 600;
 }
 .inspiration-grid {
   display: grid;
-  grid-template-columns: 1.08fr 1fr;
-  gap: 24px;
+  grid-template-columns: minmax(0, 1.22fr) minmax(0, 1fr);
+  gap: 20px;
+  align-items: start;
+  grid-template-rows: min-content 1fr;
 }
 .inspiration-card {
-  display: flex;
-  flex-direction: column;
-  background: var(--paper);
-  padding: 12px;
-  border: 1px solid var(--line);
-  border-radius: 4px;
   min-width: 0;
+  background: var(--paper);
+  border-radius: 12px;
 }
-.inspiration-sunroom {
+.inspiration-garden {
   grid-column: 1;
   grid-row: 1;
 }
-.inspiration-botanical {
+.inspiration-aurora {
   grid-column: 1;
   grid-row: 2;
 }
-.inspiration-moonlake {
+.inspiration-valley {
   grid-column: 2;
   grid-row: 1 / span 2;
 }
-.inspiration-dunes {
-  grid-column: 1 / -1;
-}
 .inspiration-cover {
-  position: relative;
   display: block;
   width: 100%;
-  min-height: 245px;
+  border-radius: 12px 12px 0 0;
   overflow: hidden;
-  text-align: left;
-  background: #49645d;
-  flex: 1;
-}
-.inspiration-moonlake .inspiration-cover {
-  min-height: 578px;
-}
-.inspiration-dunes .inspiration-cover {
-  min-height: 250px;
 }
 .inspiration-cover img {
-  position: absolute;
+  display: block;
   width: 100%;
-  height: 100%;
-  object-fit: cover;
-  inset: 0;
-  transition: transform 0.7s cubic-bezier(0.2, 0.6, 0.3, 1);
-}
-.inspiration-cover:hover img {
-  transform: scale(1.035);
-}
-.inspiration-shade {
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(
-    180deg,
-    rgba(13, 35, 32, 0.17),
-    transparent 30%,
-    rgba(12, 29, 25, 0.1) 55%,
-    rgba(12, 29, 25, 0.72)
-  );
-}
-.inspiration-cover-top {
-  position: absolute;
-  inset: 20px 22px auto;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  color: #fff;
-  font-size: 9px;
-  letter-spacing: 2.3px;
-}
-.inspiration-cover-top > span:first-child {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  letter-spacing: 1px;
-}
-.inspiration-cover-bottom {
-  position: absolute;
-  left: 24px;
-  right: 24px;
-  bottom: 23px;
-  color: white;
-}
-.inspiration-number {
-  display: block;
-  font-size: 9px;
-  letter-spacing: 1.8px;
-  opacity: 0.83;
-  margin-bottom: 9px;
-}
-.inspiration-cover-bottom h3 {
-  font-size: clamp(23px, 2.7vw, 36px);
-  font-family: "Songti SC", "Noto Serif SC", Georgia, serif;
-  font-weight: 500;
-  line-height: 1.4;
-  max-width: 470px;
-  text-wrap: balance;
-}
-.inspiration-line {
-  display: block;
-  width: 40px;
-  height: 1px;
-  background: #fff9;
-  margin-top: 13px;
-}
-.inspiration-moonlake h3 {
-  font-size: clamp(29px, 3.3vw, 44px);
+  height: auto;
 }
 .inspiration-card-footer {
   display: flex;
-  justify-content: space-between;
   align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
   gap: 12px;
-  min-height: 74px;
-  padding: 12px 6px 0;
+  padding: 16px 18px;
+}
+.inspiration-card-footer h3 {
+  font-size: 17px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+.inspiration-description {
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: 3px;
 }
 .inspiration-model-label {
-  font-size: 13px;
-  font-weight: 600;
-  letter-spacing: 0.3px;
-}
-.inspiration-model-id {
-  font-size: 9px;
+  display: block;
+  font-size: 11px;
   color: var(--muted);
-  margin-top: 4px;
-  font-family: ui-monospace, monospace;
+  margin-top: 5px;
   overflow-wrap: anywhere;
 }
 .inspiration-use {
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  gap: 14px;
-  flex-shrink: 0;
-  font-size: 11px;
-  font-weight: 500;
-  min-height: 40px;
+  gap: 8px;
+  font-size: 13px;
+  padding: 8px 0;
+  white-space: nowrap;
 }
-.inspiration-use:disabled {
-  color: var(--muted);
-  opacity: 0.7;
-  cursor: not-allowed;
-}
-.inspiration-use:not(:disabled):hover {
-  color: #b27549;
-}
-.inspiration-play {
-  position: absolute;
-  top: 40%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  display: grid;
-  place-items: center;
-  width: 62px;
-  height: 62px;
-  border: 1px solid #ffffff80;
-  background: #ffffff18;
-  border-radius: 50%;
-  color: white;
-  backdrop-filter: blur(5px);
+.inspiration-use:hover:not(:disabled) {
+  color: #368769;
 }
 .inspiration-disclosure {
   display: flex;
-  gap: 14px;
-  align-items: center;
-  margin: 24px 0 8px;
-  padding: 20px 0;
-  border-top: 1px solid var(--line);
+  align-items: baseline;
+  gap: 9px;
   color: var(--muted);
   font-size: 11px;
-  line-height: 1.9;
+  line-height: 1.8;
+  padding: 22px 0 8px;
 }
-.inspiration-disclosure > span {
-  font-size: 26px;
-  color: #a68c64;
+.inspiration-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  padding: 56px 20px;
+  border: 1px dashed var(--line);
+  border-radius: 12px;
+  text-align: center;
 }
-.inspiration-grid-filtered .inspiration-card {
-  grid-column: auto;
-  grid-row: auto;
+.inspiration-empty h3 {
+  font-size: 18px;
+  font-weight: 600;
 }
-.inspiration-grid-filtered .inspiration-cover {
-  min-height: 320px;
-}
-.inspiration-grid-filtered .inspiration-dunes {
-  grid-column: 1 / -1;
+.inspiration-empty p {
+  color: var(--muted);
+  font-size: 13px;
 }
 .dark .media-studio-nav {
-  border-color: #30453a;
+  border-color: #393f3e;
 }
-.dark .media-studio-nav button {
-  color: #a6b6ac;
+.dark .media-studio-nav button,
+.dark .media-studio-nav .studio-badge {
+  color: #adb6b0;
 }
 .dark .media-studio-nav button[aria-selected="true"] {
-  background: #d7e5cc;
-  color: #193b32;
+  background: #293e35;
+  color: #d7eee0;
 }
-.dark .media-studio-nav button:hover:not([aria-selected="true"]),
-.dark .inspiration-start:hover:not(:disabled) {
-  background: #2b4035;
+.dark .media-studio-nav button:hover:not([aria-selected="true"]) {
+  background: #292e2c;
 }
-@media (max-width: 1050px) {
-  .inspiration-caption {
-    display: none;
-  }
-  .inspiration-use {
-    gap: 6px;
-  }
-  .inspiration-card-footer {
-    flex-wrap: wrap;
-    align-content: center;
-    gap: 0 14px;
-  }
-}
-@media (max-width: 640px) {
-  .inspiration-intro {
-    display: block;
-  }
-  .inspiration-start {
-    margin-top: 16px;
-  }
+@container (max-width: 700px) {
   .inspiration-grid {
-    grid-template-columns: 1fr;
-    gap: 16px;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 18px;
   }
   .inspiration-grid .inspiration-card {
     grid-column: 1;
     grid-row: auto;
   }
-  .inspiration-moonlake .inspiration-cover {
-    min-height: 370px;
-  }
-  .inspiration-cover {
-    min-height: 260px;
-  }
   .media-studio-nav .studio-badge {
     display: none;
   }
-  .media-studio-nav button {
-    padding: 8px 12px;
-  }
 }
-@media (prefers-reduced-motion: reduce) {
-  .media-inspiration *,
-  .media-studio-nav * {
-    transition: none !important;
+@container (max-width: 400px) {
+  .inspiration-intro {
+    flex-wrap: wrap;
+    gap: 14px;
+  }
+  .media-studio-nav button {
+    padding: 8px 10px;
+  }
+  .inspiration-filters {
+    gap: 16px;
   }
 }

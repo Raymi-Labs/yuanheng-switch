@@ -1,5 +1,13 @@
-# Inspiration illustrations
+# 灵感广场配图
 
-These four SVG assets were created for the Meta API inspiration gallery using original vector shapes and gradients. No competitor imagery, logos, stock photographs or private user artwork is included.
+用户提供并授权用于本地客户端接入的三张图片。仓库只包含页面展示用的WebP副本，不包含原始PNG；桌面原图保持不变。配图不是推荐模型的实测结果，卡片模型只是草稿目标。套用灵感不会上传图片，不访问外部图库，也不会自动提交生成。
 
-They are **illustrative design assets, not outputs or quality benchmarks of the models named on the cards**. The gallery and details dialog disclose this. They are bundled locally and are never sent as input references when applying a prompt template.
+| 文件 | 来源文件 | 页面像素 | 字节数 | 来源SHA-256 |
+| --- | --- | --- | --- | --- |
+| garden.webp | 01-午后花园.png | 1920×1080 | 679024 | `535fd5803a0eb7156a1f0c369157ed9a68d3a37c6e8b0e1c5050a851fa366f10` |
+| aurora.webp | 02-极光木屋.png | 1920×1080 | 388490 | `5a2f3f65e19ed3c5dafda50e9d3a6e7741f4079f33e9945a0297499f03397ae3` |
+| valley.webp | 03-云端山谷.png | 1350×2400 | 672972 | `1b3f15b49c945da1aeeaab418c8392482f96da60dd16d98c504b3f73b2868d39` |
+
+转换方式：Pillow 11.3.0，读取PNG并转RGB，`thumbnail((1920, 2400), Image.Resampling.LANCZOS)`，WebP `quality=88, method=6`，不复制EXIF、XMP或ICC。总计1,740,486字节（约1.66MiB）；未放大、未裁剪。详情亦显示这一展示副本，不冒充原图下载。
+
+旧SVG占位素材已移除。三张均为图片灵感，视频筛选不把静态图当作视频样片，仍可进入原创作工作台。

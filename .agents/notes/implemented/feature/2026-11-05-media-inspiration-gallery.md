@@ -8,6 +8,8 @@ Status: implemented
 
 ## Decision
 
+配图和布局部分已由[作品图改版](2026-11-05-media-gallery-artwork-redesign.md)取代；以下SVG和Muse示例验证为首版记录，账号、草稿和提交边界仍沿用。
+
 同一MediaStudioContent内增加灵感广场、创作工作台和我的作品视图；只切可见性、不卸载控制器，保留草稿与视频轮询。原创本地SVG插画作为灵感配图，明确不是模型实测结果，不复制竞品素材或品牌，不请求外部图片。静态模板仅含推荐模型和提示词；卡片查看详情可浏览，使用时按当前账号目录精确匹配模型，不静默换型号或自动提交。已有描述/参考图需确认替换，取消保留；读取/生成/作品处理及目录刷新期间禁用套用，切号重置。
 
 现有能力：侧栏→MediaStudioPage→账号模型目录/历史→原生media_studio权限与提交校验；作品转视频仍复用既有草稿准备；不改API、计费、原生下载边界或50条历史限制。关联[创作页](../../implemented/feature/2026-10-31-media-studio.md)、[图片转视频](../../implemented/feature/2026-10-31-image-to-video-workflow.md)。

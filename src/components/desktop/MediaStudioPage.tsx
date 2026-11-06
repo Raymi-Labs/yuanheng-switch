@@ -500,10 +500,12 @@ export function MediaStudioContent({ scope }: { scope: string }) {
       ref={pageRef}
       className="media-studio-shell h-full overflow-y-auto p-4 md:p-6"
     >
-      <PageHeader
-        title={dt("图片与视频")}
-        description={dt("描述你的想法，选择模型，直接生成图片或视频。")}
-      />
+      {view !== "explore" && (
+        <PageHeader
+          title={dt("图片与视频")}
+          description={dt("描述你的想法，选择模型，直接生成图片或视频。")}
+        />
+      )}
       <nav
         className="media-studio-nav"
         role="tablist"

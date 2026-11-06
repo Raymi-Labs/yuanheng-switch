@@ -157,7 +157,7 @@ describe("inspiration gallery", () => {
       "aria-selected",
       "true",
     );
-    expect(screen.getByText(/配图为原创灵感插画/)).toBeVisible();
+    expect(screen.getByText(/配图为灵感示意/)).toBeVisible();
     const use = await screen.findByRole("button", {
       name: "使用 Sunburst 灵感",
     });
@@ -190,9 +190,7 @@ describe("inspiration gallery", () => {
     expect(
       screen.getByRole("button", { name: "使用 Flare 灵感" }),
     ).toBeDisabled();
-    fireEvent.click(
-      screen.getByRole("button", { name: "查看灵感：日常，也有诗意。" }),
-    );
+    fireEvent.click(screen.getByRole("button", { name: "查看灵感：极光木屋" }));
     expect(screen.getByRole("dialog")).toHaveTextContent("试试这样描述");
     expect(screen.getByRole("dialog")).toHaveTextContent("非模型实测结果");
     expect(mocks.submit).not.toHaveBeenCalled();
@@ -222,32 +220,31 @@ describe("inspiration gallery", () => {
     ).not.toBeInTheDocument();
     expect(mocks.submit).not.toHaveBeenCalled();
   });
-  it("filters video ideas and brings Muse into a video draft with valid defaults", async () => {
+  it("keeps video creation available without presenting static images as video samples", async () => {
     mount(true);
     fireEvent.click(screen.getByRole("button", { name: "镜头灵感" }));
+    expect(screen.getByText("视频灵感准备中")).toBeVisible();
+    expect(
+      screen.queryByRole("button", { name: "使用 Muse 灵感" }),
+    ).not.toBeInTheDocument();
     expect(
       screen.queryByRole("button", { name: "使用 Sunburst 灵感" }),
     ).not.toBeInTheDocument();
-    const use = screen.getByRole("button", { name: "使用 Muse 灵感" });
-    await waitFor(() => expect(use).toBeEnabled());
-    fireEvent.click(use);
-    expect(screen.getByRole("tab", { name: "视频生成" })).toHaveAttribute(
-      "aria-selected",
-      "true",
+    fireEvent.click(screen.getByRole("button", { name: "前往创作工作台" }));
+    fireEvent.click(screen.getByRole("tab", { name: "视频生成" }));
+    await screen.findByRole("combobox", { name: "生成模型" });
+    expect(mocks.submit).not.toHaveBeenCalled();
+  });
+  it("shows artwork at its intrinsic ratio and preserves the whole portrait in details", () => {
+    mount(true);
+    const portrait = screen.getByRole("img", { name: "插画 · 自然想象" });
+    expect(portrait).toHaveAttribute("width", "1350");
+    expect(portrait).toHaveAttribute("height", "2400");
+    fireEvent.click(screen.getByRole("button", { name: "查看灵感：云端山谷" }));
+    expect(screen.getByRole("dialog").querySelector("img")).toHaveClass(
+      "object-contain",
     );
-    expect(screen.getByRole("combobox", { name: "生成模型" })).toHaveValue(
-      "muse-video",
-    );
-    expect(screen.getByRole("textbox")).toHaveValue(
-      MEDIA_INSPIRATION[3].prompt,
-    );
-    fireEvent.click(screen.getByRole("button", { name: "生成" }));
-    await waitFor(() => expect(mocks.submit).toHaveBeenCalledTimes(1));
-    expect(mocks.submit.mock.calls[0][0]).toMatchObject({
-      model: "muse-video",
-      duration: 4,
-      reference: null,
-    });
+    expect(mocks.submit).not.toHaveBeenCalled();
   });
   it("does not replace a draft during submission even after navigating to gallery", async () => {
     let done!: (record: MediaRecord) => void;
@@ -283,7 +280,7 @@ describe("inspiration gallery", () => {
     expect(
       screen.getByRole("button", { name: "使用 Sunburst 灵感" }),
     ).toBeDisabled();
-    fireEvent.click(screen.getByRole("button", { name: "自由创作" }));
+    fireEvent.click(screen.getByRole("button", { name: "开始创作" }));
     expect(screen.getByRole("button", { name: "刷新模型" })).toBeEnabled();
     expect(mocks.submit).not.toHaveBeenCalled();
   });

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ArrowDown, ArrowRight, ImageIcon, Play, Sparkles } from "lucide-react";
+import { ArrowRight, Sparkles } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -42,17 +42,12 @@ export function MediaInspirationGallery({
     <section className="media-inspiration" aria-label={dt("灵感广场")}>
       <header className="inspiration-intro">
         <div>
-          <p className="inspiration-eyebrow">
-            <span /> META API · CREATIVE STUDIO
-          </p>
-          <h2>{dt("给想象，一个画面。")}</h2>
-          <p className="inspiration-lede">
-            {dt("从一束光、一抹色彩开始。找到灵感，再用自己的语言创作。")}
-          </p>
+          <h2>{dt("灵感广场")}</h2>
+          <p className="inspiration-lede">{dt("让想象，成为画面")}</p>
         </div>
         <button className="inspiration-start" type="button" onClick={onCreate}>
           <Sparkles size={16} />
-          {dt("自由创作")}
+          {dt("开始创作")}
           <ArrowRight size={17} />
         </button>
       </header>
@@ -79,13 +74,8 @@ export function MediaInspirationGallery({
             </button>
           ))}
         </div>
-        <span className="inspiration-caption">
-          <ArrowDown size={13} /> {dt("选一个方向，开始你的作品")}
-        </span>
       </div>
-      <div
-        className={`inspiration-grid ${filter !== "all" ? "inspiration-grid-filtered" : ""}`}
-      >
+      <div className="inspiration-grid">
         {items.map((item, index) => (
           <article
             key={item.id}
@@ -100,39 +90,21 @@ export function MediaInspirationGallery({
               <img
                 src={item.art}
                 alt={dt(item.description)}
-                loading={index === 0 ? "eager" : "lazy"}
-                width="1200"
-                height="900"
+                loading={index === 1 ? "lazy" : "eager"}
+                decoding="async"
+                width={item.width}
+                height={item.height}
               />
-              <div className="inspiration-shade" />
-              <div className="inspiration-cover-top">
-                <span>
-                  {item.kind === "video" ? (
-                    <Play size={13} />
-                  ) : (
-                    <ImageIcon size={13} />
-                  )}
-                  {dt(item.kind === "video" ? "镜头灵感" : "图像创作")}
-                </span>
-                <span>META API</span>
-              </div>
-              <div className="inspiration-cover-bottom">
-                <span className="inspiration-number">
-                  0{MEDIA_INSPIRATION.indexOf(item) + 1} / {dt("灵感系列")}
-                </span>
-                <h3>{dt(item.title)}</h3>
-                <span className="inspiration-line" />
-              </div>
-              {item.kind === "video" && (
-                <span className="inspiration-play" aria-hidden="true">
-                  <Play size={25} fill="currentColor" />
-                </span>
-              )}
             </button>
             <div className="inspiration-card-footer">
               <div>
-                <span className="inspiration-model-label">{item.label}</span>
-                <p className="inspiration-model-id">{item.model}</p>
+                <h3>{dt(item.title)}</h3>
+                <p className="inspiration-description">
+                  {dt(item.description)}
+                </p>
+                <span className="inspiration-model-label">
+                  {dt("推荐模型：{{model}}", { model: item.label })}
+                </span>
               </div>
               <button
                 type="button"
@@ -143,7 +115,7 @@ export function MediaInspirationGallery({
               >
                 {dt(
                   eligible(item)
-                    ? "使用灵感"
+                    ? "立即创作"
                     : unavailable
                       ? "等待模型目录"
                       : "当前账号不可用",
@@ -154,11 +126,26 @@ export function MediaInspirationGallery({
           </article>
         ))}
       </div>
+      {items.length === 0 && (
+        <div className="inspiration-empty" role="status">
+          <Sparkles size={24} aria-hidden="true" />
+          <h3>{dt("视频灵感准备中")}</h3>
+          <p>{dt("这里暂不展示视频样片，你仍可前往工作台创作。")}</p>
+          <button
+            type="button"
+            className="inspiration-start"
+            onClick={onCreate}
+          >
+            {dt("前往创作工作台")}
+            <ArrowRight size={16} />
+          </button>
+        </div>
+      )}
       <footer className="inspiration-disclosure">
         <span>✳</span>
         <p>
           {dt(
-            "配图为原创灵感插画，非对应模型的实测结果。使用灵感仅填入草稿，点击生成后才提交计费。",
+            "配图为灵感示意，非推荐模型的实测结果。立即创作仅填入草稿，点击生成后才提交计费。",
           )}
         </p>
       </footer>
@@ -173,16 +160,19 @@ export function MediaInspirationGallery({
             <DialogHeader>
               <DialogTitle>{dt(detail.title)}</DialogTitle>
               <DialogDescription>
-                {dt(detail.description)} · {detail.label}
+                {dt(detail.description)} ·{" "}
+                {dt("推荐模型：{{model}}", { model: detail.label })}
               </DialogDescription>
             </DialogHeader>
             <img
               src={detail.art}
               alt={dt(detail.description)}
-              className="max-h-72 w-full rounded-xl object-cover"
+              width={detail.width}
+              height={detail.height}
+              className="max-h-[55vh] w-full rounded-xl object-contain"
             />
             <p className="text-xs text-muted-foreground">
-              {dt("原创灵感插画 · 非模型实测结果")}
+              {dt("灵感配图 · 非模型实测结果")}
             </p>
             <div className="rounded-xl border bg-muted/30 p-4">
               <h4 className="mb-2 text-sm font-medium">{dt("试试这样描述")}</h4>
