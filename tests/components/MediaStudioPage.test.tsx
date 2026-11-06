@@ -20,6 +20,8 @@ import type { MediaRecord } from "@/lib/api/media-studio";
 
 const mocks = vi.hoisted(() => ({
   account: { connected: true, userId: "one", baseUrl: "https://meta-api.vip" },
+  groups: vi.fn(),
+  selectGroup: vi.fn(),
   models: vi.fn(),
   history: vi.fn(),
   submit: vi.fn(),
@@ -97,6 +99,14 @@ beforeEach(() => {
     userId: "one",
     baseUrl: "https://meta-api.vip",
   };
+  mocks.groups.mockResolvedValue({
+    groups: [
+      { id: "生图和视频", description: "", ratio: 1 },
+      { id: "伙伴创作", description: "", ratio: 2 },
+    ],
+    selectedGroup: "生图和视频",
+  });
+  mocks.selectGroup.mockImplementation(async (group: string) => group);
   mocks.models.mockResolvedValue(profiles);
   mocks.history.mockResolvedValue([]);
   mocks.submit.mockResolvedValue(item());
@@ -149,6 +159,254 @@ function pasteImages(files: File[], itemsOnly = false) {
     },
   });
 }
+
+describe("media group selection boundaries", () => {
+  const groupSelect = () => screen.getByRole("combobox", { name: "创作分组" });
+  const choosePartner = () =>
+    fireEvent.change(groupSelect(), { target: { value: "伙伴创作" } });
+  const ready = async () => {
+    await waitFor(() =>
+      expect(screen.getByRole("combobox", { name: "生成模型" })).toHaveValue(
+        "gpt-image-2.5-sunburst",
+      ),
+    );
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "刷新模型" })).toBeEnabled(),
+    );
+  };
+  it("requires a group when no saved or legacy group is available, without choosing the first", async () => {
+    mocks.groups.mockResolvedValue({
+      groups: [{ id: "伙伴创作", description: "", ratio: 1 }],
+      selectedGroup: null,
+    });
+    mount();
+    await waitFor(() => expect(groupSelect()).toBeEnabled());
+    expect(groupSelect()).toHaveValue("");
+    expect(mocks.models).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "生成" })).toBeDisabled();
+    choosePartner();
+    await ready();
+    expect(mocks.models).toHaveBeenCalledWith("伙伴创作");
+    expect(mocks.submit).not.toHaveBeenCalled();
+  });
+  it("does not fetch models or enable creation for an empty authorized group list", async () => {
+    mocks.groups.mockResolvedValue({ groups: [], selectedGroup: null });
+    mount();
+    expect(
+      await screen.findByText("当前账号没有可用分组，请检查权限。"),
+    ).toBeVisible();
+    expect(mocks.models).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "生成" })).toBeDisabled();
+  });
+  it("blocks generation until the new group's catalog resolves, even if the model is cached", async () => {
+    mount();
+    await ready();
+    fireEvent.change(screen.getByRole("textbox"), {
+      target: { value: "scene" },
+    });
+    let done!: (value: typeof profiles) => void;
+    mocks.models.mockImplementation((group: string) =>
+      group === "伙伴创作"
+        ? new Promise((r) => {
+            done = r;
+          })
+        : Promise.resolve(profiles),
+    );
+    choosePartner();
+    await waitFor(() => expect(groupSelect()).toHaveValue("伙伴创作"));
+    expect(screen.getByRole("button", { name: "生成" })).toBeDisabled();
+    fireEvent.submit(screen.getByRole("textbox").closest("form")!);
+    expect(mocks.submit).not.toHaveBeenCalled();
+    await act(async () => done(profiles));
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "生成" })).toBeEnabled(),
+    );
+  });
+  it("restores the account preference and does not create a credential on mount", async () => {
+    mocks.groups.mockResolvedValue({
+      groups: [{ id: "伙伴创作", description: "", ratio: 1 }],
+      selectedGroup: "伙伴创作",
+    });
+    mount();
+    await ready();
+    expect(groupSelect()).toHaveValue("伙伴创作");
+    expect(mocks.selectGroup).not.toHaveBeenCalled();
+    expect(mocks.submit).not.toHaveBeenCalled();
+  });
+  it("switches the explicit submission group while preserving prompt and reference", async () => {
+    mount();
+    await ready();
+    fireEvent.change(screen.getByRole("textbox"), {
+      target: { value: "keep my scene" },
+    });
+    pasteImages([clipboardImage("group-reference")]);
+    await screen.findByRole("img", { name: "参考图" });
+    choosePartner();
+    await waitFor(() => expect(groupSelect()).toHaveValue("伙伴创作"));
+    await ready();
+    expect(screen.getByRole("textbox")).toHaveValue("keep my scene");
+    expect(screen.getByRole("img", { name: "参考图" })).toBeVisible();
+    expect(mocks.submit).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "生成" }));
+    await waitFor(() => expect(mocks.submit).toHaveBeenCalledTimes(1));
+    expect(mocks.submit.mock.calls[0][0]).toMatchObject({
+      group: "伙伴创作",
+      model: "gpt-image-2.5-sunburst",
+      prompt: "keep my scene",
+      reference: expect.stringContaining("data:image/"),
+    });
+  });
+  it("does not silently replace a model missing in the new group", async () => {
+    mount();
+    await ready();
+    mocks.models.mockImplementation(async (group: string) =>
+      group === "伙伴创作" ? [profiles[1]] : profiles,
+    );
+    fireEvent.change(screen.getByRole("textbox"), {
+      target: { value: "keep" },
+    });
+    choosePartner();
+    await waitFor(() => expect(groupSelect()).toHaveValue("伙伴创作"));
+    await waitFor(() =>
+      expect(screen.getByRole("alert")).toHaveTextContent("不会自动换模型"),
+    );
+    expect(screen.getByRole("combobox", { name: "生成模型" })).toHaveValue(
+      "gpt-image-2.5-sunburst",
+    );
+    expect(screen.getByRole("textbox")).toHaveValue("keep");
+    expect(screen.getByRole("button", { name: "生成" })).toBeDisabled();
+  });
+  it("ignores a late old-group catalog after the new group loads", async () => {
+    mount();
+    await ready();
+    let finishOld!: (v: typeof profiles) => void;
+    mocks.models.mockImplementation((group: string) =>
+      group === "生图和视频"
+        ? new Promise((r) => {
+            finishOld = r;
+          })
+        : Promise.resolve([profiles[0]]),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "刷新模型" }));
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "刷新模型" })).toBeDisabled(),
+    );
+    choosePartner();
+    await waitFor(() => expect(groupSelect()).toHaveValue("伙伴创作"));
+    await ready();
+    await act(async () => finishOld([profiles[1]]));
+    expect(
+      screen.queryByRole("option", { name: "grok-imagine-image" }),
+    ).not.toBeInTheDocument();
+    expect(screen.getByRole("combobox", { name: "生成模型" })).toHaveValue(
+      "gpt-image-2.5-sunburst",
+    );
+  });
+  it("blocks generation and repeated switching while saving a group, then keeps the old group on failure", async () => {
+    mount();
+    await ready();
+    fireEvent.change(screen.getByRole("textbox"), {
+      target: { value: "scene" },
+    });
+    let reject!: (e: Error) => void;
+    mocks.selectGroup.mockImplementation(
+      () =>
+        new Promise((_, r) => {
+          reject = r;
+        }),
+    );
+    choosePartner();
+    choosePartner();
+    expect(mocks.selectGroup).toHaveBeenCalledTimes(1);
+    expect(groupSelect()).toBeDisabled();
+    expect(screen.getByRole("button", { name: "生成" })).toBeDisabled();
+    fireEvent.submit(screen.getByRole("textbox").closest("form")!);
+    expect(mocks.submit).not.toHaveBeenCalled();
+    await act(async () => reject(new Error("cannot save group")));
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "cannot save group",
+    );
+    expect(groupSelect()).toHaveValue("生图和视频");
+    expect(screen.getByRole("textbox")).toHaveValue("scene");
+  });
+  it("fails closed if group refresh fails or selected-group permission is revoked", async () => {
+    mount();
+    await ready();
+    fireEvent.change(screen.getByRole("textbox"), {
+      target: { value: "scene" },
+    });
+    mocks.groups.mockRejectedValueOnce(new Error("group list unavailable"));
+    fireEvent.click(screen.getByRole("button", { name: "刷新分组" }));
+    await screen.findByText("group list unavailable");
+    expect(screen.getByRole("button", { name: "生成" })).toBeDisabled();
+    mocks.groups.mockResolvedValue({
+      groups: [{ id: "伙伴创作", description: "", ratio: 1 }],
+      selectedGroup: null,
+    });
+    fireEvent.click(screen.getByRole("button", { name: "刷新分组" }));
+    await waitFor(() => expect(groupSelect()).toBeEnabled());
+    expect(screen.getByRole("button", { name: "生成" })).toBeDisabled();
+    expect(groupSelect()).not.toHaveValue("伙伴创作");
+    expect(mocks.submit).not.toHaveBeenCalled();
+  });
+  it("ignores an old-account group-save completion", async () => {
+    const view = mount();
+    await ready();
+    let done!: (g: string) => void;
+    mocks.selectGroup.mockImplementation(
+      () =>
+        new Promise((r) => {
+          done = r;
+        }),
+    );
+    choosePartner();
+    mocks.account = { ...mocks.account, userId: "two" };
+    view.rerender(
+      <QueryClientProvider client={client}>
+        <MediaStudioPage />
+      </QueryClientProvider>,
+    );
+    await waitFor(() => expect(groupSelect()).toBeEnabled());
+    await act(async () => done("伙伴创作"));
+    expect(groupSelect()).toHaveValue("生图和视频");
+    expect(mocks.submit).not.toHaveBeenCalled();
+  });
+  it("does not change group during a paid submission", async () => {
+    mount();
+    await ready();
+    let done!: (record: MediaRecord) => void;
+    mocks.submit.mockImplementation(
+      () =>
+        new Promise((r) => {
+          done = r;
+        }),
+    );
+    fireEvent.change(screen.getByRole("textbox"), {
+      target: { value: "scene" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "生成" }));
+    expect(groupSelect()).toBeDisabled();
+    choosePartner();
+    expect(mocks.selectGroup).not.toHaveBeenCalled();
+    await act(async () =>
+      done(item({ status: "completed", group: "生图和视频" })),
+    );
+  });
+  it("keeps existing video queries tied to their record after switching group", async () => {
+    mocks.history.mockResolvedValue([item({ group: "生图和视频" })]);
+    mount();
+    await ready();
+    choosePartner();
+    await waitFor(() => expect(groupSelect()).toHaveValue("伙伴创作"));
+    await ready();
+    expect(screen.getByText("提交分组：生图和视频")).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "继续查询" }));
+    await waitFor(() => expect(mocks.refresh).toHaveBeenCalledWith(item().id), {
+      timeout: 4000,
+    });
+    expect(mocks.submit).not.toHaveBeenCalled();
+  });
+});
 
 describe("inspiration gallery", () => {
   it("opens on original inspiration art and applies an authorized template without submitting", async () => {
@@ -812,12 +1070,12 @@ describe("media creation workflow", () => {
     expect(screen.getByRole("button", { name: "生成" })).toBeDisabled();
     expect(mocks.submit).not.toHaveBeenCalled();
   });
-  it("shows the fixed group and supported catalog without submitting on mount", async () => {
+  it("shows the selected group and supported catalog without submitting on mount", async () => {
     mount();
     expect(
       await screen.findByRole("option", { name: "gpt-image-2.5-sunburst" }),
     ).toBeInTheDocument();
-    expect(screen.getByText("分组：生图和视频")).toBeInTheDocument();
+    expect(screen.getByText("当前分组：生图和视频")).toBeInTheDocument();
     expect(mocks.submit).not.toHaveBeenCalled();
     expect(
       screen.queryByRole("option", { name: "muse-video" }),
@@ -847,7 +1105,7 @@ describe("media creation workflow", () => {
       reference: null,
       duration: null,
     });
-    expect(mocks.submit.mock.calls[0][0]).not.toHaveProperty("group");
+    expect(mocks.submit.mock.calls[0][0]).toHaveProperty("group", "生图和视频");
     await act(async () =>
       resolve(
         item({

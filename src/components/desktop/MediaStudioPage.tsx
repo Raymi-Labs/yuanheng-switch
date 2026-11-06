@@ -13,7 +13,11 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { mediaStudioApi, type MediaRecord } from "@/lib/api/media-studio";
+import {
+  mediaStudioApi,
+  type MediaRecord,
+  type MediaGroups,
+} from "@/lib/api/media-studio";
 import { useYuanhengConnection } from "@/lib/query/yuanheng";
 import { extractErrorMessage } from "@/utils/errorUtils";
 import {
@@ -47,11 +51,30 @@ export function MediaStudioPage() {
 export function MediaStudioContent({ scope }: { scope: string }) {
   const client = useQueryClient();
   const historyKey = ["media-studio", scope, "history"];
-  const models = useQuery({
-    queryKey: ["media-studio", scope, "models"],
-    queryFn: mediaStudioApi.models,
+  const groupsKey = ["media-studio", scope, "groups"];
+  const groups = useQuery({
+    queryKey: groupsKey,
+    queryFn: mediaStudioApi.groups,
     retry: false,
-    staleTime: 60_000,
+    refetchOnWindowFocus: false,
+    staleTime: 0,
+  });
+  const [chosenGroup, setChosenGroup] = useState<string | null>(null);
+  const [switchingGroup, setSwitchingGroup] = useState(false);
+  const [groupError, setGroupError] = useState("");
+  const groupLock = useRef(false);
+  const group = chosenGroup ?? groups.data?.selectedGroup ?? "";
+  const groupAllowed =
+    !!group && !!groups.data?.groups.some((g) => g.id === group);
+  const groupReady =
+    groupAllowed && !groups.isFetching && !groups.isError && !switchingGroup;
+  const models = useQuery({
+    queryKey: ["media-studio", scope, "models", group],
+    queryFn: () => mediaStudioApi.models(group),
+    enabled: groupReady,
+    retry: false,
+    staleTime: 0,
+    refetchOnWindowFocus: false,
   });
   const history = useQuery({
     queryKey: historyKey,
@@ -88,7 +111,9 @@ export function MediaStudioContent({ scope }: { scope: string }) {
   const readLock = useRef(false);
   const stagedReference = useRef<{ model: string; data: string } | null>(null);
   const activeUrl = useRef<string | null>(null);
-  const available = (models.data ?? []).filter((m) => m.kind === kind);
+  const available = (groupAllowed ? (models.data ?? []) : []).filter(
+    (m) => m.kind === kind,
+  );
   const selected = available.find((m) => m.id === model);
   const isMuse = model === "muse-video";
   const isGptImage = model.startsWith("gpt-image-");
@@ -96,7 +121,7 @@ export function MediaStudioContent({ scope }: { scope: string }) {
   const referenceList = reference ? [reference, ...extraReferences] : [];
   const referencesValid = referencesFit(model, referenceList);
   const promptLimit = isMuse ? 4000 : 8000;
-  const referenceVideoModels = (models.data ?? []).filter(
+  const referenceVideoModels = (groupReady ? (models.data ?? []) : []).filter(
     (m) => m.kind === "video" && m.reference !== "none",
   );
   useEffect(() => {
@@ -109,17 +134,28 @@ export function MediaStudioContent({ scope }: { scope: string }) {
   }, []);
   useEffect(() => {
     // Refreshes cannot silently replace a model the user already selected.
-    if (model) return;
+    if (model || !groupReady || models.isFetching || models.isError) return;
     let saved: string | null = null;
     try {
-      saved = localStorage.getItem(`yuanheng-media-model-${kind}`);
+      saved = localStorage.getItem(
+        `yuanheng-media-model-${scope}-${group}-${kind}`,
+      );
     } catch {
       /* storage optional */
     }
     setModel(
       available.find((m) => m.id === saved)?.id ?? available[0]?.id ?? "",
     );
-  }, [kind, models.data, model]);
+  }, [
+    kind,
+    models.data,
+    models.isFetching,
+    models.isError,
+    model,
+    groupReady,
+    group,
+    scope,
+  ]);
   useEffect(() => {
     setSize(selected?.sizes[0] ?? "");
     setDuration(selected?.durations[0] ?? null);
@@ -145,7 +181,7 @@ export function MediaStudioContent({ scope }: { scope: string }) {
     readLock.current = false;
     readSequence.current++;
     if (fileInput.current) fileInput.current.value = "";
-  }, [model]);
+  }, [model, group, selected?.id]);
 
   useEffect(() => {
     pageRef.current?.scrollTo?.({ top: 0 });
@@ -208,6 +244,10 @@ export function MediaStudioContent({ scope }: { scope: string }) {
   const pick = async (files: File[]) => {
     if (
       !files.length ||
+      groupLock.current ||
+      !groupReady ||
+      models.isFetching ||
+      models.isError ||
       readLock.current ||
       submitLock.current ||
       actionLock.current ||
@@ -298,7 +338,14 @@ export function MediaStudioContent({ scope }: { scope: string }) {
     }
     if (!files.length) return;
     event.preventDefault();
-    if (readLock.current || submitLock.current || actionLock.current) return;
+    if (
+      groupLock.current ||
+      !groupReady ||
+      readLock.current ||
+      submitLock.current ||
+      actionLock.current
+    )
+      return;
     if (!selected || selected.reference === "none") {
       setMessage(dt("当前模型无法添加参考图，请先选择支持参考图的模型。"));
       return;
@@ -308,6 +355,9 @@ export function MediaStudioContent({ scope }: { scope: string }) {
 
   const generate = async () => {
     if (
+      groupLock.current ||
+      !groupReady ||
+      models.isFetching ||
       submitLock.current ||
       actionLock.current ||
       !selected ||
@@ -326,12 +376,16 @@ export function MediaStudioContent({ scope }: { scope: string }) {
     setWaiting(null);
     try {
       try {
-        localStorage.setItem(`yuanheng-media-model-${kind}`, model);
+        localStorage.setItem(
+          `yuanheng-media-model-${scope}-${group}-${kind}`,
+          model,
+        );
       } catch {
         /* optional preference */
       }
       const record = await mediaStudioApi.submit({
         operationId: crypto.randomUUID(),
+        group,
         model,
         prompt: prompt.trim(),
         size,
@@ -421,6 +475,8 @@ export function MediaStudioContent({ scope }: { scope: string }) {
   };
   const useForVideo = async (record: MediaRecord) => {
     if (
+      groupLock.current ||
+      !groupReady ||
       submitLock.current ||
       models.isError ||
       models.isFetching ||
@@ -458,6 +514,8 @@ export function MediaStudioContent({ scope }: { scope: string }) {
 
   const useInspiration = (example: MediaInspiration): boolean => {
     if (
+      groupLock.current ||
+      !groupReady ||
       submitLock.current ||
       actionLock.current ||
       readLock.current ||
@@ -493,6 +551,40 @@ export function MediaStudioContent({ scope }: { scope: string }) {
     );
     setView("create");
     return true;
+  };
+
+  const changeGroup = async (next: string) => {
+    if (
+      !next ||
+      next === group ||
+      groupLock.current ||
+      submitLock.current ||
+      actionLock.current ||
+      readLock.current ||
+      groups.isFetching ||
+      groups.isError
+    )
+      return;
+    groupLock.current = true;
+    setSwitchingGroup(true);
+    setGroupError("");
+    try {
+      const saved = await mediaStudioApi.selectGroup(next);
+      if (!alive.current) return;
+      if (saved !== next)
+        throw new Error(dt("分组切换未确认，请刷新分组后重试。"));
+      // Keep model and references: an unavailable model requires explicit replacement.
+      setChosenGroup(saved);
+      setMessage("");
+      client.setQueryData(groupsKey, (data: MediaGroups | undefined) =>
+        data ? { ...data, selectedGroup: saved } : data,
+      );
+    } catch (error) {
+      if (alive.current) setGroupError(extractErrorMessage(error));
+    } finally {
+      groupLock.current = false;
+      if (alive.current) setSwitchingGroup(false);
+    }
   };
 
   return (
@@ -559,6 +651,83 @@ export function MediaStudioContent({ scope }: { scope: string }) {
         ))}
         <span className="studio-badge">{dt("灵感在这里，创作由你决定")}</span>
       </nav>
+      {view !== "history" && (
+        <div className="mb-5 flex flex-wrap items-center gap-3 border-b pb-4">
+          <label className="flex min-w-0 flex-[0_1_400px] items-center gap-3 text-xs">
+            <span className="shrink-0">{dt("创作分组")}</span>
+            <select
+              aria-label={dt("创作分组")}
+              className="block min-w-0 flex-1 rounded-md border bg-background p-2 text-sm"
+              value={group}
+              disabled={
+                busy ||
+                !!action ||
+                reading ||
+                switchingGroup ||
+                groups.isFetching ||
+                groups.isError
+              }
+              onChange={(event) => void changeGroup(event.target.value)}
+            >
+              <option value="" disabled>
+                {dt(groups.isPending ? "正在读取分组…" : "请选择创作分组")}
+              </option>
+              {group && !groupAllowed && (
+                <option value={group} disabled>
+                  {group} · {dt("已不可用")}
+                </option>
+              )}
+              {groups.data?.groups.map((g) => (
+                <option key={g.id} value={g.id}>
+                  {g.id}
+                  {g.description ? ` · ${g.description}` : ""}
+                </option>
+              ))}
+            </select>
+          </label>
+          <Button
+            type="button"
+            variant="outline"
+            disabled={
+              busy || !!action || reading || switchingGroup || groups.isFetching
+            }
+            onClick={() => {
+              setGroupError("");
+              void groups.refetch();
+            }}
+          >
+            {dt("刷新分组")}
+          </Button>
+          <p className="min-w-[200px] flex-1 text-xs leading-relaxed text-muted-foreground">
+            {dt(
+              "仅影响图片与视频，不改变聊天配置；旧任务继续使用提交时的分组。",
+            )}
+          </p>
+          {(groups.isError || groupError) && (
+            <p
+              role="alert"
+              className="w-full text-xs text-destructive dark:text-red-300"
+            >
+              {groupError || extractErrorMessage(groups.error)}
+            </p>
+          )}
+          {!groups.isPending &&
+            !groups.isError &&
+            !groups.data?.groups.length && (
+              <p role="alert" className="w-full text-xs">
+                {dt("当前账号没有可用分组，请检查权限。")}
+              </p>
+            )}
+          {!groups.isPending &&
+            !groups.isError &&
+            !!groups.data?.groups.length &&
+            !groupAllowed && (
+              <p role="alert" className="w-full text-xs">
+                {dt("请选择有权限的创作分组，不会自动切换到其他分组。")}
+              </p>
+            )}
+        </div>
+      )}
       <div
         role="tabpanel"
         id="studio-panel-explore"
@@ -566,14 +735,22 @@ export function MediaStudioContent({ scope }: { scope: string }) {
         hidden={view !== "explore"}
       >
         <MediaInspirationGallery
-          models={models.data ?? []}
-          unavailable={models.isError || models.isFetching || models.isPending}
-          locked={busy || !!action || reading}
+          models={groupReady ? (models.data ?? []) : []}
+          unavailable={
+            !groupReady ||
+            models.isError ||
+            models.isFetching ||
+            models.isPending
+          }
+          locked={busy || !!action || reading || switchingGroup}
           onUse={useInspiration}
           onCreate={() => setView("create")}
         />
         {models.isError && (
-          <p role="alert" className="mt-4 text-sm text-destructive">
+          <p
+            role="alert"
+            className="mt-4 text-sm text-destructive dark:text-red-300"
+          >
             {dt("模型目录读取失败，请到创作工作台刷新；不会自动选择其他模型。")}
           </p>
         )}
@@ -607,7 +784,7 @@ export function MediaStudioContent({ scope }: { scope: string }) {
             ))}
           </div>
           <span className="rounded-full bg-primary/10 px-3 py-1 text-xs">
-            {dt("分组：生图和视频")}
+            {dt("当前分组：{{group}}", { group: group || "—" })}
           </span>
         </div>
         <div className="grid gap-5 xl:grid-cols-[minmax(280px,1fr)_minmax(300px,1.3fr)]">
@@ -626,7 +803,13 @@ export function MediaStudioContent({ scope }: { scope: string }) {
                 <select
                   className="block w-full rounded-md border bg-background p-2"
                   value={model}
-                  disabled={busy || !!action || models.isFetching}
+                  disabled={
+                    busy ||
+                    !!action ||
+                    reading ||
+                    !groupReady ||
+                    models.isFetching
+                  }
                   onChange={(e) => setModel(e.target.value)}
                 >
                   {!model && <option value="">{dt("请选择模型")}</option>}
@@ -645,7 +828,13 @@ export function MediaStudioContent({ scope }: { scope: string }) {
               <Button
                 type="button"
                 variant="outline"
-                disabled={busy || !!action || models.isFetching}
+                disabled={
+                  busy ||
+                  !!action ||
+                  reading ||
+                  !groupReady ||
+                  models.isFetching
+                }
                 aria-label={dt("刷新模型")}
                 onClick={() => void models.refetch()}
               >
@@ -653,7 +842,10 @@ export function MediaStudioContent({ scope }: { scope: string }) {
               </Button>
             </div>
             {models.isError && (
-              <p role="alert" className="text-sm text-destructive">
+              <p
+                role="alert"
+                className="text-sm text-destructive dark:text-red-300"
+              >
                 {extractErrorMessage(models.error)}
               </p>
             )}
@@ -671,15 +863,24 @@ export function MediaStudioContent({ scope }: { scope: string }) {
               </p>
             )}
             {model && !selected && !models.isPending && (
-              <p role="alert" className="text-sm text-destructive">
+              <p
+                role="alert"
+                className="text-sm text-destructive dark:text-red-300"
+              >
                 {dt("所选模型已不可用，请重新选择；不会自动换模型。")}
               </p>
             )}
-            {!models.isPending && !models.isError && available.length === 0 && (
-              <p className="text-sm text-muted-foreground">
-                {dt("此分组暂无本版支持的模型，请检查分组权限或刷新目录。")}
-              </p>
-            )}
+            {groupReady &&
+              !models.isPending &&
+              !models.isFetching &&
+              !models.isError &&
+              available.length === 0 && (
+                <p className="text-sm text-muted-foreground">
+                  {dt(
+                    "当前创作类型在此分组没有已适配模型，可切换图片／视频或其他分组。",
+                  )}
+                </p>
+              )}
             <label className="block space-y-2 text-sm">
               {dt("画面描述")}
               <Textarea
@@ -738,7 +939,10 @@ export function MediaStudioContent({ scope }: { scope: string }) {
                   </p>
                 )}
                 {!referencesValid && (
-                  <p role="alert" className="text-sm text-destructive">
+                  <p
+                    role="alert"
+                    className="text-sm text-destructive dark:text-red-300"
+                  >
                     {dt(
                       "参考图不符合当前模型的数量、格式或大小要求，请调整后再生成；原图已保留。",
                     )}
@@ -891,7 +1095,7 @@ export function MediaStudioContent({ scope }: { scope: string }) {
             )}
             <p className="text-xs leading-relaxed text-muted-foreground">
               {dt(
-                "点击生成会按所选模型及生图和视频分组计费。暂不提供精确估价，费用以平台实际用量为准。",
+                "点击生成会按所选模型及当前分组计费。暂不提供精确估价，费用以平台实际用量为准。",
               )}
             </p>
             {kind === "video" && (
@@ -923,6 +1127,8 @@ export function MediaStudioContent({ scope }: { scope: string }) {
               disabled={
                 busy ||
                 !!action ||
+                !groupReady ||
+                models.isFetching ||
                 !referencesValid ||
                 reading ||
                 !selected ||
@@ -1037,6 +1243,11 @@ export function MediaStudioContent({ scope }: { scope: string }) {
           >
             <div className="min-w-0 flex-1 space-y-1">
               <p className="break-all text-sm font-medium">{record.model}</p>
+              <p className="break-all text-xs text-muted-foreground">
+                {dt("提交分组：{{group}}", {
+                  group: record.group ?? "生图和视频",
+                })}
+              </p>
               <p className="text-xs text-muted-foreground">
                 {new Date(record.createdAt * 1000).toLocaleString()} ·{" "}
                 {dt(record.message)}
