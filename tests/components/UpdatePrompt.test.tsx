@@ -19,29 +19,37 @@ function renderPrompt(includeCenter = false) {
   );
 }
 
-const { openExternalMock, updateContextMock } = vi.hoisted(() => ({
-  openExternalMock: vi.fn(),
-  updateContextMock: {
-    updateInfo: {
-      currentVersion: "0.1.0",
-      availableVersion: "0.2.0",
-      notes: "Fixes and improvements",
+const { openExternalMock, updateContextMock, releaseNotesMock } = vi.hoisted(
+  () => ({
+    releaseNotesMock: vi.fn(),
+    openExternalMock: vi.fn(),
+    updateContextMock: {
+      updateInfo: {
+        currentVersion: "0.1.0",
+        availableVersion: "0.2.0",
+        notes: "Fixes and improvements",
+      },
+      isPromptOpen: true,
+      isPortable: false,
+      isChecking: false,
+      isUpdating: false,
+      phase: "available" as UpdatePhase,
+      progress: null as UpdateDownloadProgress | null,
+      error: null as string | null,
+      startUpdate: vi.fn(),
+      remindLater: vi.fn(),
+      ignoreUpdate: vi.fn(),
     },
-    isPromptOpen: true,
-    isPortable: false,
-    isChecking: false,
-    isUpdating: false,
-    phase: "available" as UpdatePhase,
-    progress: null as UpdateDownloadProgress | null,
-    error: null as string | null,
-    startUpdate: vi.fn(),
-    remindLater: vi.fn(),
-    ignoreUpdate: vi.fn(),
-  },
-}));
+  }),
+);
 
 vi.mock("@/contexts/UpdateContext", () => ({
   useUpdate: () => updateContextMock,
+}));
+
+// Keep synthetic updater versions independent of whichever release is bundled.
+vi.mock("@/lib/query/desktopReleaseNotes", () => ({
+  useDesktopReleaseNotes: releaseNotesMock,
 }));
 
 vi.mock("@/lib/api", () => ({
@@ -63,6 +71,14 @@ describe("UpdatePrompt", () => {
     updateContextMock.remindLater.mockReset();
     updateContextMock.ignoreUpdate.mockReset();
     openExternalMock.mockReset();
+    releaseNotesMock
+      .mockReset()
+      .mockReturnValue({
+        data: [],
+        isFetching: false,
+        isError: false,
+        refetch: vi.fn(),
+      });
   });
 
   it("展示版本、更新日志和三个更新决策", () => {
@@ -83,6 +99,25 @@ describe("UpdatePrompt", () => {
     expect(updateContextMock.ignoreUpdate).toHaveBeenCalledTimes(1);
     expect(updateContextMock.remindLater).toHaveBeenCalledTimes(1);
     expect(updateContextMock.startUpdate).toHaveBeenCalledTimes(1);
+  });
+
+  it("匹配版本的公告优先于更新接口简述", () => {
+    releaseNotesMock.mockReturnValue({
+      data: [
+        {
+          version: "0.2.0",
+          publishedAt: "2026-01-01T00:00:00Z",
+          content: "Synthetic matching release announcement",
+        },
+      ],
+    });
+    renderPrompt();
+    expect(
+      screen.getByText("Synthetic matching release announcement"),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText("Fixes and improvements"),
+    ).not.toBeInTheDocument();
   });
 
   it("下载中展示百分比并锁定决策按钮", () => {

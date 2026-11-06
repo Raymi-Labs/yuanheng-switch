@@ -1,4 +1,10 @@
 import { invoke } from "@tauri-apps/api/core";
+import type { YuanhengGroupOption } from "./yuanheng";
+
+export interface MediaGroups {
+  groups: YuanhengGroupOption[];
+  selectedGroup: string | null;
+}
 
 export interface MediaModel {
   id: string;
@@ -9,6 +15,7 @@ export interface MediaModel {
 }
 export interface MediaRecord {
   id: string;
+  group?: string;
   model: string;
   kind: "image" | "video";
   status:
@@ -25,6 +32,7 @@ export interface MediaRecord {
 }
 export interface MediaRequest {
   operationId: string;
+  group: string;
   model: string;
   prompt: string;
   size: string;
@@ -38,7 +46,11 @@ export const mediaStudioApi = {
     extension: "mp4" | "png" | "jpg" | "webp",
   ) =>
     invoke<string | null>("save_media_file_dialog", { defaultName, extension }),
-  models: () => invoke<MediaModel[]>("get_media_studio_models"),
+  groups: () => invoke<MediaGroups>("get_media_studio_groups"),
+  selectGroup: (group: string) =>
+    invoke<string>("set_media_studio_group", { group }),
+  models: (group: string) =>
+    invoke<MediaModel[]>("get_media_studio_models", { group }),
   history: () => invoke<MediaRecord[]>("get_media_studio_history"),
   submit: (request: MediaRequest) =>
     invoke<MediaRecord>("submit_media_studio", { request }),

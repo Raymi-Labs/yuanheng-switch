@@ -6,7 +6,7 @@ use sha2::{Digest, Sha256};
 use std::{io::Write, path::PathBuf, sync::Mutex, time::Duration};
 use tauri_plugin_dialog::DialogExt;
 
-const GROUP: &str = "生图和视频";
+const LEGACY_GROUP: &str = "生图和视频";
 const MAX_MEDIA: usize = 64 * 1024 * 1024;
 const MAX_REFERENCE: usize = 10 * 1024 * 1024;
 const MAX_GPT_REFERENCE: usize = 50 * 1024 * 1024;
@@ -81,6 +81,7 @@ fn profile(id: &str) -> Option<MediaModel> {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct MediaRequest {
     operation_id: String,
+    group: String,
     model: String,
     prompt: String,
     size: String,
@@ -94,6 +95,8 @@ pub struct MediaRequest {
 #[serde(rename_all = "camelCase")]
 pub struct MediaRecord {
     id: String,
+    #[serde(default = "legacy_group")]
+    group: String,
     model: String,
     kind: String,
     status: String,
@@ -380,32 +383,106 @@ async fn json_response(response: reqwest::Response, limit: usize) -> Result<Valu
     serde_json::from_slice(&body(response, limit).await?)
         .map_err(|_| "响应格式异常，请勿重复提交".into())
 }
-async fn account_get(
-    client: &reqwest::Client,
-    session: &Login,
-    path: &str,
-) -> Result<Value, String> {
-    let response = with_session(
-        client.get(format!("{BASE_URL}{path}")),
-        Some(&session.cookie),
-        Some(&session.user),
-    )
-    .send()
-    .await
-    .map_err(|_| "无法读取创作权限，请检查网络")?;
-    json_response(response, 2 * 1024 * 1024).await
+fn legacy_group() -> String {
+    LEGACY_GROUP.into()
 }
-async fn catalog(state: &AppState, session: &Login) -> Result<Vec<MediaModel>, String> {
-    let client = yuanheng_client()?;
-    let groups = parse_user_groups(&account_get(&client, session, "/api/user/self/groups").await?)
-        .map_err(|_| "读取创作分组失败")?;
-    if !groups.iter().any(|g| g.id == GROUP) {
-        return Err("当前账号没有“生图和视频”分组权限，请联系平台开通；不会改用聊天分组".into());
+fn group_setting_key(owner: &str) -> String {
+    format!("media_studio_group_v1_{owner}")
+}
+fn validate_group(group: &str, groups: &[YuanhengGroupOption]) -> Result<(), String> {
+    if group.trim().is_empty() || group.len() > 256 || !groups.iter().any(|g| g.id == group) {
+        return Err("所选创作分组已不可用，请刷新分组后重新选择；不会自动换组".into());
     }
+    Ok(())
+}
+fn selected_group(saved: Option<String>, groups: &[YuanhengGroupOption]) -> Option<String> {
+    match saved {
+        Some(group) => validate_group(&group, groups).ok().map(|_| group),
+        None => validate_group(LEGACY_GROUP, groups)
+            .ok()
+            .map(|_| legacy_group()),
+    }
+}
+async fn authorized_groups_at(
+    state: &AppState,
+    session: &Login,
+    client: &reqwest::Client,
+    origin: &str,
+) -> Result<Vec<YuanhengGroupOption>, String> {
+    let groups = device_credentials::groups_at(client, origin, &session.cookie, &session.user)
+        .await
+        .map_err(|_| "读取创作分组失败")?;
+    same_login(state, session)?;
+    Ok(groups)
+}
+async fn authorized_groups(
+    state: &AppState,
+    session: &Login,
+) -> Result<Vec<YuanhengGroupOption>, String> {
+    authorized_groups_at(state, session, &yuanheng_client()?, BASE_URL).await
+}
+fn save_group_preference(
+    state: &AppState,
+    session: &Login,
+    group: &str,
+    groups: &[YuanhengGroupOption],
+) -> Result<(), String> {
+    validate_group(group, groups)?;
+    same_login(state, session)?;
+    state
+        .db
+        .set_setting(&group_setting_key(&session.owner), group)
+        .map_err(|_| "无法保存创作分组偏好".into())
+}
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MediaGroups {
+    groups: Vec<YuanhengGroupOption>,
+    selected_group: Option<String>,
+}
+#[tauri::command]
+pub async fn get_media_studio_groups(state: State<'_, AppState>) -> Result<MediaGroups, String> {
+    let session = login(&state)?;
+    let groups = authorized_groups(&state, &session).await?;
+    let saved = state
+        .db
+        .get_setting(&group_setting_key(&session.owner))
+        .map_err(|_| "无法读取创作分组偏好")?;
+    Ok(MediaGroups {
+        selected_group: selected_group(saved, &groups),
+        groups,
+    })
+}
+#[tauri::command]
+pub async fn set_media_studio_group(
+    state: State<'_, AppState>,
+    group: String,
+) -> Result<String, String> {
+    let session = login(&state)?;
+    let groups = authorized_groups(&state, &session).await?;
+    save_group_preference(&state, &session, &group, &groups)?;
+    Ok(group)
+}
+async fn catalog(
+    state: &AppState,
+    session: &Login,
+    group: &str,
+) -> Result<Vec<MediaModel>, String> {
+    catalog_at(state, session, &yuanheng_client()?, BASE_URL, group).await
+}
+async fn catalog_at(
+    state: &AppState,
+    session: &Login,
+    client: &reqwest::Client,
+    origin: &str,
+    group: &str,
+) -> Result<Vec<MediaModel>, String> {
+    let groups = authorized_groups_at(state, session, client, origin).await?;
+    validate_group(group, &groups)?;
     let response = with_session(
         client
-            .get(format!("{BASE_URL}/api/user/models"))
-            .query(&[("group", GROUP)]),
+            .get(format!("{origin}/api/user/models"))
+            .query(&[("group", group)]),
         Some(&session.cookie),
         Some(&session.user),
     )
@@ -736,9 +813,10 @@ async fn stream_video(
 #[tauri::command]
 pub async fn get_media_studio_models(
     state: State<'_, AppState>,
+    group: String,
 ) -> Result<Vec<MediaModel>, String> {
     let session = login(&state)?;
-    catalog(&state, &session).await
+    catalog(&state, &session, &group).await
 }
 #[tauri::command]
 pub fn get_media_studio_history(state: State<'_, AppState>) -> Result<Vec<MediaRecord>, String> {
@@ -770,7 +848,7 @@ pub async fn submit_media_studio(
     if previous.len() >= 50 {
         return Err("已有 50 条创作记录，请先删除不需要的记录".into());
     }
-    if !catalog(&state, &session)
+    if !catalog(&state, &session, &request.group)
         .await?
         .iter()
         .any(|m| m.id == request.model)
@@ -783,11 +861,11 @@ pub async fn submit_media_studio(
         &account,
         &session.cookie,
         &session.user,
-        GROUP,
+        &request.group,
         "元衡桌面端 - 图片与视频",
     )
     .await
-    .map_err(|_| "无法获取生图和视频分组凭据，请重新登录或检查权限")?;
+    .map_err(|_| "无法获取所选创作分组凭据，请重新登录或检查权限")?;
     same_login(&state, &session)?;
     let client = crate::proxy::http_client::image_client().map_err(|_| "无法创建生成连接")?;
     let response = client
@@ -810,6 +888,7 @@ pub async fn submit_media_studio(
     }
     same_login(&state, &session)?;
     let mut record = MediaRecord {
+        group: request.group.clone(),
         id: request.operation_id.clone(),
         model: request.model.clone(),
         kind: p.kind.clone(),
@@ -891,9 +970,25 @@ async fn record_key(
     session: &Login,
     record: &MediaRecord,
 ) -> Result<String, String> {
+    record_key_at(state, session, record, &yuanheng_client()?, BASE_URL).await
+}
+async fn record_key_at(
+    state: &AppState,
+    session: &Login,
+    record: &MediaRecord,
+    client: &reqwest::Client,
+    origin: &str,
+) -> Result<String, String> {
     let id = record.token_id.ok_or("原任务凭据编号缺失")?;
-    let client = yuanheng_client()?;
-    let value = account_get(&client, session, &format!("/api/token/{id}/key")).await?;
+    let response = with_session(
+        client.get(format!("{origin}/api/token/{id}/key")),
+        Some(&session.cookie),
+        Some(&session.user),
+    )
+    .send()
+    .await
+    .map_err(|_| "无法读取原任务凭据")?;
+    let value = json_response(response, 2 * 1024 * 1024).await?;
     let key = value
         .pointer("/data/key")
         .and_then(Value::as_str)
@@ -1196,6 +1291,234 @@ mod tests {
     use super::*;
     use crate::database::Database;
     use std::sync::Arc;
+    fn test_groups() -> Vec<YuanhengGroupOption> {
+        vec![LEGACY_GROUP, "partner-video"]
+            .into_iter()
+            .map(|id| YuanhengGroupOption {
+                id: id.into(),
+                description: "".into(),
+                ratio: None,
+            })
+            .collect()
+    }
+    #[test]
+    fn media_group_defaults_never_fall_back_after_revocation() {
+        let groups = test_groups();
+        assert_eq!(selected_group(None, &groups).as_deref(), Some(LEGACY_GROUP));
+        assert_eq!(selected_group(None, &groups[1..]), None);
+        assert_eq!(selected_group(Some("revoked".into()), &groups), None);
+        assert_eq!(
+            selected_group(Some("partner-video".into()), &groups).as_deref(),
+            Some("partner-video")
+        );
+        for group in ["", " ", "partner", "PARTNER-VIDEO", "partner-video "] {
+            assert!(validate_group(group, &groups).is_err());
+        }
+    }
+    #[test]
+    fn media_group_snapshots_migrate_legacy_records_without_changing_token() {
+        let legacy = json!({"id":"one", "model":"muse-video", "kind":"video", "status":"queued", "createdAt":1, "taskId":"old_task", "message":"pending", "hasMedia":false, "tokenId":123});
+        let mut record: MediaRecord = serde_json::from_value(legacy).unwrap();
+        assert_eq!(record.group, LEGACY_GROUP);
+        assert_eq!(record.token_id, Some(123));
+        record.group = "partner-video".into();
+        let roundtrip: MediaRecord =
+            serde_json::from_value(serde_json::to_value(&record).unwrap()).unwrap();
+        assert_eq!(roundtrip.group, "partner-video");
+        assert_eq!(roundtrip.token_id, Some(123));
+        let mut wire = serde_json::to_value(json!({"operationId":uuid::Uuid::new_v4().to_string(),"model":"muse-video","prompt":"scene","size":"1280x720","duration":4,"reference":null})).unwrap();
+        assert!(serde_json::from_value::<MediaRequest>(wire.clone()).is_err());
+        wire["group"] = json!("partner-video");
+        assert_eq!(
+            serde_json::from_value::<MediaRequest>(wire).unwrap().group,
+            "partner-video"
+        );
+    }
+    #[test]
+    #[serial_test::serial]
+    fn media_group_preferences_are_account_bound_and_do_not_touch_chat() {
+        let (_home, state) = super::super::tests::isolated_state();
+        let status = YuanhengConnectionStatus {
+            connected: true,
+            user_id: Some("test-user".into()),
+            ..Default::default()
+        };
+        persist_connection_for_group(
+            &state,
+            "session=test",
+            "test-user",
+            "",
+            0,
+            &status,
+            "chat-group",
+        )
+        .unwrap();
+        let session = login(&state).unwrap();
+        let before = read_cached_status(&state).unwrap();
+        save_group_preference(&state, &session, "partner-video", &test_groups()).unwrap();
+        assert_eq!(
+            state
+                .db
+                .get_setting(&group_setting_key(&session.owner))
+                .unwrap()
+                .as_deref(),
+            Some("partner-video")
+        );
+        assert!(state
+            .db
+            .get_setting(&group_setting_key("other-account"))
+            .unwrap()
+            .is_none());
+        assert_eq!(
+            serde_json::to_value(read_cached_status(&state).unwrap()).unwrap(),
+            serde_json::to_value(before).unwrap()
+        );
+        assert!(save_group_preference(&state, &session, "revoked", &test_groups()).is_err());
+        let stale = Login {
+            cookie: "stale".into(),
+            user: session.user.clone(),
+            owner: session.owner.clone(),
+        };
+        assert!(save_group_preference(&state, &stale, LEGACY_GROUP, &test_groups()).is_err());
+        assert_eq!(
+            state
+                .db
+                .get_setting(&group_setting_key(&session.owner))
+                .unwrap()
+                .as_deref(),
+            Some("partner-video")
+        );
+    }
+    #[tokio::test]
+    #[serial_test::serial]
+    async fn media_group_catalog_uses_explicit_group_and_rejects_unauthorized_or_stale_login() {
+        use axum::{
+            extract::{Query, State as AxumState},
+            routing::get,
+            Json, Router,
+        };
+        let (_home, state) = super::super::tests::isolated_state();
+        let status = YuanhengConnectionStatus {
+            connected: true,
+            user_id: Some("test-user".into()),
+            ..Default::default()
+        };
+        persist_connection_for_group(
+            &state,
+            "session=test",
+            "test-user",
+            "",
+            0,
+            &status,
+            "chat-group",
+        )
+        .unwrap();
+        let session = login(&state).unwrap();
+        let seen = Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+        let app = Router::new().route("/api/user/self/groups", get(|| async { Json(json!({"success":true,"data":{"partner-video":{"desc":"Video only"},"生图和视频":{"desc":"Legacy"}}})) }))
+            .route("/api/user/models", get(|AxumState(seen):AxumState<Arc<std::sync::Mutex<Vec<String>>>>, Query(query):Query<HashMap<String,String>>| async move {
+                let group = query.get("group").cloned().unwrap_or_default();
+                seen.lock().unwrap().push(group.clone());
+                Json(json!({"success":true,"data":if group == "partner-video" { vec!["muse-video"] } else { vec!["gpt-image-2.5-sunburst"] }}))
+            })).with_state(seen.clone());
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let origin = format!("http://{}", listener.local_addr().unwrap());
+        let server = tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+        let client = reqwest::Client::builder()
+            .no_proxy()
+            .timeout(Duration::from_secs(3))
+            .build()
+            .unwrap();
+        let result = catalog_at(&state, &session, &client, &origin, "partner-video")
+            .await
+            .unwrap();
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].id, "muse-video");
+        assert!(
+            catalog_at(&state, &session, &client, &origin, "unauthorized")
+                .await
+                .is_err()
+        );
+        let stale = Login {
+            cookie: "stale".into(),
+            user: session.user.clone(),
+            owner: session.owner.clone(),
+        };
+        assert!(catalog_at(&state, &stale, &client, &origin, LEGACY_GROUP)
+            .await
+            .is_err());
+        assert_eq!(*seen.lock().unwrap(), vec!["partner-video"]);
+        server.abort();
+        let _ = server.await;
+    }
+    #[tokio::test]
+    #[serial_test::serial]
+    async fn old_media_task_reads_original_token_even_after_group_preference_changes() {
+        use axum::{routing::get, Json, Router};
+        let (_home, state) = super::super::tests::isolated_state();
+        let status = YuanhengConnectionStatus {
+            connected: true,
+            user_id: Some("test-user".into()),
+            ..Default::default()
+        };
+        persist_connection_for_group(
+            &state,
+            "session=test",
+            "test-user",
+            "",
+            0,
+            &status,
+            "chat-group",
+        )
+        .unwrap();
+        let session = login(&state).unwrap();
+        save_group_preference(&state, &session, "partner-video", &test_groups()).unwrap();
+        let record: MediaRecord = serde_json::from_value(json!({"id":"old","model":"muse-video","kind":"video","status":"queued","createdAt":1,"taskId":"task","message":"pending","hasMedia":false,"tokenId":123})).unwrap();
+        let app = Router::new().route(
+            "/api/token/123/key",
+            get(|| async { Json(json!({"success":true,"data":{"key":"synthetic-old-task"}})) }),
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let origin = format!("http://{}", listener.local_addr().unwrap());
+        let server = tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+        let client = reqwest::Client::builder()
+            .no_proxy()
+            .timeout(Duration::from_secs(3))
+            .build()
+            .unwrap();
+        assert_eq!(
+            record_key_at(&state, &session, &record, &client, &origin)
+                .await
+                .unwrap(),
+            normalize_api_token("synthetic-old-task").unwrap()
+        );
+        assert_eq!(record.group, LEGACY_GROUP);
+        server.abort();
+        let _ = server.await;
+    }
+    #[test]
+    fn media_tokens_with_same_name_are_selected_by_exact_group() {
+        let list = json!({"data":{"items":[
+          {"id":11,"name":"元衡桌面端 - 图片与视频","group":LEGACY_GROUP,"status":1,"unlimited_quota":true,"expired_time":-1},
+          {"id":22,"name":"元衡桌面端 - 图片与视频","group":"partner-video","status":1,"unlimited_quota":true,"expired_time":-1}
+        ]}});
+        assert_eq!(
+            find_device_token_id(&list, "元衡桌面端 - 图片与视频", LEGACY_GROUP, 1),
+            Some(11)
+        );
+        assert_eq!(
+            find_device_token_id(&list, "元衡桌面端 - 图片与视频", "partner-video", 1),
+            Some(22)
+        );
+        assert_eq!(
+            find_device_token_id(&list, "元衡桌面端 - 图片与视频", "unknown", 1),
+            None
+        );
+    }
     #[test]
     fn media_save_filters_and_destination_formats_match_real_content() {
         for (mime, ext) in [
@@ -1232,6 +1555,7 @@ mod tests {
     fn request(model: &str) -> MediaRequest {
         let p = profile(model).unwrap();
         MediaRequest {
+            group: legacy_group(),
             operation_id: uuid::Uuid::new_v4().to_string(),
             model: model.into(),
             prompt: "synthetic scene".into(),
@@ -1798,6 +2122,7 @@ mod tests {
     fn records_block_replay_isolate_accounts_and_never_store_prompts_or_keys() {
         let state = AppState::new(Arc::new(Database::memory().unwrap()));
         let r = MediaRecord {
+            group: legacy_group(),
             id: uuid::Uuid::new_v4().to_string(),
             model: "muse-video".into(),
             kind: "video".into(),

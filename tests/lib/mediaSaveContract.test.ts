@@ -4,6 +4,33 @@ import { mediaStudioApi } from "@/lib/api/media-studio";
 const { invoke } = vi.hoisted(() => ({ invoke: vi.fn() }));
 vi.mock("@tauri-apps/api/core", () => ({ invoke }));
 describe("media native save contract", () => {
+  it("sends group explicitly through catalog and submit IPC, independent of preferences", async () => {
+    await mediaStudioApi.groups();
+    expect(invoke).toHaveBeenLastCalledWith("get_media_studio_groups");
+    await mediaStudioApi.selectGroup("partner");
+    expect(invoke).toHaveBeenLastCalledWith("set_media_studio_group", {
+      group: "partner",
+    });
+    await mediaStudioApi.models("partner");
+    expect(invoke).toHaveBeenLastCalledWith("get_media_studio_models", {
+      group: "partner",
+    });
+    const request = {
+      operationId: "id",
+      group: "partner",
+      model: "muse-video",
+      prompt: "scene",
+      size: "1280x720",
+      duration: 4,
+      reference: null,
+    };
+    await mediaStudioApi.submit(request);
+    expect(invoke).toHaveBeenLastCalledWith("submit_media_studio", { request });
+    await mediaStudioApi.refresh("old-record");
+    expect(invoke).toHaveBeenLastCalledWith("refresh_media_studio", {
+      id: "old-record",
+    });
+  });
   it.each(["mp4", "png", "jpg", "webp"] as const)(
     "uses the dedicated native command for %s",
     async (extension) => {
