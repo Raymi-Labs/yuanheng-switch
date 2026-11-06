@@ -252,3 +252,7 @@ QA人工启动入口按2026-10-21用户授权启用剪贴板共享，并在guest
 ## Agent 推理等级配置
 
 工作台FocusToolCard、工具管理ToolSetupGrid及useModelSwitchCenter共用[能力表](../src/data/agent-reasoning-controls.json)，后端预检/配置也读取同一表。新增Claude Code、Gemini CLI（Gemini 3离散档）、Grok Build、OpenCode、OpenClaw、Hermes、WorkBuddy、DSH原生字段写入，以及Accio既有路由入口；Codex/Claude Desktop维持原路径。WorkBuddy实际回读档位，DSH持久化等级；原生不接受的显式档位拒绝，不静默降auto。Gemini/OpenClaw/Hermes使用字段归属记录恢复，外部编辑保留并报冲突。TRAE保持辅助配置并明确没有已验证外部写入接口；Gemini2.5 budget不编造等级映射。原生会话/环境/全局优先级与Hermes同名模型跨供应商影响见[使用边界](guides/agent-reasoning.md)和[决定](../.agents/notes/implemented/feature/2026-11-04-agent-reasoning-controls.md)。本轮仅本地代码及隔离验证，无真实模型调用或发布。
+
+## 自动依赖维护
+
+[Dependabot](../.github/dependabot.yml) 的 Cargo 例行更新仅刷新现有清单兼容范围内的锁文件；跨范围升级需要单独适配和三平台 CI。数据库、加密与平台接口不因例行批量更新而隐式迁移。
