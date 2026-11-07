@@ -180,12 +180,7 @@ export function Voice({
   return (
     <div className="page voice-page">
       <div className="page-heading">
-        <span className="eyebrow">CLONE YOUR VOICE</span>
-        <h1>让你的声音开口</h1>
-        <p className="muted">
-          上传已获授权的清晰人声并输入文字，使用 MiMo
-          生成语音。需要账号具备音频模型权限。
-        </p>
+        <h1>声音克隆</h1>
       </div>
       <section className="voice-block">
         <label>

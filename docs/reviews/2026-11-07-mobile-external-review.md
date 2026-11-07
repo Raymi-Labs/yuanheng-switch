@@ -33,6 +33,10 @@
 
 ## 验证与合并前事项
 
+后续提交fa6972c4的全部GitHub检查（含Android/iOS）也已通过。继续检查发现CSP会拦截声音页data音频，新增仅本地media-src权限，补齐AI同意中的声音/遮罩说明，并移除声音页标语。48项本地前端回归和生产构建通过，真实Chromium对生产dist施加实际CSP：旧策略确实拒绝音频，新策略样本和合成结果可加载播放；实际Canvas导出200×100 PNG，涂抹中心透明（alpha=0），未涂抹角落不透明（255）；六个入口在320/390宽度无横向溢出。账号、静音WAV、参考PNG、IPC返回均合成，外部请求0；模拟IPC不证明Rust端到端或原生安卓通过。
+
+维护者可在mobile执行`pnpm build`后运行`node scripts/test-media-browser.cjs`，需要可用的Playwright和Chromium。可通过`PLAYWRIGHT_MODULE`指定已安装模块、`CHROMIUM_EXECUTABLE`指定浏览器；无需修改项目依赖。脚本只监听127.0.0.1，结束关闭浏览器和服务，不连接真实平台。本机未配置Android SDK/adb，真机项目仍保留在清单中。
+
 首轮PR提交8fc6ba45的GitHub Android/iOS构建、移动检查与桌面三平台CI均通过。进一步审查补齐音频替换期间禁止旧样本提交、空样本及晚到错误处理；遮罩加载前禁止画笔、轻点成点、多指隔离和失去捕获清理。补充后本地46项前端测试及生产构建通过。Canvas调用桩只证明事件/绘制指令，不冒充真机像素渲染测试。
 
 本地完整移动前端回归、TypeScript与Vite生产构建；Rust lib测试、Clippy及格式检查。测试不调用真实模型、不充值、不兑换、不读取宿主账号。完整数量和结果见PR说明。

@@ -1,5 +1,7 @@
 # YuanHeng Desktop: capability map
 
+移动音频播放使用[打包CSP](../mobile/src-tauri/tauri.conf.json)的media-src self/data/blob，保持脚本和外部连接约束；[浏览器回归](../mobile/scripts/test-media-browser.cjs)对生产dist验证旧策略拒绝、新策略播放、遮罩真实alpha与320/390六入口布局，全部合成IPC，无原生/收费验收推断。声音/遮罩纳入[AI同意说明](../mobile/src/App.tsx)，声音页去除标语。
+
 移动媒体交互边界：[声音页](../mobile/src/Voice.tsx)替换样本立即撤销旧输入和授权，读取失败不回退旧音频；[遮罩](../mobile/src/MaskEditor.tsx)要求图片解码就绪，支持轻点画笔并隔离次要触点，捕获丢失停止绘制。合成回归不替代Android实际触摸与像素验证，见[外部改版审查](reviews/2026-11-07-mobile-external-review.md)。
 
 移动端外部媒体改版（待真机验收）：[Voice](../mobile/src/Voice.tsx) → [账号绑定TTS](../mobile/src-tauri/src/voice.rs) → 既有`/pg/chat/completions`，支持分组选择、同意、取消及有界音频；[Images](../mobile/src/Images.tsx)扩展4参考图和[遮罩编辑](../mobile/src/MaskEditor.tsx)，复用[账号收藏](../mobile/src-tauri/src/gallery.rs)与原有并发/幂等防护。定价查询带登录态、回前台刷新；其他移动钱包和iOS边界不变。外部APK不作为正式产物，见[审查报告](reviews/2026-11-07-mobile-external-review.md)与[移植决定](../.agents/notes/implemented/feature/2026-11-07-mobile-external-media.md)。
