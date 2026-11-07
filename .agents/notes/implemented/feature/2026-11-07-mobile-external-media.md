@@ -37,6 +37,8 @@ Status: implemented
 
 ## Consequences
 
+发布产物来自Mobile Build 42390906582的bfd4c16fab9d62c5acef410a2d61563a9e77bbaf，Android作业成功并执行apksigner/zipalign/包身份版本检查。下载APK共17230289字节，SHA256=96e9a070346c6531635af009b94990f45df9785b4da081290775649c70c9c805，与构建校验文件一致；签名块证书与正式证书e1de31b9…一致。只公开APK和SHA256，idsig及iOS开发产物不作普通下载。元数据加入仓库后由既有分发流程再次校验，上传结果以工作流为准。
+
 后续浏览器验收发现打包CSP只有default-src self，声音页data音频会被阻止。仅增加media-src self/data/blob，保留脚本和网络连接约束，不关闭CSP或开放任意远端音频；AI数据处理说明补声音/遮罩，声音标题改为直接的“声音克隆”，去掉标语和重复说明。新增实际Chromium生产renderer测试，IPC/账号/媒体均合成，使用配置原文作为HTTP CSP。旧策略复现media-src拒绝，新策略样本/结果加载且play成功；200×100遮罩中心alpha=0、角落255；320/390像素宽六入口无横向溢出。修正测试等待页面动画与稳定点击，不通过禁用动画或放宽断言掩盖结果。外部请求0、没有真实模型或个人数据。
 
 最新本地48项前端测试、类型/生产构建、真实浏览器验收通过；旧提交fa6972c4的Android/iOS及全部CI已通过，本次新SHA需重新跑。测试脚本finally退出浏览器并关闭本地HTTP服务；无测试遗留进程。不具备Android SDK/adb，本轮不宣称原生设备验收。取舍为保留最小本地媒体权限而非改用远端音频URL或放宽默认CSP。可重复入口见mobile/scripts/test-media-browser.cjs。
