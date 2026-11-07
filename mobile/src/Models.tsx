@@ -174,9 +174,20 @@ export function Models({
   const [sort, setSort] = useState<SortKey>("default");
   const [picker, setPicker] = useState<"group" | "sort" | null>(null);
   const [selected, setSelected] = useState<PricingModel | null>(null);
+  const silent = useRef(false);
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState !== "visible") return;
+      silent.current = true;
+      setAttempt((v) => v + 1);
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
+  }, []);
   useEffect(() => {
     let mounted = true;
-    setLoading(true);
+    if (!silent.current) setLoading(true);
+    silent.current = false;
     void api
       .pricing()
       .then((value) => {

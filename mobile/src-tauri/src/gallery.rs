@@ -112,7 +112,42 @@ fn validate_entry(raw: &str) -> Result<(String, Value), String> {
         }
         safe["reference"] = json!(reference);
     }
+    if let Some(references) = value.get("references") {
+        let refs = references.as_array().ok_or("收藏参考图无效")?;
+        if refs.len() > 3 {
+            return Err("最多三张附加参考图".into());
+        }
+        for r in refs {
+            validate_asset(r.as_str().ok_or("收藏参考图无效")?, false)?;
+        }
+        if !refs.is_empty() && safe.get("reference").is_none() {
+            return Err("缺少首张参考图".into());
+        }
+        safe["references"] = references.clone();
+    }
+    if let Some(mask) = value.get("mask").and_then(Value::as_str) {
+        if safe.get("reference").is_none() {
+            return Err("遮罩需要参考图".into());
+        }
+        validate_asset(mask, true)?;
+        safe["mask"] = json!(mask);
+    }
     Ok((identifier, safe))
+}
+fn validate_asset(value: &str, mask: bool) -> Result<(), String> {
+    if value.len() > 14 * 1024 * 1024 {
+        return Err("收藏图片过大".into());
+    }
+    let (header, data) = value.split_once(',').ok_or("收藏图片无效")?;
+    let decoded = STANDARD.decode(data).map_err(|_| "收藏图片无效")?;
+    let mime = crate::transport::image_mime(&decoded)?;
+    if decoded.len() > 10 * 1024 * 1024
+        || header != format!("data:{mime};base64")
+        || (mask && mime != "image/png")
+    {
+        return Err("收藏图片格式无效".into());
+    }
+    Ok(())
 }
 pub fn save(root: &Path, account: i64, raw: &str) -> Result<(), String> {
     let (identifier, value) = validate_entry(raw)?;
@@ -200,6 +235,28 @@ mod tests {
                 .unwrap()
                 .contains("must-not-persist")
         );
+    }
+    #[test]
+    fn multiple_references_and_mask_roundtrip_with_account_limits() {
+        let root = tempfile::tempdir().unwrap();
+        let image = format!(
+            "data:image/png;base64,{}",
+            STANDARD.encode(b"\x89PNG\r\n\x1a\nsynthetic")
+        );
+        let mut value: Value = serde_json::from_str(&entry("multi", 1)).unwrap();
+        value["reference"] = json!(image);
+        value["references"] = json!([image, image, image]);
+        value["mask"] = json!(image);
+        save(root.path(), 7, &value.to_string()).unwrap();
+        let items = list(root.path(), 7).unwrap();
+        assert_eq!(items[0]["references"].as_array().unwrap().len(), 3);
+        assert_eq!(items[0]["mask"], image);
+        assert!(list(root.path(), 8).unwrap().as_array().unwrap().is_empty());
+        value["references"] = json!([image, image, image, image]);
+        assert!(save(root.path(), 7, &value.to_string()).is_err());
+        value["references"] = json!([]);
+        value["mask"] = json!("data:image/jpeg;base64,/9j/AA==");
+        assert!(save(root.path(), 7, &value.to_string()).is_err());
     }
     #[test]
     fn enforces_count_atomic_updates_and_stable_latest_order() {

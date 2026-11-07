@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Download,
+  Brush,
   ImagePlus,
   RotateCcw,
   Sparkles,
@@ -11,6 +12,7 @@ import {
 } from "lucide-react";
 import { api, randomId, errorText, ImageResult } from "./api";
 import { Notice } from "./App";
+import { MaskEditor } from "./MaskEditor";
 
 type ImageTask = {
   id: string;
@@ -18,6 +20,8 @@ type ImageTask = {
   model: string;
   size: string;
   reference?: string;
+  references?: string[];
+  mask?: string;
   status: "running" | "done" | "error";
   startedAt: number;
   finishedAt?: number;
@@ -38,7 +42,10 @@ function retainTasks(tasks: ImageTask[]): ImageTask[] {
   return tasks.filter((task, index) => {
     if (task.status === "running") return true;
     const size =
-      (task.result?.data.length ?? 0) + (task.reference?.length ?? 0);
+      (task.result?.data.length ?? 0) +
+      (task.reference?.length ?? 0) +
+      (task.references ?? []).reduce((n, r) => n + r.length, 0) +
+      (task.mask?.length ?? 0);
     if (index >= 60 || bytes + size > 80 * 1024 * 1024) return false;
     bytes += size;
     return true;
@@ -60,6 +67,9 @@ export function Images({
   const [models, setModels] = useState<string[]>([]);
   const [reference, setReference] = useState<string>();
   const [referenceUrl, setReferenceUrl] = useState<string>();
+  const [extraReferences, setExtraReferences] = useState<string[]>([]);
+  const [mask, setMask] = useState<string>();
+  const [masking, setMasking] = useState(false);
   const [tasks, setTasks] = useState<ImageTask[]>([]);
   const [selectedId, setSelectedId] = useState<string>();
   const [filter, setFilter] = useState<Filter>("all");
@@ -133,6 +143,8 @@ export function Images({
                 typeof entry.reference === "string"
                   ? entry.reference
                   : undefined,
+              references: entry.references,
+              mask: entry.mask,
               status: "done",
               startedAt: Number(entry.createdAt) || Date.now(),
               finishedAt: Number(entry.createdAt) || Date.now(),
@@ -193,8 +205,12 @@ export function Images({
         readerRef.current === reader &&
         typeof reader.result === "string"
       ) {
-        setReferenceUrl(reader.result);
-        setReference(reader.result.split(",")[1]);
+        const value = reader.result;
+        if (!referenceUrl) {
+          setReferenceUrl(value);
+          setReference(value.split(",")[1]);
+          setMask(undefined);
+        } else setExtraReferences((prev) => [...prev, value].slice(0, 3));
       }
     };
     reader.onerror = () => {
@@ -207,7 +223,14 @@ export function Images({
     e.preventDefault();
     const text = prompt.trim();
     if (!text) return;
-    const inputKey = JSON.stringify([text, model, size, reference ?? null]);
+    const inputKey = JSON.stringify([
+      text,
+      model,
+      size,
+      reference ?? null,
+      extraReferences,
+      mask,
+    ]);
     if (activeInputs.current.has(inputKey)) {
       setMessage("相同参数的图片正在生成，请勿重复提交");
       return;
@@ -230,6 +253,8 @@ export function Images({
           model,
           size,
           reference: referenceUrl,
+          references: extraReferences,
+          mask,
           status: "running" as const,
           startedAt,
           favorite: false,
@@ -239,7 +264,17 @@ export function Images({
     );
     setSelectedId(id);
     try {
-      const value = await api.image(id, text, model, size, reference);
+      const value = await api.image(
+        id,
+        text,
+        model,
+        size,
+        reference,
+        extraReferences.length
+          ? [reference!, ...extraReferences.map((r) => r.split(",")[1])]
+          : undefined,
+        mask?.split(",")[1],
+      );
       const finishedAt = Date.now();
       patch(id, {
         status: "done",
@@ -280,6 +315,8 @@ export function Images({
             createdAt: task.finishedAt ?? task.startedAt,
             elapsed: task.elapsed,
             reference: task.reference,
+            references: task.references,
+            mask: task.mask,
             result: task.result,
           },
           userId,
@@ -315,6 +352,9 @@ export function Images({
     setSize(task.size);
     setReferenceUrl(task.reference);
     setReference(task.reference?.split(",")[1]);
+    setExtraReferences(task.references ?? []);
+    setMask(task.mask);
+    setMasking(false);
     if (fileRef.current) fileRef.current.value = "";
     setMessage("已载入这条记录的参数");
   };
@@ -490,6 +530,9 @@ export function Images({
                 resetReader();
                 setReference(undefined);
                 setReferenceUrl(undefined);
+                setExtraReferences([]);
+                setMask(undefined);
+                setMasking(false);
                 if (fileRef.current) fileRef.current.value = "";
               }}
             >
@@ -505,6 +548,68 @@ export function Images({
             <ImagePlus size={20} />
             添加参考图 <span>可选</span>
           </button>
+        )}
+        {referenceUrl && (
+          <>
+            <div className="reference-grid">
+              {extraReferences.map((r, i) => (
+                <div className="reference" key={`${i}-${r.length}`}>
+                  <img src={r} alt={`附加参考图 ${i + 2}`} />
+                  <button
+                    type="button"
+                    className="icon-button"
+                    aria-label={`移除参考图 ${i + 2}`}
+                    onClick={() => {
+                      resetReader();
+                      setExtraReferences((prev) =>
+                        prev.filter((_, n) => n !== i),
+                      );
+                    }}
+                  >
+                    <X size={17} />
+                  </button>
+                </div>
+              ))}
+            </div>
+            {extraReferences.length < 3 && (
+              <button
+                type="button"
+                className="upload-button"
+                onClick={() => fileRef.current?.click()}
+              >
+                添加参考图（{extraReferences.length + 1}/4）
+              </button>
+            )}
+            <button
+              type="button"
+              className="secondary"
+              onClick={() => setMasking(true)}
+            >
+              <Brush size={16} />
+              局部重绘{mask ? " · 已添加遮罩" : ""}
+            </button>
+            {mask && (
+              <button type="button" onClick={() => setMask(undefined)}>
+                清除遮罩
+              </button>
+            )}
+            <p className="footnote">
+              多图与遮罩需所选模型支持，遮罩应用于首张参考图。
+            </p>
+          </>
+        )}
+        {masking && referenceUrl && (
+          <MaskEditor
+            source={{
+              data: reference!,
+              mime: referenceUrl.slice(5, referenceUrl.indexOf(";")),
+            }}
+            onClose={() => setMasking(false)}
+            onApply={(value) => {
+              setMask(`data:${value.mime};base64,${value.data}`);
+              setMasking(false);
+            }}
+          />
         )}
         <Notice text={message} />
         <button
