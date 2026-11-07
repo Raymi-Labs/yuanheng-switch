@@ -1,5 +1,11 @@
 # YuanHeng Desktop: capability map
 
+移动音频播放使用[打包CSP](../mobile/src-tauri/tauri.conf.json)的media-src self/data/blob，保持脚本和外部连接约束；[浏览器回归](../mobile/scripts/test-media-browser.cjs)对生产dist验证旧策略拒绝、新策略播放、遮罩真实alpha与320/390六入口布局，全部合成IPC，无原生/收费验收推断。声音/遮罩纳入[AI同意说明](../mobile/src/App.tsx)，声音页去除标语。
+
+移动媒体交互边界：[声音页](../mobile/src/Voice.tsx)替换样本立即撤销旧输入和授权，读取失败不回退旧音频；[遮罩](../mobile/src/MaskEditor.tsx)要求图片解码就绪，支持轻点画笔并隔离次要触点，捕获丢失停止绘制。合成回归不替代Android实际触摸与像素验证，见[外部改版审查](reviews/2026-11-07-mobile-external-review.md)。
+
+移动端外部媒体改版（待真机验收）：[Voice](../mobile/src/Voice.tsx) → [账号绑定TTS](../mobile/src-tauri/src/voice.rs) → 既有`/pg/chat/completions`，支持分组选择、同意、取消及有界音频；[Images](../mobile/src/Images.tsx)扩展4参考图和[遮罩编辑](../mobile/src/MaskEditor.tsx)，复用[账号收藏](../mobile/src-tauri/src/gallery.rs)与原有并发/幂等防护。定价查询带登录态、回前台刷新；其他移动钱包和iOS边界不变。外部APK不作为正式产物，见[审查报告](reviews/2026-11-07-mobile-external-review.md)与[移植决定](../.agents/notes/implemented/feature/2026-11-07-mobile-external-media.md)。
+
 网站账号浏览器登录：[BrowserAccountLogin](../src/components/desktop/BrowserAccountLogin.tsx)复用登录面板 → [原生短期授权](../src-tauri/src/commands/yuanheng/browser_login.rs) → Meta `/api/desktop-auth`协议与网站显式确认。系统浏览器处理GitHub/Google账号，本机proof不进入URL或前端；取消/过期/切号阻止旧会话覆盖。不自动创建工具令牌。Meta由用户部署后才可用，密码入口保留，见[交付说明](guides/browser-account-login.md)。
 
 Accio官方包自动诊断：[维护者命令/工作流指南](guides/accio-compatibility-check.md) → [完整检查脚本](../scripts/check-accio-package.py) → 官方固定元数据与ARM64包 → SHA512/归档/签名核验 → [关键声明指纹匹配](../scripts/accio-protocol-fingerprint.cjs)及既有16项隔离协议回归。0.37.2签名及102个选定声明检查通过，[结果](reviews/2026-11-01-accio-0372-protocol.json)明确原生GUI未测。诊断不修改用户版本门禁或客户端自动查询；相关PR自动回归，完整官方包通过手动工作流触发，无周期任务。见[决定](../.agents/notes/implemented/testing/2026-11-01-accio-package-automation.md)。

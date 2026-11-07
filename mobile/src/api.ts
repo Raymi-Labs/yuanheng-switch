@@ -89,6 +89,7 @@ export type Conversation = {
   messages: Message[];
 };
 export type ImageResult = { data: string; mime: string };
+export type ImageAsset = ImageResult;
 export type ImageTaskRecord = {
   id: string;
   prompt: string;
@@ -97,6 +98,8 @@ export type ImageTaskRecord = {
   createdAt: number;
   elapsed?: number;
   reference?: string;
+  references?: string[];
+  mask?: string;
   result: ImageResult;
 };
 export type Envelope<T> = { success: boolean; data: T; message?: string };
@@ -343,10 +346,39 @@ export const api = {
     model: string,
     size: string,
     reference?: string,
+    references?: string[],
+    mask?: string,
   ) =>
     invoke<ImageResult>("mobile_image", {
       id,
-      input: { prompt, model, size, reference: reference ?? null },
+      input: {
+        prompt,
+        model,
+        size,
+        reference: reference ?? null,
+        references: references ?? null,
+        mask: mask ?? null,
+      },
+    }),
+  tts: (
+    id: string,
+    text: string,
+    audio: string,
+    instruction: string | undefined,
+    consentConfirmed: boolean,
+    userId: number,
+    group: string,
+  ) =>
+    invoke<ImageResult>("mobile_tts", {
+      id,
+      input: {
+        text,
+        audio,
+        instruction: instruction?.trim() || null,
+        consentConfirmed,
+        group,
+      },
+      expectedUserId: userId,
     }),
   saveImage: (data: string) => invoke<void>("mobile_save_image", { data }),
   galleryList: (userId: number) =>

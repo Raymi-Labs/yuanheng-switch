@@ -19,15 +19,18 @@ import {
 import { Account, api, balanceText, BalanceUnit, errorText } from "./api";
 import { Chat } from "./Chat";
 import { Images } from "./Images";
+import { Voice } from "./Voice";
+import { Mic } from "lucide-react";
 import { Models } from "./Models";
 import { Console } from "./Console";
 import { Redeem } from "./Redeem";
 import { Redemptions } from "./Redemptions";
 
-type Tab = "chat" | "images" | "models" | "console" | "account";
+type Tab = "chat" | "images" | "voice" | "models" | "console" | "account";
 const tabs = [
   { id: "chat", label: "聊天", icon: MessageSquare },
   { id: "images", label: "生图", icon: Image },
+  { id: "voice", label: "声音", icon: Mic },
   { id: "models", label: "广场", icon: Store },
   { id: "console", label: "控制台", icon: LayoutDashboard },
   { id: "account", label: "我的", icon: UserRound },
@@ -113,10 +116,10 @@ export function App() {
     const start = swipe.current;
     swipe.current = null;
     const touch = e.changedTouches[0];
-    if (!start || !touch || Date.now() - start.at > 700) return;
+    if (!start || !touch || Date.now() - start.at > 600) return;
     const dx = touch.clientX - start.x;
     const dy = touch.clientY - start.y;
-    if (Math.abs(dx) < 64 || Math.abs(dx) < Math.abs(dy) * 1.5) return;
+    if (Math.abs(dx) < 100 || Math.abs(dx) < Math.abs(dy) * 2) return;
     const next = tabOrder[tabOrder.indexOf(tab) + (dx < 0 ? 1 : -1)];
     if (next) switchTab(next);
   };
@@ -299,6 +302,13 @@ export function App() {
                   active={tab === "images"}
                   refresh={refresh}
                 />
+              ) : (
+                <AiConsent onAccept={() => changeAiConsent(true)} />
+              )}
+            </div>
+            <div hidden={tab !== "voice"} className="panel">
+              {aiConsent ? (
+                <Voice userId={account.id} defaultGroup={account.group} />
               ) : (
                 <AiConsent onAccept={() => changeAiConsent(true)} />
               )}
@@ -825,12 +835,12 @@ function AiConsent({ onAccept }: { onAccept: () => Promise<void> }) {
       <ShieldCheck size={32} />
       <h1>使用 AI 前，请了解数据如何处理</h1>
       <p>
-        你发送的文字、对话上下文，以及主动选择并提交的参考图片，会通过 Meta
-        API（meta-api.vip）转交给所选模型对应的第三方 AI
-        服务，用于生成回复或图片。
+        你发送的文字、对话上下文，以及主动选择并提交的参考图片、遮罩和声音样本，会通过
+        Meta API（meta-api.vip）转交给所选模型对应的第三方 AI
+        服务，用于生成回复、图片或语音。
       </p>
       <p>
-        仅选择参考图片不会上传；点击发送或生成时才会提交内容。请勿提交未经授权的他人信息。生成结果可能不准确，请核实重要信息。
+        仅选择图片或声音样本不会上传；点击发送或生成时才会提交内容。请勿提交未经授权的他人信息或声音。生成结果可能不准确，请核实重要信息。
       </p>
       <p>你可以在“我的”撤回同意。未同意时仍可查看额度和管理令牌。</p>
       <button
