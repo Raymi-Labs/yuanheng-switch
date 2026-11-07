@@ -1,5 +1,6 @@
 mod gallery;
 mod transport;
+mod voice;
 
 use base64::{engine::general_purpose::STANDARD, Engine};
 use futures_util::StreamExt;
@@ -253,7 +254,7 @@ async fn mobile_api(
         .client
         .request(method.clone(), format!("{BASE}{path}"))
         .timeout(Duration::from_secs(45));
-    let (request, epoch) = if matches!(operation.as_str(), "status" | "pricing") {
+    let (request, epoch) = if operation == "status" {
         (request, None)
     } else {
         let (session, epoch) = state.snapshot()?;
@@ -361,6 +362,47 @@ struct ImageRequest {
     model: String,
     size: String,
     reference: Option<String>,
+    references: Option<Vec<String>>,
+    mask: Option<String>,
+}
+
+const MAX_REFERENCES: usize = 4;
+const MAX_IMAGE_BYTES: usize = 10 * 1024 * 1024;
+fn image_extension(mime: &str) -> &'static str {
+    match mime {
+        "image/jpeg" => "jpg",
+        "image/webp" => "webp",
+        _ => "png",
+    }
+}
+fn validate_image_assets(input: &ImageRequest) -> Result<(), String> {
+    let refs = input.references.as_deref().unwrap_or(&[]);
+    if refs.len() > MAX_REFERENCES {
+        return Err("最多支持4张参考图".into());
+    }
+    if input.mask.is_some() && refs.is_empty() && input.reference.is_none() {
+        return Err("遮罩需要参考图".into());
+    }
+    for data in refs
+        .iter()
+        .chain(input.reference.iter())
+        .chain(input.mask.iter())
+    {
+        if data.len() > 14 * 1024 * 1024 {
+            return Err("图片编码过大".into());
+        }
+        let bytes = STANDARD.decode(data).map_err(|_| "图片编码无效")?;
+        if bytes.len() > MAX_IMAGE_BYTES {
+            return Err("单张图片不能超过10MB".into());
+        }
+        image_mime(&bytes)?;
+    }
+    if let Some(data) = &input.mask {
+        if image_mime(&STANDARD.decode(data).map_err(|_| "遮罩无效")?)? != "image/png" {
+            return Err("遮罩必须为PNG".into());
+        }
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -369,6 +411,7 @@ async fn mobile_image(
     id: String,
     input: ImageRequest,
 ) -> Result<Value, String> {
+    validate_image_assets(&input)?;
     if input.prompt.trim().is_empty()
         || input.prompt.len() > 32000
         || input.model.is_empty()
@@ -396,37 +439,61 @@ async fn mobile_image(
         transport::ensure_success(&credential)?;
         let key = image_credential(&credential)?;
         state.check(epoch)?;
-        let req = if let Some(reference) = input.reference {
-            let bytes = STANDARD.decode(reference).map_err(|_| "参考图格式无效")?;
-            if bytes.len() > 10 * 1024 * 1024 {
-                return Err("参考图不能超过 10 MB".into());
+        let mut files: Vec<String> = input.references.unwrap_or_default();
+        if files.is_empty() {
+            if let Some(single) = input.reference {
+                files.push(single);
             }
-            let mime = image_mime(&bytes)?;
-            let filename = match mime {
-                "image/jpeg" => "reference.jpg",
-                "image/webp" => "reference.webp",
-                _ => "reference.png",
-            };
-            let part = reqwest::multipart::Part::bytes(bytes)
-                .file_name(filename)
-                .mime_str(mime)
-                .map_err(|_| "参考图格式无效")?;
+        }
+        if files.len() > MAX_REFERENCES {
+            return Err(format!("最多支持 {MAX_REFERENCES} 张参考图"));
+        }
+        let mask = input.mask.filter(|value| !value.trim().is_empty());
+        if mask.is_some() && files.is_empty() {
+            return Err("使用遮罩需要先添加一张参考图".into());
+        }
+        let req = if files.is_empty() {
+            state.client.post(format!("{BASE}/v1/images/generations")).bearer_auth(&key)
+                .json(&json!({"model":input.model,"prompt":input.prompt,"size":input.size,"n":1,"response_format":"b64_json"}))
+        } else {
+            let mut form = reqwest::multipart::Form::new()
+                .text("model", input.model)
+                .text("prompt", input.prompt)
+                .text("size", input.size)
+                .text("n", "1")
+                .text("response_format", "b64_json");
+            for (index, reference) in files.iter().enumerate() {
+                let bytes = STANDARD.decode(reference).map_err(|_| "参考图格式无效")?;
+                if bytes.len() > MAX_IMAGE_BYTES {
+                    return Err("单张参考图不能超过 10 MB".into());
+                }
+                let mime = image_mime(&bytes)?;
+                let filename = format!("reference-{}.{}", index + 1, image_extension(mime));
+                let part = reqwest::multipart::Part::bytes(bytes)
+                    .file_name(filename)
+                    .mime_str(mime)
+                    .map_err(|_| "参考图格式无效")?;
+                form = form.part(if files.len() == 1 { "image" } else { "image[]" }, part);
+            }
+            if let Some(mask) = mask {
+                let bytes = STANDARD.decode(mask).map_err(|_| "遮罩格式无效")?;
+                if bytes.len() > MAX_IMAGE_BYTES {
+                    return Err("遮罩图不能超过 10 MB".into());
+                }
+                if image_mime(&bytes)? != "image/png" {
+                    return Err("遮罩图必须是 PNG".into());
+                }
+                let part = reqwest::multipart::Part::bytes(bytes)
+                    .file_name("mask.png")
+                    .mime_str("image/png")
+                    .map_err(|_| "遮罩格式无效")?;
+                form = form.part("mask", part);
+            }
             state
                 .client
                 .post(format!("{BASE}/v1/images/edits"))
                 .bearer_auth(&key)
-                .multipart(
-                    reqwest::multipart::Form::new()
-                        .text("model", input.model)
-                        .text("prompt", input.prompt)
-                        .text("size", input.size)
-                        .text("n", "1")
-                        .text("response_format", "b64_json")
-                        .part("image", part),
-                )
-        } else {
-            state.client.post(format!("{BASE}/v1/images/generations")).bearer_auth(&key)
-                .json(&json!({"model":input.model,"prompt":input.prompt,"size":input.size,"n":1,"response_format":"b64_json"}))
+                .multipart(form)
         };
         let response = req
             .timeout(Duration::from_secs(600))
@@ -536,6 +603,7 @@ pub fn run() {
             mobile_chat,
             mobile_cancel,
             mobile_image,
+            voice::mobile_tts,
             mobile_save_image,
             mobile_gallery_save,
             mobile_gallery_list,
@@ -548,6 +616,30 @@ pub fn run() {
 
 #[cfg(test)]
 mod state_tests {
+    #[test]
+    fn image_assets_reject_excess_files_or_invalid_mask_before_request() {
+        use super::*;
+        let png = STANDARD.encode(b"\x89PNG\r\n\x1a\nsynthetic");
+        let mut v = ImageRequest {
+            prompt: "p".into(),
+            model: "m".into(),
+            size: "auto".into(),
+            reference: None,
+            references: Some(vec![png.clone(); 4]),
+            mask: Some(png.clone()),
+        };
+        assert!(validate_image_assets(&v).is_ok());
+        v.references = Some(vec![png.clone(); 5]);
+        assert!(validate_image_assets(&v).is_err());
+        v.references = None;
+        assert!(validate_image_assets(&v).is_err());
+        v.reference = Some(png);
+        v.mask = Some(STANDARD.encode(b"not png"));
+        assert!(validate_image_assets(&v).is_err());
+        v.mask = None;
+        v.reference = Some("x".repeat(14 * 1024 * 1024 + 1));
+        assert!(validate_image_assets(&v).is_err());
+    }
     use super::*;
     #[test]
     fn delayed_gallery_and_wallet_commands_reject_the_previous_account() {
