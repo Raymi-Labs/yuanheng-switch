@@ -257,7 +257,7 @@ export function YuanhengConnectionPanel({
               {requiresTwoFactor
                 ? dt("输入认证器验证码或备用码，验证成功后即可继续。")
                 : dt(
-                    "可使用 GitHub、Google 或账号密码登录。密码不会保存在本机，工具凭据按所选分组配置。",
+                    "可使用 GitHub、Google 或账号密码登录。密码不会保存在本机，各工具共用账号统一令牌，路由规则在平台管理。",
                   )}
             </p>
             {!requiresTwoFactor && (

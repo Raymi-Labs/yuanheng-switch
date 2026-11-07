@@ -1,6 +1,82 @@
-//! Group validity comes from the authenticated server, never the account's label.
+//! One account token; directory selection never rewrites its server routing rules.
 use super::*;
 use sha2::{Digest, Sha256};
+
+const SHARED_TOKEN_NAME: &str = "元衡桌面端 - 统一令牌";
+
+fn routing_groups(groups: &[YuanhengGroupOption], preferred: &str) -> Result<Vec<String>, String> {
+    let mut result: Vec<_> = groups
+        .iter()
+        .filter(|g| g.id != "auto")
+        .map(|g| g.id.clone())
+        .collect();
+    result.sort();
+    result.dedup();
+    if result.is_empty() || result.len() > 100 {
+        return Err("统一令牌需要 1 到 100 个真实授权分组，请在平台核对分组权限".into());
+    }
+    if let Some(index) = result.iter().position(|g| g == preferred) {
+        let first = result.remove(index);
+        result.insert(0, first);
+    }
+    Ok(result)
+}
+
+fn shared_token(list: &Value, saved_id: Option<i64>) -> Result<Option<&Value>, String> {
+    let rows = list
+        .pointer("/data/items")
+        .and_then(Value::as_array)
+        .ok_or("令牌列表格式异常")?;
+    // The remembered ID survives renames; an explicit replacement with the canonical name
+    // can be adopted after deletion, but deletion alone never silently recreates credentials.
+    if let Some(row) = rows
+        .iter()
+        .find(|r| saved_id.is_some() && r["id"].as_i64() == saved_id)
+    {
+        return Ok(Some(row));
+    }
+    let mut matches = rows
+        .iter()
+        .filter(|r| r["name"].as_str() == Some(SHARED_TOKEN_NAME));
+    let first = matches.next();
+    if matches.next().is_some() {
+        return Err("发现多枚同名统一令牌，请在平台保留一枚后重试；未创建新令牌".into());
+    }
+    if first.is_none() && saved_id.is_some() {
+        return Err("统一令牌已删除，请在平台恢复或新建同名多分组令牌后重试；未自动创建".into());
+    }
+    Ok(first)
+}
+
+fn validate_shared_token(row: &Value, now: i64) -> Result<i64, String> {
+    if row["status"].as_i64() != Some(1)
+        || row["expired_time"]
+            .as_i64()
+            .is_some_and(|t| t > 0 && t <= now)
+        || (row["unlimited_quota"].as_bool() != Some(true)
+            && row["remain_quota"].as_i64().unwrap_or(0) <= 0)
+    {
+        return Err("统一令牌已停用、过期或额度不足，请在平台处理；未创建新令牌".into());
+    }
+    let config: Value = serde_json::from_str(row["routing_config"].as_str().unwrap_or(""))
+        .map_err(|_| "统一令牌缺少有效的多分组路由，请在平台配置后重试")?;
+    let groups = config["groups"].as_array().ok_or("统一令牌路由格式异常")?;
+    let mut seen = BTreeSet::new();
+    if groups.is_empty()
+        || groups.len() > 100
+        || groups.iter().any(|g| {
+            g.as_str()
+                .is_none_or(|g| g.is_empty() || g == "auto" || g.trim() != g || !seen.insert(g))
+        })
+        || groups.first().and_then(Value::as_str) != row["group"].as_str()
+    {
+        return Err("统一令牌路由配置无效，请在平台核对；未覆盖已有规则".into());
+    }
+    row["id"]
+        .as_i64()
+        .filter(|id| *id > 0)
+        .ok_or_else(|| "统一令牌缺少有效 ID".into())
+}
 
 pub(super) fn check_owner(state: &AppState, cookie: &str, user: &str) -> Result<(), String> {
     if get_yuanheng_secret(state, USER_ID_KEY)?.as_deref() != Some(user)
@@ -63,7 +139,6 @@ pub(super) async fn ensure_at(
     cookie: &str,
     user: &str,
     group: &str,
-    name: &str,
 ) -> Result<(String, i64), String> {
     static LOCK: OnceLock<tokio::sync::Mutex<()>> = OnceLock::new();
     let _guard = LOCK
@@ -77,12 +152,25 @@ pub(super) async fn ensure_at(
     }
     let marker = format!(
         "yuanheng_token_pending_{:x}",
-        Sha256::digest(serde_json::to_vec(&(user, group, name)).map_err(|e| e.to_string())?)
+        Sha256::digest(user.as_bytes())
     );
+    let identity = format!(
+        "yuanheng_shared_token_id_{:x}",
+        Sha256::digest(user.as_bytes())
+    );
+    let saved_id = state
+        .db
+        .get_setting(&identity)
+        .map_err(|e| e.to_string())?
+        .map(|id| {
+            id.parse::<i64>()
+                .map_err(|_| "统一令牌记录异常，请检查本机配置")
+        })
+        .transpose()?;
     let now = chrono::Utc::now().timestamp();
     let list = token_list(client, origin, cookie, user).await?;
-    let id = if let Some(id) = find_device_token_id(&list, name, group, now) {
-        id
+    let id = if let Some(row) = shared_token(&list, saved_id)? {
+        validate_shared_token(row, now)?
     } else {
         check_owner(state, cookie, user)?;
         if state
@@ -93,6 +181,7 @@ pub(super) async fn ensure_at(
         {
             return Err("上次创建凭据的结果尚未确认，未重复创建；请核对平台令牌记录".into());
         }
+        let routing = routing_groups(&groups, group)?;
         // Written BEFORE the POST: timeout/crash/restart must not create another token.
         state
             .db
@@ -102,8 +191,9 @@ pub(super) async fn ensure_at(
             client,
             &format!("{origin}/api/token/"),
             &json!({
-                "name": name, "expired_time": -1, "remain_quota": 0,
-                "unlimited_quota": true, "model_limits_enabled": false, "group": group
+                "name": SHARED_TOKEN_NAME, "expired_time": -1, "remain_quota": 0,
+                "unlimited_quota": true, "model_limits_enabled": false, "group": routing[0],
+                "routing_config": serde_json::to_string(&json!({"groups": routing})).map_err(|e| e.to_string())?
             }),
             Some(cookie),
             Some(user),
@@ -111,10 +201,15 @@ pub(super) async fn ensure_at(
         .await?;
         ensure_api_success(&created, "创建本机工具凭据未确认，请核对平台记录后再试")?;
         let list = token_list(client, origin, cookie, user).await?;
-        find_device_token_id(&list, name, group, now)
-            .ok_or("凭据创建结果尚未确认，未重复创建，请核对平台记录")?
+        let row =
+            shared_token(&list, None)?.ok_or("凭据创建结果尚未确认，未重复创建，请核对平台记录")?;
+        validate_shared_token(row, now)?
     };
     check_owner(state, cookie, user)?;
+    state
+        .db
+        .set_setting(&identity, &id.to_string())
+        .map_err(|e| e.to_string())?;
     let value = fetch_json(
         client,
         &format!("{origin}/api/token/{id}/key"),
@@ -143,14 +238,13 @@ pub(super) async fn repair_at(
     origin: &str,
     session: (&str, &str),
     group: &str,
-    name: &str,
     status: &YuanhengConnectionStatus,
 ) -> Result<(), String> {
     let (cookie, user) = session;
-    let (token, id) = ensure_at(state, client, origin, cookie, user, group, name).await?;
+    let (token, id) = ensure_at(state, client, origin, cookie, user, group).await?;
     fetch_api_models_at(client, origin, &token).await?;
     check_owner(state, cookie, user)?;
-    persist_connection_for_group(state, cookie, user, &token, id, status, group)
+    persist_connection_for_group(state, cookie, user, &token, id, status, "auto")
 }
 
 pub(super) fn rejected_check(error: &str) -> YuanhengDiagnosticCheck {
@@ -165,7 +259,7 @@ pub(super) fn rejected_check(error: &str) -> YuanhengDiagnosticCheck {
         }
         .into(),
         message: if forbidden {
-            "请核对分组权限或网关限制；403 不代表令牌过期。工具分组凭据单独检查，正常配置保持不变。"
+            "请核对分组权限或网关限制；403 不代表令牌过期。工具凭据单独检查；请在平台管理统一令牌的权限与路由。"
         } else {
             "通用凭据未通过认证，请选择有效分组重新配置；正常工具配置保持不变。"
         }
@@ -286,7 +380,6 @@ mod tests {
                 "session=test",
                 "test-user",
                 "default",
-                "test-device",
             )
             .await
             .unwrap_err();
@@ -310,7 +403,6 @@ mod tests {
                 "session=test",
                 "test-user",
                 "premium",
-                "test-device"
             ),
             ensure_at(
                 &state,
@@ -319,7 +411,6 @@ mod tests {
                 "session=test",
                 "test-user",
                 "premium",
-                "test-device"
             )
         );
         assert_eq!(a.unwrap(), b.unwrap());
@@ -329,6 +420,163 @@ mod tests {
             .unwrap()
             .is_empty());
     }
+    #[tokio::test]
+    #[serial]
+    async fn switching_groups_and_consumers_preserves_one_account_token_and_server_rules() {
+        let (_home, state) = super::super::tests::isolated_state();
+        login(&state);
+        let f = fixture(
+            json!({"success":true,"data":{"premium":{},"default":{},"auto":{}}}),
+            false,
+        );
+        let server = server(f.clone()).await;
+        let c = client();
+        let first = ensure_at(
+            &state,
+            &c,
+            &server.origin,
+            "session=test",
+            "test-user",
+            "premium",
+        )
+        .await
+        .unwrap();
+        {
+            let mut rows = f.rows.lock().unwrap();
+            assert_eq!(rows.len(), 1);
+            let row = &mut rows[0];
+            assert_eq!(row["name"], SHARED_TOKEN_NAME);
+            assert_eq!(
+                serde_json::from_str::<Value>(row["routing_config"].as_str().unwrap()).unwrap(),
+                json!({"groups":["premium","default"]})
+            );
+            // A user edits the shared token in the console, including its name.
+            row["name"] = json!("我的工具令牌");
+            row["group"] = json!("default");
+            row["routing_config"] =
+                json!(r#"{"groups":["default"],"model_groups":{"test-model":["default"]}}"#);
+            row["model_limits_enabled"] = json!(true);
+            row["model_limits"] = json!("test-model");
+            row["unlimited_quota"] = json!(false);
+            row["remain_quota"] = json!(123);
+        }
+        let edited = f.rows.lock().unwrap().clone();
+        let restarted = AppState::new(state.db.clone());
+        for group in ["default", "premium", "auto"] {
+            assert_eq!(
+                ensure_at(
+                    &restarted,
+                    &c,
+                    &server.origin,
+                    "session=test",
+                    "test-user",
+                    group
+                )
+                .await
+                .unwrap(),
+                first
+            );
+        }
+        // Credential repair is another consumer; it must adopt the same ID/key.
+        let status = read_cached_status(&state).unwrap();
+        repair_at(
+            &state,
+            &c,
+            &server.origin,
+            ("session=test", "test-user"),
+            "default",
+            &status,
+        )
+        .await
+        .unwrap();
+        assert_eq!(f.posts.load(Ordering::SeqCst), 1);
+        assert_eq!(*f.rows.lock().unwrap(), edited);
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn blocked_deleted_duplicate_and_unsupported_tokens_never_create_replacements() {
+        let (_home, state) = super::super::tests::isolated_state();
+        login(&state);
+        let f = fixture(
+            json!({"success":true,"data":{"premium":{},"default":{}}}),
+            false,
+        );
+        let server = server(f.clone()).await;
+        let c = client();
+        ensure_at(
+            &state,
+            &c,
+            &server.origin,
+            "session=test",
+            "test-user",
+            "premium",
+        )
+        .await
+        .unwrap();
+        let original = f.rows.lock().unwrap()[0].clone();
+        for (field, value) in [
+            ("status", json!(2)),
+            ("expired_time", json!(1)),
+            ("routing_config", json!("")),
+        ] {
+            let mut row = original.clone();
+            row[field] = value;
+            *f.rows.lock().unwrap() = vec![row];
+            assert!(ensure_at(
+                &state,
+                &c,
+                &server.origin,
+                "session=test",
+                "test-user",
+                "default"
+            )
+            .await
+            .is_err());
+        }
+        let mut exhausted = original.clone();
+        exhausted["unlimited_quota"] = json!(false);
+        exhausted["remain_quota"] = json!(0);
+        *f.rows.lock().unwrap() = vec![exhausted];
+        assert!(ensure_at(
+            &state,
+            &c,
+            &server.origin,
+            "session=test",
+            "test-user",
+            "default"
+        )
+        .await
+        .is_err());
+        f.rows.lock().unwrap().clear();
+        assert!(ensure_at(
+            &state,
+            &c,
+            &server.origin,
+            "session=test",
+            "test-user",
+            "default"
+        )
+        .await
+        .is_err());
+        assert_eq!(f.posts.load(Ordering::SeqCst), 1);
+        assert!(
+            shared_token(&json!({"data":{"items":[original.clone(),original]}}), None).is_err()
+        );
+    }
+
+    #[test]
+    fn routing_excludes_auto_and_rejects_empty_or_oversized_scope() {
+        let parse = |data| parse_user_groups(&json!({"data":data})).unwrap();
+        assert_eq!(
+            routing_groups(&parse(json!({"premium":{},"default":{},"auto":{}})), "auto").unwrap(),
+            vec!["default", "premium"]
+        );
+        assert!(routing_groups(&parse(json!({"auto":{}})), "auto").is_err());
+        let data: Map<String, Value> = (0..101).map(|i| (format!("group{i}"), json!({}))).collect();
+        assert!(routing_groups(&parse(json!(data)), "group0").is_err());
+    }
+
     #[tokio::test]
     #[serial]
     async fn uncertain_creation_persists_guard_and_reconciles_later() {
@@ -346,13 +594,12 @@ mod tests {
                 "session=test",
                 "test-user",
                 "premium",
-                "test-device"
             )
             .await
             .is_err());
         }
         assert_eq!(f.posts.load(Ordering::SeqCst), 1);
-        f.rows.lock().unwrap().push(json!({"id":7,"name":"test-device","group":"premium","status":1,"unlimited_quota":true,"expired_time":-1}));
+        f.rows.lock().unwrap().push(json!({"id":7,"name":SHARED_TOKEN_NAME,"group":"premium","routing_config":"{\"groups\":[\"premium\"]}","status":1,"unlimited_quota":true,"expired_time":-1}));
         assert!(ensure_at(
             &state,
             &client(),
@@ -360,7 +607,6 @@ mod tests {
             "session=test",
             "test-user",
             "premium",
-            "test-device"
         )
         .await
         .is_ok());
@@ -373,7 +619,7 @@ mod tests {
         login(&state);
         let f = fixture(json!({"success":true,"data":{"premium":{}}}), false);
         *f.rows.lock().unwrap() = vec![json!({"name":"unrelated"}); 100];
-        f.rows.lock().unwrap().push(json!({"id":7,"name":"test-device","group":"premium","status":1,"unlimited_quota":true}));
+        f.rows.lock().unwrap().push(json!({"id":7,"name":SHARED_TOKEN_NAME,"group":"premium","routing_config":"{\"groups\":[\"premium\"]}","status":1,"unlimited_quota":true}));
         let s = server(f.clone()).await;
         assert!(ensure_at(
             &state,
@@ -382,7 +628,6 @@ mod tests {
             "session=test",
             "test-user",
             "premium",
-            "test-device"
         )
         .await
         .is_ok());
@@ -393,7 +638,6 @@ mod tests {
             "session=old",
             "test-user",
             "premium",
-            "another-device"
         )
         .await
         .is_err());
@@ -434,7 +678,6 @@ mod tests {
                 &s.origin,
                 ("session=test", "test-user"),
                 "premium",
-                "test-device",
                 &status,
             )
             .await
@@ -463,7 +706,6 @@ mod tests {
             &s.origin,
             ("session=test", "test-user"),
             "premium",
-            "test-device",
             &status,
         )
         .await
@@ -480,7 +722,7 @@ mod tests {
                 .get_setting(API_TOKEN_GROUP_KEY)
                 .unwrap()
                 .as_deref(),
-            Some("premium")
+            Some("auto")
         );
         assert_eq!(f.posts.load(Ordering::SeqCst), 1);
     }
@@ -503,7 +745,6 @@ mod tests {
             &s.origin,
             ("session=test", "test-user"),
             "premium",
-            "test-device",
             &status,
         );
         let switch = async {

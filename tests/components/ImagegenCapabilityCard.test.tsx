@@ -160,7 +160,7 @@ describe("tool-scoped image capability", () => {
     expect(
       screen.getByText("当前自动选择：gpt-image-2.5-sunburst"),
     ).toBeInTheDocument();
-    expect(screen.getByText(/聊天模型和分组保持不变/)).toBeInTheDocument();
+    expect(screen.getByText(/图片与聊天共用账号统一令牌/)).toBeInTheDocument();
     view.unmount();
     view.client.clear();
   });

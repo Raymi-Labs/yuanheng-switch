@@ -77,12 +77,20 @@ pub struct RequestContext {
 }
 
 impl RequestContext {
-    /// Snapshot of the token group configured on the provider actually selected for this request.
+    /// Snapshot of routing mode; a catalog filter cannot identify the billed group.
     pub(crate) fn request_group(&self) -> Option<String> {
         if self.provider.category.as_deref() != Some("managed")
             || self.provider.id != crate::commands::MANAGED_PROVIDER_ID
         {
             return None;
+        }
+        if self
+            .provider
+            .notes
+            .as_deref()
+            .is_some_and(|notes| notes.split('|').any(|part| part.trim() == "routing=token"))
+        {
+            return Some("auto".into());
         }
         crate::commands::provider_group(&self.provider)
     }

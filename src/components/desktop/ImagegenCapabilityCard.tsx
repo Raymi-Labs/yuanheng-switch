@@ -198,7 +198,7 @@ export function ImagegenCapabilityCard({
                 </div>
                 <p className="text-xs leading-5 text-muted-foreground">
                   {dt(
-                    "可为图片单独选择分组，聊天模型和分组保持不变；生成费用按所选分组结算。",
+                    "图片与聊天共用账号统一令牌；此处选择用于检查图片目录，实际分组及费用以平台路由和用量记录为准。",
                   )}
                 </p>
                 {capability.groups.isLoading && (

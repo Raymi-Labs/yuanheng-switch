@@ -263,3 +263,7 @@ QA人工启动入口按2026-10-21用户授权启用剪贴板共享，并在guest
 ## 自动依赖维护
 
 [Dependabot](../.github/dependabot.yml) 的 Cargo 例行更新仅刷新现有清单兼容范围内的锁文件；跨范围升级需要单独适配和三平台 CI。数据库、加密与平台接口不因例行批量更新而隐式迁移。
+
+## 桌面端统一令牌（2026-11-08）
+
+工具配置、Agent 图像连接、图片视频生成和通用凭据修复共用 [device_credentials](../src-tauri/src/commands/yuanheng/device_credentials.rs) 的账号统一令牌。首次配置以所选真实分组优先，其他授权真实组按名称排序，auto 不作为 routing_config 成员；后续保留平台分组顺序、模型规则、额度和限制。目录分组只筛选模型，实际路由及收费由平台决定。新 Provider 标记 routing=token，本地用量显示自动路由并不猜测分组报价。既有配置在重新应用前保持旧凭据；旧视频仍按记录 token_id 查询，升级不自动删除令牌。详见[决定与边界](../.agents/notes/implemented/architecture/2026-11-08-account-shared-token.md)。

@@ -1095,50 +1095,6 @@ fn validate_registration_credentials(username: &str, password: &str) -> Result<(
     validate_password(password)
 }
 
-fn device_token_name(device_name: Option<&str>) -> String {
-    const PREFIX: &str = "元衡桌面端 - ";
-    const MAX_BYTES: usize = 50;
-    let device_name = device_name
-        .map(str::trim)
-        .filter(|name| !name.is_empty())
-        .unwrap_or("当前设备");
-    let mut name = PREFIX.to_string();
-    for character in device_name.chars() {
-        if name.len() + character.len_utf8() > MAX_BYTES {
-            break;
-        }
-        name.push(character);
-    }
-    name
-}
-
-fn find_device_token_id(
-    value: &Value,
-    expected_name: &str,
-    expected_group: &str,
-    now: i64,
-) -> Option<i64> {
-    value
-        .pointer("/data/items")
-        .and_then(Value::as_array)?
-        .iter()
-        .filter(|item| item.get("name").and_then(Value::as_str) == Some(expected_name))
-        .filter(|item| item.get("group").and_then(Value::as_str) == Some(expected_group))
-        .filter(|item| item.get("status").and_then(Value::as_i64).unwrap_or(1) == 1)
-        .filter(|item| {
-            item.get("expired_time")
-                .and_then(Value::as_i64)
-                .is_none_or(|expired| expired <= 0 || expired > now)
-        })
-        .filter(|item| {
-            item.get("unlimited_quota")
-                .and_then(Value::as_bool)
-                .unwrap_or(false)
-        })
-        .filter_map(|item| item.get("id").and_then(Value::as_i64))
-        .max()
-}
-
 fn normalize_api_token(raw: &str) -> Result<String, String> {
     let token = raw.trim();
     if token.is_empty() || token.len() > 4096 || token.contains(['\n', '\r']) {
@@ -1149,15 +1105,6 @@ fn normalize_api_token(raw: &str) -> Result<String, String> {
     } else {
         Ok(format!("sk-{token}"))
     }
-}
-
-#[cfg(test)]
-fn token_cache_for_stored_group(group: Option<&str>, token: String) -> HashMap<String, String> {
-    let mut cache = HashMap::new();
-    if let Some(group) = group.map(str::trim).filter(|group| !group.is_empty()) {
-        cache.insert(group.to_string(), token);
-    }
-    cache
 }
 
 // 只从该工具、该分组的元衡托管记录取凭据，不能拿主凭据代替 Desktop 凭据。
@@ -1281,36 +1228,14 @@ fn tool_uses_legacy_endpoint(state: &AppState, app_name: &str, model: &str) -> b
     })
 }
 
-async fn ensure_device_api_token(
+async fn ensure_shared_api_token(
     state: &AppState,
     client: &reqwest::Client,
     session_cookie: &str,
     user_id: &str,
     group: &str,
 ) -> Result<(String, i64), String> {
-    let detected_name = crate::services::sync_protocol::detect_system_device_name();
-    let token_name = device_token_name(detected_name.as_deref());
-    ensure_named_api_token(state, client, session_cookie, user_id, group, &token_name).await
-}
-
-async fn ensure_named_api_token(
-    state: &AppState,
-    client: &reqwest::Client,
-    session_cookie: &str,
-    user_id: &str,
-    group: &str,
-    token_name: &str,
-) -> Result<(String, i64), String> {
-    device_credentials::ensure_at(
-        state,
-        client,
-        BASE_URL,
-        session_cookie,
-        user_id,
-        group,
-        token_name,
-    )
-    .await
+    device_credentials::ensure_at(state, client, BASE_URL, session_cookie, user_id, group).await
 }
 
 fn fallback_reasoning_levels(model: &str) -> Vec<String> {
@@ -1963,7 +1888,7 @@ fn managed_provider_with_models(
     );
     provider.category = Some("managed".to_string());
     provider.notes = Some(format!(
-        "由元衡桌面端自动维护 | group={group} | reasoning={reasoning}"
+        "由元衡桌面端自动维护 | group={group} | reasoning={reasoning} | routing=token"
     ));
     provider.icon = Some("yuanheng".to_string());
     provider.meta = Some(provider_meta(app, model, reasoning));
@@ -4948,7 +4873,7 @@ async fn diagnose_yuanheng_inner(state: &AppState) -> Result<YuanhengDiagnosticR
             id: "credential".to_string(),
             status: "ok".to_string(),
             title: "通用凭据未配置（可选）".to_string(),
-            message: "工具使用各自的分组凭据；声音克隆等功能需要时，请选择分组配置通用凭据。"
+            message: "工具与声音克隆等通用功能共用账号统一令牌；需要时可在此验证并保存。"
                 .to_string(),
             action: None,
         });
@@ -4960,9 +4885,10 @@ async fn diagnose_yuanheng_inner(state: &AppState) -> Result<YuanhengDiagnosticR
             .unwrap_or_default();
         let available =
             device_credentials::groups_at(&client, BASE_URL, &session_cookie, &user_id).await;
-        let group_unavailable = available
-            .as_ref()
-            .is_ok_and(|groups| !groups.iter().any(|item| item.id == group));
+        let group_unavailable = group != "auto"
+            && available
+                .as_ref()
+                .is_ok_and(|groups| !groups.iter().any(|item| item.id == group));
         if group_unavailable {
             checks.push(YuanhengDiagnosticCheck {
                 id: "credential".into(),
@@ -5592,10 +5518,8 @@ pub async fn configure_yuanheng_tools(
     let requested_models = models.unwrap_or_default();
     let requested_groups = groups.unwrap_or_default();
     let requested_reasoning = reasoning.unwrap_or_default();
-    // 旧版本没有记录令牌所属分组，不能用当前账号分组反推，否则会把 default
-    // 令牌误用于新选择的分组。缺少记录时按目标分组重新读取令牌。
-    // 每次显式配置都向已登录账号重新取该分组的 key，禁止沿用可能已撤销的主 key。
-    // 同一批次内仅按分组复用，绝不跨分组复用。
+    // Explicit configuration resolves the account's shared token afresh. This
+    // batch cache only avoids repeated reads; group is a catalog filter, not routing.
     let mut token_cache: HashMap<String, String> = HashMap::new();
     let mut verified_token_models: HashMap<String, Vec<String>> = HashMap::new();
     let mut group_models_cache: HashMap<String, Result<Vec<String>, String>> = HashMap::new();
@@ -5746,7 +5670,7 @@ pub async fn configure_yuanheng_tools(
         let token = if let Some(token) = token_cache.get(&group) {
             token.clone()
         } else {
-            match ensure_device_api_token(&state, &client, &session_cookie, &user_id, &group).await
+            match ensure_shared_api_token(&state, &client, &session_cookie, &user_id, &group).await
             {
                 Ok((token, _)) => {
                     token_cache.insert(group.clone(), token.clone());
@@ -5758,7 +5682,7 @@ pub async fn configure_yuanheng_tools(
                         configured: false,
                         model: Some(model),
                         warnings: Vec::new(),
-                        error: Some(format!("创建 {group} 分组凭据失败: {error}")),
+                        error: Some(format!("读取统一令牌失败: {error}")),
                     });
                     continue;
                 }
@@ -6016,15 +5940,12 @@ pub async fn rotate_yuanheng_device_token(
     }
     let client = yuanheng_client()?;
     let status = sync_connection(&state, &client, &session_cookie, &user_id).await?;
-    let detected_name = crate::services::sync_protocol::detect_system_device_name();
-    let token_name = device_token_name(detected_name.as_deref());
     device_credentials::repair_at(
         &state,
         &client,
         BASE_URL,
         (&session_cookie, &user_id),
         &group,
-        &token_name,
         &status,
     )
     .await?;
@@ -7654,42 +7575,9 @@ mod tests {
     }
 
     #[test]
-    fn builds_safe_device_token_name_and_normalizes_key() {
-        let name = device_token_name(Some("测试设备名称非常非常长-MacBook-Pro"));
-        assert!(name.starts_with("元衡桌面端 - "));
-        assert!(name.len() <= 50);
+    fn normalizes_api_key() {
         assert_eq!(normalize_api_token("raw-key").unwrap(), "sk-raw-key");
         assert_eq!(normalize_api_token("sk-ready").unwrap(), "sk-ready");
-    }
-
-    #[test]
-    fn only_reuses_control_token_for_its_persisted_group() {
-        assert!(token_cache_for_stored_group(None, "default-token".to_string()).is_empty());
-        let cache = token_cache_for_stored_group(Some(" EMOXIA "), "emoxia-token".to_string());
-        assert_eq!(
-            cache.get("EMOXIA").map(String::as_str),
-            Some("emoxia-token")
-        );
-        assert!(!cache.contains_key("default"));
-    }
-
-    #[test]
-    fn finds_latest_usable_device_token() {
-        let value = json!({
-            "success": true,
-            "data": {
-                "items": [
-                    { "id": 1, "name": "device", "group": "default", "status": 1, "expired_time": -1, "unlimited_quota": true },
-                    { "id": 2, "name": "device", "group": "default", "status": 2, "expired_time": -1, "unlimited_quota": true },
-                    { "id": 3, "name": "device", "group": "default", "status": 1, "expired_time": -1, "unlimited_quota": true },
-                    { "id": 4, "name": "device", "group": "vip", "status": 1, "expired_time": -1, "unlimited_quota": true }
-                ]
-            }
-        });
-        assert_eq!(
-            find_device_token_id(&value, "device", "default", 100),
-            Some(3)
-        );
     }
 
     #[test]

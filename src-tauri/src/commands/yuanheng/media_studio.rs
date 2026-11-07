@@ -856,13 +856,12 @@ pub async fn submit_media_studio(
         return Err("此模型不在当前分组授权目录中".into());
     }
     let account = yuanheng_client()?;
-    let (key, token_id) = ensure_named_api_token(
+    let (key, token_id) = ensure_shared_api_token(
         &state,
         &account,
         &session.cookie,
         &session.user,
         &request.group,
-        "元衡桌面端 - 图片与视频",
     )
     .await
     .map_err(|_| "无法获取所选创作分组凭据，请重新登录或检查权限")?;
@@ -1499,25 +1498,6 @@ mod tests {
         assert_eq!(record.group, LEGACY_GROUP);
         server.abort();
         let _ = server.await;
-    }
-    #[test]
-    fn media_tokens_with_same_name_are_selected_by_exact_group() {
-        let list = json!({"data":{"items":[
-          {"id":11,"name":"元衡桌面端 - 图片与视频","group":LEGACY_GROUP,"status":1,"unlimited_quota":true,"expired_time":-1},
-          {"id":22,"name":"元衡桌面端 - 图片与视频","group":"partner-video","status":1,"unlimited_quota":true,"expired_time":-1}
-        ]}});
-        assert_eq!(
-            find_device_token_id(&list, "元衡桌面端 - 图片与视频", LEGACY_GROUP, 1),
-            Some(11)
-        );
-        assert_eq!(
-            find_device_token_id(&list, "元衡桌面端 - 图片与视频", "partner-video", 1),
-            Some(22)
-        );
-        assert_eq!(
-            find_device_token_id(&list, "元衡桌面端 - 图片与视频", "unknown", 1),
-            None
-        );
     }
     #[test]
     fn media_save_filters_and_destination_formats_match_real_content() {

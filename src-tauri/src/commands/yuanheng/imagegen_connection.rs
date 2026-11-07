@@ -540,9 +540,9 @@ pub(crate) async fn configure(
         if account_binding(&state.db)? != binding {
             return Err(CHANGED.into());
         }
-        let (token, _) = ensure_device_api_token(state, &client, &cookie, &binding.account, &group)
+        let (token, _) = ensure_shared_api_token(state, &client, &cookie, &binding.account, &group)
             .await
-            .map_err(|_| "读取或创建所选分组的工具凭据失败，请检查登录和分组权限")?;
+            .map_err(|_| "读取或创建账号统一令牌失败，请检查登录和分组权限")?;
         let provider = super::imagegen_credentials::provider_from_key(token.clone())?;
         let models = crate::proxy::images::image_model_ids(&provider).await?;
         if select_model(&models).is_none() {

@@ -148,7 +148,7 @@ function FocusToolStateCard({
         <p className="mt-1 max-w-sm text-[10.5px] text-white/55">
           {error
             ? dt("没有将检测失败误判为未安装，你可以重新检测或进入工具管理。")
-            : dt("安装或配置工具后，这里会显示当前工具、模型和令牌分组。")}
+            : dt("安装或配置工具后，这里会显示当前工具、模型和目录分组。")}
         </p>
         <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
           <button

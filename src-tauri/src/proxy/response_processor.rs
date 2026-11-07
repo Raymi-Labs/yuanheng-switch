@@ -1025,6 +1025,8 @@ mod tests {
         .unwrap();
         ctx.provider = provider;
         assert_eq!(ctx.request_group().as_deref(), Some("OpenAI · 企业专属"));
+        ctx.provider.notes = Some("group=OpenAI · 企业专属 | routing=token".into());
+        assert_eq!(ctx.request_group().as_deref(), Some("auto"));
         ctx.provider.category = None;
         assert!(ctx.request_group().is_none());
         ctx.provider.category = Some("managed".into());
