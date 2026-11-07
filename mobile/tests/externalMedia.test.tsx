@@ -29,6 +29,7 @@ vi.mock("../src/api", async (original) => ({
 const readers: Array<{
   result: string;
   onload?: () => void;
+  onerror?: () => void;
   abort: () => void;
 }> = [];
 beforeEach(() => {
@@ -58,9 +59,126 @@ beforeEach(() => {
 });
 afterEach(() => {
   cleanup();
+  vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
 describe("external mobile media safety", () => {
+  it("blocks the old voice while a replacement is loading or rejected", async () => {
+    render(<Voice userId={7} />);
+    const input = screen.getByLabelText("上传声音样本");
+    fireEvent.change(input, {
+      target: { files: [new File(["x"], "old.wav", { type: "audio/wav" })] },
+    });
+    act(() => readers[0].onload?.());
+    fireEvent.change(
+      screen.getByPlaceholderText("输入要让克隆声音朗读的文本…"),
+      { target: { value: "hello" } },
+    );
+    fireEvent.click(screen.getByRole("checkbox"));
+    expect((screen.getByText("生成语音") as HTMLButtonElement).disabled).toBe(
+      false,
+    );
+    fireEvent.change(input, {
+      target: { files: [new File(["x"], "new.wav", { type: "audio/wav" })] },
+    });
+    fireEvent.click(screen.getByText("生成语音"));
+    expect(api.tts).not.toHaveBeenCalled();
+    expect((screen.getByRole("checkbox") as HTMLInputElement).checked).toBe(
+      false,
+    );
+    act(() => {
+      readers[0].onerror?.();
+      readers[1].onload?.();
+    });
+    expect(screen.queryByText("读取声音样本失败")).toBeNull();
+    fireEvent.change(input, {
+      target: { files: [new File([], "empty.wav", { type: "audio/wav" })] },
+    });
+    expect(screen.queryByLabelText("声音样本试听")).toBeNull();
+    expect((screen.getByText("生成语音") as HTMLButtonElement).disabled).toBe(
+      true,
+    );
+    await act(async () => {});
+  });
+  it("paints taps only after image load and ignores secondary pointers", () => {
+    const context = {
+      clearRect: vi.fn(),
+      beginPath: vi.fn(),
+      moveTo: vi.fn(),
+      lineTo: vi.fn(),
+      stroke: vi.fn(),
+      arc: vi.fn(),
+      fill: vi.fn(),
+      fillRect: vi.fn(),
+      drawImage: vi.fn(),
+      lineWidth: 0,
+      globalCompositeOperation: "source-over",
+    };
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(
+      context as unknown as CanvasRenderingContext2D,
+    );
+    vi.spyOn(HTMLCanvasElement.prototype, "toDataURL").mockReturnValue(
+      "data:image/png;base64,mask",
+    );
+    const apply = vi.fn();
+    const v = render(
+      <MaskEditor
+        source={{ data: "x", mime: "image/png" }}
+        onApply={apply}
+        onClose={vi.fn()}
+      />,
+    );
+    const canvas = v.container.querySelector("canvas")!;
+    Object.assign(canvas, {
+      setPointerCapture: vi.fn(),
+      hasPointerCapture: () => true,
+      releasePointerCapture: vi.fn(),
+    });
+    vi.spyOn(canvas, "getBoundingClientRect").mockReturnValue({
+      left: 0,
+      top: 0,
+      width: 100,
+      height: 50,
+    } as DOMRect);
+    const pointer = (kind: string, id: number, x = 20, y = 10) => {
+      const event = new Event(kind, { bubbles: true });
+      Object.assign(event, {
+        pointerId: id,
+        button: 0,
+        clientX: x,
+        clientY: y,
+      });
+      fireEvent(canvas, event);
+    };
+    pointer("pointerdown", 1);
+    expect(context.arc).not.toHaveBeenCalled();
+    const img = screen.getByAltText("遮罩底图");
+    Object.defineProperty(img, "naturalWidth", { value: 200 });
+    Object.defineProperty(img, "naturalHeight", { value: 100 });
+    fireEvent.load(img);
+    pointer("pointerdown", 1);
+    expect(context.arc).toHaveBeenCalledWith(40, 20, 40, 0, Math.PI * 2);
+    expect(context.fill).toHaveBeenCalledTimes(1);
+    pointer("pointerdown", 2);
+    pointer("pointermove", 2);
+    pointer("pointerup", 2);
+    expect(context.lineTo).not.toHaveBeenCalled();
+    pointer("pointermove", 1, 30, 20);
+    expect(context.lineTo).toHaveBeenCalledWith(60, 40);
+    pointer("lostpointercapture", 1);
+    pointer("pointermove", 1);
+    expect(context.lineTo).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByText("应用遮罩"));
+    expect(context.globalCompositeOperation).toBe("destination-out");
+    expect(apply).toHaveBeenCalledWith({ data: "mask", mime: "image/png" });
+    fireEvent.click(screen.getByText("重置"));
+    expect((screen.getByText("应用遮罩") as HTMLButtonElement).disabled).toBe(
+      true,
+    );
+    fireEvent.error(img);
+    pointer("pointerdown", 1);
+    expect(context.fill).toHaveBeenCalledTimes(1);
+  });
   it("requires voice authorization, submits once and cancels on unmount", async () => {
     vi.mocked(api.tts).mockReturnValue(new Promise(() => {}));
     const v = render(<Voice userId={7} />);

@@ -85,6 +85,9 @@ export function Voice({
     if (!file) return;
     readerRef.current?.abort();
     readerRef.current = undefined;
+    // A replacement must never leave the previous audio eligible for submission.
+    setSample(undefined);
+    setConsent(false);
     setMessage("");
     if (
       !file.type.startsWith("audio/") &&
@@ -93,8 +96,8 @@ export function Voice({
       setMessage("请选择 MP3、WAV、M4A、OGG、WebM 或 FLAC 音频");
       return;
     }
-    if (file.size > MAX_SAMPLE_BYTES) {
-      setMessage("声音样本不能超过 10 MB");
+    if (file.size === 0 || file.size > MAX_SAMPLE_BYTES) {
+      setMessage("请选择非空且不超过 10 MB 的声音样本");
       return;
     }
     const reader = new FileReader();
@@ -115,7 +118,8 @@ export function Voice({
       });
     };
     reader.onerror = () => {
-      if (alive.current) setMessage("读取声音样本失败");
+      if (alive.current && readerRef.current === reader)
+        setMessage("读取声音样本失败");
     };
     reader.readAsDataURL(file);
   };
