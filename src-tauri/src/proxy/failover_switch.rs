@@ -79,9 +79,9 @@ impl FailoverSwitchManager {
         provider_name: &str,
     ) -> Result<bool, AppError> {
         // 检查该应用是否已被代理接管（enabled=true）
-        // 只有被接管的应用才允许执行故障转移切换
+        // 请求结束前用户可能关闭故障转移；再次检查开关，禁止迟到请求回写。
         let app_enabled = match self.db.get_proxy_config_for_app(app_type).await {
-            Ok(config) => config.enabled,
+            Ok(config) => config.enabled && config.auto_failover_enabled,
             Err(e) => {
                 log::warn!("[FO-002] 无法读取 {app_type} 配置: {e}，跳过切换");
                 return Ok(false);
@@ -89,7 +89,7 @@ impl FailoverSwitchManager {
         };
 
         if !app_enabled {
-            log::debug!("[Failover] {app_type} 未启用代理，跳过切换");
+            log::debug!("[Failover] {app_type} 未启用代理或自动故障转移，跳过切换");
             return Ok(false);
         }
 
@@ -140,5 +140,33 @@ impl FailoverSwitchManager {
         }
 
         Ok(switched)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn disabled_failover_rejects_late_request_before_any_live_write() {
+        let db = Arc::new(Database::memory().unwrap());
+        let mut config = db.get_proxy_config_for_app("codex").await.unwrap();
+        config.enabled = true;
+        config.auto_failover_enabled = false;
+        db.update_proxy_config_for_app(config).await.unwrap();
+        let manager = FailoverSwitchManager::new(db.clone());
+        // This target deliberately does not exist: reaching hot_switch would error.
+        assert!(!manager
+            .try_switch(None, "codex", "old-relay", "Old relay")
+            .await
+            .unwrap());
+        let mut config = db.get_proxy_config_for_app("codex").await.unwrap();
+        config.auto_failover_enabled = true;
+        db.update_proxy_config_for_app(config).await.unwrap();
+        // With failover enabled the same request reaches target validation.
+        assert!(manager
+            .try_switch(None, "codex", "old-relay", "Old relay")
+            .await
+            .is_err());
     }
 }

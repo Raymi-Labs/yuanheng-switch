@@ -957,6 +957,86 @@ mod tests {
     use tokio::sync::RwLock;
 
     #[tokio::test]
+    async fn desktop_request_success_cannot_revert_official_codex_mode() {
+        use crate::app_config::AppType;
+        use crate::provider::Provider;
+        use axum::{routing::post, Json, Router};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        let server = tokio::spawn(async move {
+            axum::serve(
+                listener,
+                Router::new().route(
+                    "/v1/responses",
+                    post(|| async { Json(serde_json::json!({"id":"synthetic","output":[]})) }),
+                ),
+            )
+            .await
+            .unwrap();
+        });
+        let db = Arc::new(Database::memory().unwrap());
+        let desktop = Provider::with_id(
+            "desktop-only".into(),
+            "Desktop".into(),
+            serde_json::json!({"auth":{"OPENAI_API_KEY":"synthetic"},
+                "config":format!("model_provider = \"custom\"\n[model_providers.custom]\nbase_url = \"{base}\"\nwire_api = \"responses\"\n")} ),
+            None,
+        );
+        db.save_provider("chatgpt-desktop", &desktop).unwrap();
+        db.set_current_provider("chatgpt-desktop", &desktop.id)
+            .unwrap();
+        let official = Provider::with_id(
+            "official-test".into(),
+            "Official".into(),
+            serde_json::json!({}),
+            None,
+        );
+        db.save_provider("codex", &official).unwrap();
+        db.set_current_provider("codex", &official.id).unwrap();
+        let mut config = db.get_proxy_config_for_app("codex").await.unwrap();
+        config.enabled = true;
+        config.auto_failover_enabled = false;
+        db.update_proxy_config_for_app(config).await.unwrap();
+        let state = build_state(db.clone());
+        let body = serde_json::json!({"model":"synthetic","input":"hello"});
+        let context = RequestContext::new(
+            &state,
+            &body,
+            &HeaderMap::new(),
+            AppType::Codex,
+            "Desktop",
+            "chatgpt-desktop",
+        )
+        .await
+        .unwrap();
+        assert_eq!(context.current_provider_id, desktop.id);
+        let response = context
+            .create_forwarder(&state)
+            .forward_with_retry(
+                &AppType::Codex,
+                http::Method::POST,
+                "/responses",
+                body,
+                HeaderMap::new(),
+                http::Extensions::new(),
+                context.get_providers(),
+            )
+            .await;
+        if let Err(error) = &response {
+            panic!("forward failed: {}", error.error);
+        }
+        assert_eq!(state.status.read().await.failover_count, 0);
+        let current = state.current_providers.read().await;
+        assert_eq!(current.get("chatgpt-desktop").unwrap().0, desktop.id);
+        assert!(!current.contains_key("codex"));
+        assert_eq!(
+            db.get_current_provider("codex").unwrap().as_deref(),
+            Some("official-test")
+        );
+        server.abort();
+    }
+
+    #[tokio::test]
     async fn request_group_snapshot_survives_switch_for_streaming_and_json() {
         use crate::app_config::AppType;
         use crate::provider::Provider;

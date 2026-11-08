@@ -29,6 +29,15 @@ impl ProviderRouter {
         }
     }
 
+    pub(super) fn current_provider_id(&self, namespace: &str) -> Result<Option<String>, AppError> {
+        if let Ok(app) = AppType::from_str(namespace) {
+            if let Some(id) = crate::settings::get_effective_current_provider(&self.db, &app)? {
+                return Ok(Some(id));
+            }
+        }
+        self.db.get_current_provider(namespace)
+    }
+
     /// 选择可用的供应商（支持故障转移）
     ///
     /// 返回按优先级排序的可用供应商列表：
@@ -78,14 +87,7 @@ impl ProviderRouter {
             }
         } else {
             // 故障转移关闭：仅使用当前供应商，跳过熔断器检查
-            let current_id = AppType::from_str(app_type)
-                .ok()
-                .and_then(|app_enum| {
-                    crate::settings::get_effective_current_provider(&self.db, &app_enum)
-                        .ok()
-                        .flatten()
-                })
-                .or_else(|| self.db.get_current_provider(app_type).ok().flatten());
+            let current_id = self.current_provider_id(app_type)?;
 
             if let Some(current_id) = current_id {
                 if let Some(current) = self.db.get_provider_by_id(&current_id, app_type)? {

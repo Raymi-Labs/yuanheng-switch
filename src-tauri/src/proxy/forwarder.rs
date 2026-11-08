@@ -121,6 +121,7 @@ impl Drop for ActiveConnectionGuard {
 
 pub struct RequestForwarder {
     provider_namespace: Option<&'static str>,
+    automatic_switch_enabled: bool,
     route: Option<crate::route_selection::RequestRoute>,
     /// 共享的 ProviderRouter（持有熔断器状态）
     router: Arc<ProviderRouter>,
@@ -326,6 +327,7 @@ impl RequestForwarder {
         let max_attempts = (max_retries as usize).saturating_add(1);
         Self {
             provider_namespace: None,
+            automatic_switch_enabled: false,
             route: None,
             router,
             status,
@@ -360,6 +362,15 @@ impl RequestForwarder {
     pub(super) fn with_provider_namespace(mut self, namespace: Option<&'static str>) -> Self {
         self.provider_namespace = namespace;
         self
+    }
+
+    pub(super) fn with_automatic_switch(mut self, enabled: bool) -> Self {
+        self.automatic_switch_enabled = enabled;
+        self
+    }
+
+    fn should_switch_provider(&self, provider_id: &str) -> bool {
+        self.automatic_switch_enabled && self.current_provider_id_at_start != provider_id
     }
 
     async fn record_success_result(
@@ -703,8 +714,7 @@ impl RequestForwarder {
                         let mut status = self.status.write().await;
                         status.success_requests += 1;
                         status.last_error = None;
-                        let should_switch =
-                            self.current_provider_id_at_start.as_str() != provider.id.as_str();
+                        let should_switch = self.should_switch_provider(&provider.id);
                         if should_switch {
                             status.failover_count += 1;
 
@@ -815,8 +825,7 @@ impl RequestForwarder {
                                         status.success_requests += 1;
                                         status.last_error = None;
                                         let should_switch =
-                                            self.current_provider_id_at_start.as_str()
-                                                != provider.id.as_str();
+                                            self.should_switch_provider(&provider.id);
                                         if should_switch {
                                             status.failover_count += 1;
                                             let fm = self.failover_manager.clone();
@@ -969,8 +978,7 @@ impl RequestForwarder {
                                             status.success_requests += 1;
                                             status.last_error = None;
                                             let should_switch =
-                                                self.current_provider_id_at_start.as_str()
-                                                    != provider.id.as_str();
+                                                self.should_switch_provider(&provider.id);
                                             if should_switch {
                                                 status.failover_count += 1;
 
@@ -1141,8 +1149,7 @@ impl RequestForwarder {
                                         status.success_requests += 1;
                                         status.last_error = None;
                                         let should_switch =
-                                            self.current_provider_id_at_start.as_str()
-                                                != provider.id.as_str();
+                                            self.should_switch_provider(&provider.id);
                                         if should_switch {
                                             status.failover_count += 1;
                                             let fm = self.failover_manager.clone();
@@ -3820,6 +3827,7 @@ mod tests {
 
         RequestForwarder {
             provider_namespace: None,
+            automatic_switch_enabled: false,
             route: None,
             router: Arc::new(ProviderRouter::new(db.clone())),
             status: Arc::new(RwLock::new(ProxyStatus::default())),
@@ -3839,6 +3847,19 @@ mod tests {
             streaming_first_byte_timeout,
             max_attempts: 1,
         }
+    }
+
+    #[test]
+    fn automatic_switch_requires_explicit_failover_policy() {
+        let forwarder = test_forwarder(Duration::ZERO, Duration::ZERO);
+        assert!(!forwarder.should_switch_provider("different-provider"));
+        let mut forwarder = forwarder.with_automatic_switch(true);
+        assert!(forwarder.should_switch_provider("different-provider"));
+        forwarder.current_provider_id_at_start = "different-provider".into();
+        assert!(!forwarder.should_switch_provider("different-provider"));
+        assert!(!forwarder
+            .with_automatic_switch(false)
+            .should_switch_provider("late-provider"));
     }
 
     #[test]

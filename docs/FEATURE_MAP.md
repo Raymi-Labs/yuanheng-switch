@@ -271,3 +271,7 @@ QA人工启动入口按2026-10-21用户授权启用剪贴板共享，并在guest
 ## ChatGPT 登录与中转配置（2026-11-09）
 
 [首次配置引导](../src/components/desktop/CodexLoginGuide.tsx)优先保留／恢复原 ChatGPT 账号与工作区；API Key 为可选本地使用方式，不能恢复账号云端功能。[只读判定](../src-tauri/src/commands/yuanheng/codex_login_guide.rs)仅 OAuth token 材料跳过，API Key 和仅元数据仍显示指引；[工具卡](../src/components/desktop/FocusToolCard.tsx)持续显示恢复提示。配置保留 auth.json 与历史记录，文件检测不证明钥匙串或服务端登录有效；启动故障需单独证据。
+
+## Codex 账号模式与请求完成（2026-11-09）
+
+[请求上下文](../src-tauri/src/proxy/handler_context.rs)与[转发器](../src-tauri/src/proxy/forwarder.rs)始终沿用实际入口命名空间；Codex Desktop 的协议适配复用 CLI，但供应商／熔断／请求状态不混写。只有显式自动故障转移且非固定快照请求允许供应商写回；[切换管理器](../src-tauri/src/proxy/failover_switch.rs)执行前复验开关，避免旧中转请求将官方配置覆盖回去。
