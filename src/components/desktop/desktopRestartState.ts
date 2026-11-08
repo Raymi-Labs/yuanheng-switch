@@ -29,8 +29,15 @@ function writeRestartRequiredApps(apps: Set<YuanhengToolId>) {
   listeners.forEach((listener) => listener());
 }
 
-export function markRestartRequired(app: YuanhengToolId) {
-  if (!requiresRestartAfterConfiguration(app)) return;
+export function markRestartRequired(
+  app: YuanhengToolId,
+  accountModeChanged = false,
+) {
+  if (
+    !requiresRestartAfterConfiguration(app) &&
+    !(accountModeChanged && app === "claude-desktop")
+  )
+    return;
   const apps = getRestartRequiredApps();
   apps.add(app);
   writeRestartRequiredApps(apps);

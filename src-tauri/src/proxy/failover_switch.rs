@@ -93,6 +93,15 @@ impl FailoverSwitchManager {
             return Ok(false);
         }
 
+        // Explicit native account mode wins over late relay responses, even if
+        // automatic failover was enabled before the user left gateway mode.
+        if app_type == "claude-desktop"
+            && self.db.get_current_provider(app_type)?.as_deref()
+                == Some(crate::database::CLAUDE_DESKTOP_OFFICIAL_PROVIDER_ID)
+        {
+            return Ok(false);
+        }
+
         log::info!("[FO-001] 切换: {app_type} → {provider_name}");
 
         let mut switched = false;
@@ -146,6 +155,30 @@ impl FailoverSwitchManager {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn claude_official_mode_rejects_late_relay_failover() {
+        let db = Arc::new(Database::memory().unwrap());
+        let official = crate::database::CLAUDE_DESKTOP_OFFICIAL_PROVIDER_ID;
+        db.ensure_official_seed_by_id(official, crate::app_config::AppType::ClaudeDesktop)
+            .unwrap();
+        db.set_current_provider("claude-desktop", official).unwrap();
+        let mut config = db.get_proxy_config_for_app("claude-desktop").await.unwrap();
+        config.enabled = true;
+        config.auto_failover_enabled = true;
+        db.update_proxy_config_for_app(config).await.unwrap();
+        let manager = FailoverSwitchManager::new(db.clone());
+        assert!(!manager
+            .try_switch(None, "claude-desktop", "old-relay", "Old relay")
+            .await
+            .unwrap());
+        assert_eq!(
+            db.get_current_provider("claude-desktop")
+                .unwrap()
+                .as_deref(),
+            Some(official)
+        );
+    }
 
     #[tokio::test]
     async fn disabled_failover_rejects_late_request_before_any_live_write() {

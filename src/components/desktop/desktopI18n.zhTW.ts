@@ -2,6 +2,19 @@
 import { MEDIA_ZH_TW } from "./mediaStudioTranslations";
 import { BROWSER_LOGIN_ZH_TW } from "./browserLoginTranslations";
 export const DESKTOP_ZH_TW: Record<string, string> = {
+  "Claude 官方": "Claude 官方",
+  "Claude 官方账号": "Claude 官方帳號",
+  "已切换到 Claude 官方模式，请重启客户端并完成账号登录。":
+    "已切換至 Claude 官方模式，請重新啟動用戶端並完成帳號登入。",
+  "已恢复 Claude Desktop 元衡配置，请重启客户端。":
+    "已恢復 Claude Desktop 元衡設定，請重新啟動用戶端。",
+  "Claude Desktop 模式检测失败，请重新检测。":
+    "Claude Desktop 模式偵測失敗，請重新偵測。",
+  "官方模式使用 Claude 原生账号登录；请重启客户端，并使用原账号查看官方会话。中转模型与分组会保留，切换模式不会替你登录账号。":
+    "官方模式使用 Claude 原生帳號登入；請重新啟動用戶端，並使用原帳號查看官方對話。中轉模型與分組會保留，切換模式不會替你登入帳號。",
+  "中转模式使用元衡模型与分组；切回 Claude 官方后需要重启客户端。首次使用中转，请先选择模型并应用配置。":
+    "中轉模式使用元衡模型與分組；切回 Claude 官方後需要重新啟動用戶端。首次使用中轉，請先選擇模型並套用設定。",
+
   "使用中转无需退出 ChatGPT 账号。建议保留原账号登录，以继续访问账号关联的项目和功能。":
     "使用中轉無需登出 ChatGPT 帳號。建議保留原帳號登入，以繼續存取帳號關聯的專案與功能。",
   "推荐：保留或恢复 ChatGPT 登录": "建議：保留或恢復 ChatGPT 登入",

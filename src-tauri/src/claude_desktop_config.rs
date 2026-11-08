@@ -130,6 +130,87 @@ pub fn apply_provider(db: &Database, provider: &Provider) -> Result<(), AppError
     apply_provider_to_paths(db, provider, &paths)
 }
 
+/// Read the native deployment mode without inspecting account credentials.
+pub(crate) fn account_mode() -> Result<&'static str, AppError> {
+    account_mode_at_paths(&current_platform_paths()?)
+}
+
+fn account_mode_at_paths(paths: &ClaudeDesktopPaths) -> Result<&'static str, AppError> {
+    let read = |path: &Path| -> Result<Value, AppError> {
+        let value = if path.exists() {
+            read_json_file(path)?
+        } else {
+            json!({})
+        };
+        if !value.is_object() {
+            return Err(AppError::Config(
+                "Claude Desktop 配置必须是 JSON 对象".into(),
+            ));
+        }
+        Ok(value)
+    };
+    let normal = read(&paths.normal_config_path)?;
+    let third = read(&paths.threep_config_path)?;
+    let meta = read(&paths.meta_path)?;
+    if normal.get("deploymentMode").and_then(Value::as_str) == Some("1p") {
+        return Ok("official");
+    }
+    let applied = meta.get("appliedId").and_then(Value::as_str);
+    if applied.is_some_and(|id| id != PROFILE_ID) {
+        return Ok("unknown");
+    }
+    match normal.get("deploymentMode").and_then(Value::as_str) {
+        Some("1p") => Ok("official"),
+        None if !paths.profile_path.exists()
+            && applied.is_none()
+            && third.get("deploymentMode").and_then(Value::as_str) != Some("3p") =>
+        {
+            Ok("official")
+        }
+        Some("3p") if applied == Some(PROFILE_ID) && paths.profile_path.exists() => Ok("yuanheng"),
+        _ => Ok("unknown"),
+    }
+}
+
+/// Include logical selection in the existing four-file rollback boundary.
+pub(crate) fn apply_account_provider<F>(
+    db: &Database,
+    provider: &Provider,
+    commit: F,
+) -> Result<(), AppError>
+where
+    F: FnOnce() -> Result<(), AppError>,
+{
+    apply_account_provider_at_paths(db, provider, &current_platform_paths()?, commit)
+}
+
+fn apply_account_provider_at_paths<F>(
+    db: &Database,
+    provider: &Provider,
+    paths: &ClaudeDesktopPaths,
+    commit: F,
+) -> Result<(), AppError>
+where
+    F: FnOnce() -> Result<(), AppError>,
+{
+    if account_mode_at_paths(paths)? == "unknown" {
+        return Err(AppError::Message(
+            "Claude Desktop 配置存在外部修改，请先检查当前配置".into(),
+        ));
+    }
+    if !is_official_provider(provider) {
+        validate_provider(provider)?;
+    }
+    with_rollback(paths, |paths| {
+        if is_official_provider(provider) {
+            restore_official_at_paths_inner(paths)?;
+        } else {
+            apply_provider_to_paths_inner(db, provider, paths)?;
+        }
+        commit()
+    })
+}
+
 pub fn get_status(db: &Database, proxy_running: bool) -> Result<ClaudeDesktopStatus, AppError> {
     if !is_supported_platform() {
         return Ok(ClaudeDesktopStatus {
@@ -1407,6 +1488,53 @@ mod tests {
             err.to_string().contains("真实监听端口"),
             "unexpected error: {err}"
         );
+    }
+
+    #[test]
+    fn account_mode_transaction_restores_files_and_preserves_unrelated_data() {
+        let home = TempDir::new().unwrap();
+        let paths = test_paths(home.path());
+        let db = Database::memory().unwrap();
+        write_json_file(
+            &paths.normal_config_path,
+            &json!({"deploymentMode":"1p", "account":"untouched", "mcpServers":{"example":{}}}),
+        )
+        .unwrap();
+        let original = fs::read(&paths.normal_config_path).unwrap();
+        assert!(
+            apply_account_provider_at_paths(&db, &direct_provider("test"), &paths, || Err(
+                AppError::Message("synthetic commit failure".into())
+            ))
+            .is_err()
+        );
+        assert_eq!(fs::read(&paths.normal_config_path).unwrap(), original);
+        assert!(!paths.profile_path.exists());
+        apply_account_provider_at_paths(&db, &direct_provider("test"), &paths, || Ok(())).unwrap();
+        assert_eq!(account_mode_at_paths(&paths).unwrap(), "yuanheng");
+        apply_account_provider_at_paths(&db, &official_provider(), &paths, || Ok(())).unwrap();
+        assert_eq!(account_mode_at_paths(&paths).unwrap(), "official");
+        let config = read_json_or_empty(&paths.normal_config_path).unwrap();
+        assert_eq!(config["account"], "untouched");
+        assert!(config.get("mcpServers").is_some());
+    }
+
+    #[test]
+    fn account_mode_refuses_external_profile_and_malformed_settings() {
+        let home = TempDir::new().unwrap();
+        let paths = test_paths(home.path());
+        let db = Database::memory().unwrap();
+        write_json_file(&paths.normal_config_path, &json!({"deploymentMode":"3p"})).unwrap();
+        write_json_file(&paths.meta_path, &json!({"appliedId":"external"})).unwrap();
+        assert_eq!(account_mode_at_paths(&paths).unwrap(), "unknown");
+        assert!(
+            apply_account_provider_at_paths(&db, &official_provider(), &paths, || Ok(())).is_err()
+        );
+        assert_eq!(
+            read_applied_id(&paths.meta_path).as_deref(),
+            Some("external")
+        );
+        write_json_file(&paths.normal_config_path, &json!([])).unwrap();
+        assert!(account_mode_at_paths(&paths).is_err());
     }
 
     fn official_provider() -> Provider {

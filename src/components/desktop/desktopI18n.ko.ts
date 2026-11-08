@@ -2,6 +2,19 @@
 import { MEDIA_KO } from "./mediaStudioTranslations";
 import { BROWSER_LOGIN_KO } from "./browserLoginTranslations";
 export const DESKTOP_KO: Record<string, string> = {
+  "Claude 官方": "Claude 공식",
+  "Claude 官方账号": "Claude 공식 계정",
+  "已切换到 Claude 官方模式，请重启客户端并完成账号登录。":
+    "Claude 공식 모드로 전환했습니다. 클라이언트를 다시 시작하고 로그인하세요.",
+  "已恢复 Claude Desktop 元衡配置，请重启客户端。":
+    "Claude Desktop 중계 설정을 복원했습니다. 클라이언트를 다시 시작하세요.",
+  "Claude Desktop 模式检测失败，请重新检测。":
+    "Claude Desktop 모드를 확인할 수 없습니다. 다시 확인하세요.",
+  "官方模式使用 Claude 原生账号登录；请重启客户端，并使用原账号查看官方会话。中转模型与分组会保留，切换模式不会替你登录账号。":
+    "공식 모드는 Claude 자체 로그인을 사용합니다. 다시 시작한 뒤 기존 계정으로 대화를 확인하세요. 중계 모델과 그룹은 유지되며 모드 전환이 자동 로그인은 아닙니다.",
+  "中转模式使用元衡模型与分组；切回 Claude 官方后需要重启客户端。首次使用中转，请先选择模型并应用配置。":
+    "중계 모드는 YuanHeng 모델과 그룹을 사용합니다. 공식 모드로 전환한 후 다시 시작하세요. 처음 중계를 사용할 때는 모델을 선택하고 설정을 적용하세요.",
+
   "使用中转无需退出 ChatGPT 账号。建议保留原账号登录，以继续访问账号关联的项目和功能。":
     "중계를 사용해도 ChatGPT에서 로그아웃할 필요가 없습니다. 기존 계정을 유지하여 연결된 프로젝트와 기능에 접근하세요.",
   "推荐：保留或恢复 ChatGPT 登录": "권장: ChatGPT 로그인 유지 또는 복원",

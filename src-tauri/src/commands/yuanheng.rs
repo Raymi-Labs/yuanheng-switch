@@ -2,6 +2,8 @@ mod accio;
 mod account_http;
 mod browser_login;
 pub use browser_login::*;
+mod claude_desktop_mode;
+pub use claude_desktop_mode::*;
 mod codex_login_guide;
 pub use codex_login_guide::*;
 #[cfg(any(target_os = "macos", test))]
@@ -3307,6 +3309,22 @@ fn tool_status(
     app: AppType,
     connection: &YuanhengConnectionStatus,
 ) -> YuanhengToolStatus {
+    if matches!(app, AppType::ClaudeDesktop) && claude_desktop_mode::is_official(state) {
+        return YuanhengToolStatus {
+            app: app.as_str().into(),
+            supported: true,
+            configured: true,
+            needs_update: false,
+            model: None,
+            group: None,
+            reasoning: None,
+            recommended_model: recommended_model(&app, &connection.models),
+            message: Some("Claude Desktop 当前使用官方账号模式，请在客户端完成登录".into()),
+            runtime_warning: None,
+            runtime_status: None,
+            accio_compatibility: None,
+        };
+    }
     let models = &connection.models;
     let recommended = recommended_model(&app, models);
     let provider = ProviderService::list(state, app.clone())
@@ -3667,10 +3685,12 @@ async fn yuanheng_tool_activation_statuses_inner(
             matches!(app, "codex" | CHATGPT_DESKTOP_NAMESPACE) && codex_mode == "official";
         let config_written =
             official_codex || status_map.get(app).is_some_and(|status| status.configured);
-        let route_required = matches!(
-            app,
-            "claude-desktop" | "codex" | CHATGPT_DESKTOP_NAMESPACE | "accio-work"
-        );
+        let official_claude = app == "claude-desktop" && claude_desktop_mode::is_official(state);
+        let route_required = !official_claude
+            && matches!(
+                app,
+                "claude-desktop" | "codex" | CHATGPT_DESKTOP_NAMESPACE | "accio-work"
+            );
         let owned_route = match app {
             "codex" if official_codex => managed_codex_routes_require_core(state.db.as_ref()),
             "codex" => {
@@ -4586,6 +4606,17 @@ fn configure_tool_with_models(
     level: &str,
 ) -> Result<YuanhengToolConfigureResult, String> {
     let _reasoning_guard = reasoning::configuration_lock()?;
+    if matches!(app, AppType::ClaudeDesktop)
+        && ProviderService::current(state, app.clone()).ok().as_deref()
+            == Some(crate::database::CLAUDE_DESKTOP_OFFICIAL_PROVIDER_ID)
+        && state
+            .db
+            .get_provider_by_id(MANAGED_PROVIDER_ID, app.as_str())
+            .map_err(|e| e.to_string())?
+            .is_some()
+    {
+        return Err("Claude Desktop 当前使用官方模式，请先切换到元衡中转再配置模型".into());
+    }
     let change = reasoning::apply(state, app.as_str(), model, level)?;
     match configure_tool_with_models_inner(state, app.clone(), token, model, models, group, level) {
         Ok(mut result) => {

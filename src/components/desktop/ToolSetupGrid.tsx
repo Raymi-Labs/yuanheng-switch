@@ -1,3 +1,5 @@
+import { ClaudeDesktopModeSwitch } from "./ClaudeDesktopModeSwitch";
+import { useClaudeDesktopMode } from "./useClaudeDesktopMode";
 import { toolReasoningLevels } from "@/lib/agentReasoning";
 import { ToolInstallProgress } from "./ToolInstallProgress";
 import { AccioConnectionNotice } from "./AccioConnectionNotice";
@@ -180,6 +182,7 @@ function ToolSetupGridContent({
   const activationStatuses = useYuanhengToolActivationStatuses();
   const configure = useConfigureYuanhengTools();
   const codexAccountMode = useCodexAccountMode();
+  const claudeDesktopMode = useClaudeDesktopMode();
   const preflight = usePreflightYuanhengTool();
   const desktopInstall = useDesktopInstallFlow();
   const workspaceSetup = useSyncExternalStore(
@@ -203,7 +206,8 @@ function ToolSetupGridContent({
   const actionLocked = useRef(false);
   const mounted = useRef(true);
   const [actionPending, setActionPending] = useState(false);
-  const busy = actionPending || configure.isPending;
+  const busy =
+    actionPending || configure.isPending || claudeDesktopMode.pending;
   const [restartRequiredApps, setRestartRequiredApps] = useState(
     getRestartRequiredApps,
   );
@@ -498,6 +502,14 @@ function ToolSetupGridContent({
         await versions.refetch();
         if (!canContinue()) return;
         if (connection?.connected) {
+          if (
+            app === "claude-desktop" &&
+            (await yuanhengApi.getClaudeDesktopAccountMode()).mode ===
+              "official"
+          ) {
+            if (canContinue()) await yuanhengApi.launchTool(app, false);
+            return;
+          }
           const configured = await configureApps([app], canContinue);
           if (!canContinue()) return;
           if (configured && app === "dsh") {
@@ -575,14 +587,18 @@ function ToolSetupGridContent({
     if (!beginAction()) return;
     try {
       if (
-        (app === "codex" || app === "chatgpt-desktop") &&
-        codexAccountMode.data?.mode === "official"
+        (app === "claude-desktop" &&
+          (await yuanhengApi.getClaudeDesktopAccountMode()).mode ===
+            "official") ||
+        ((app === "codex" || app === "chatgpt-desktop") &&
+          codexAccountMode.data?.mode === "official")
       ) {
         await yuanhengApi.launchTool(
           app,
           forceRestart,
           launchDirectoryState.directories[app],
         );
+        if (forceRestart) clearRestartRequired(app);
         return;
       }
       const status = statusMap.get(app);
@@ -828,7 +844,11 @@ function ToolSetupGridContent({
               </article>
             );
           }
-          const configured = Boolean(status?.configured);
+          const officialClaude =
+            app === "claude-desktop" &&
+            claudeDesktopMode.data?.mode === "official" &&
+            !claudeDesktopMode.setupRequested;
+          const configured = officialClaude || Boolean(status?.configured);
           const selectable = Boolean(
             connection?.connected &&
               (installed || app === "dsh") &&
@@ -1074,6 +1094,12 @@ function ToolSetupGridContent({
                 </button>
               )}
 
+              {app === "claude-desktop" && (
+                <ClaudeDesktopModeSwitch
+                  control={claudeDesktopMode}
+                  busy={busy || installing}
+                />
+              )}
               {status?.runtimeStatus && (
                 <div
                   className={cn(
@@ -1135,7 +1161,8 @@ function ToolSetupGridContent({
                   </div>
                 )}
 
-              {(installed || app === "dsh") &&
+              {!officialClaude &&
+              (installed || app === "dsh") &&
               connection?.connected &&
               status?.supported ? (
                 <div className="mt-3 rounded-xl bg-muted/45 p-3">
@@ -1347,6 +1374,7 @@ function ToolSetupGridContent({
                     size="sm"
                     className="flex-1"
                     disabled={
+                      officialClaude ||
                       !connection?.connected ||
                       !status?.supported ||
                       accioConfigurationBlocked(status) ||

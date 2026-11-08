@@ -275,3 +275,7 @@ QA人工启动入口按2026-10-21用户授权启用剪贴板共享，并在guest
 ## Codex 账号模式与请求完成（2026-11-09）
 
 [请求上下文](../src-tauri/src/proxy/handler_context.rs)与[转发器](../src-tauri/src/proxy/forwarder.rs)始终沿用实际入口命名空间；Codex Desktop 的协议适配复用 CLI，但供应商／熔断／请求状态不混写。只有显式自动故障转移且非固定快照请求允许供应商写回；[切换管理器](../src-tauri/src/proxy/failover_switch.rs)执行前复验开关，避免旧中转请求将官方配置覆盖回去。
+
+## Claude Desktop 账号模式（2026-11-09）
+
+工作台／工具管理复用 [模式选择器](../src/components/desktop/ClaudeDesktopModeSwitch.tsx) → [模式命令](../src-tauri/src/commands/yuanheng/claude_desktop_mode.rs) → [1p/3p 配置与回滚](../src-tauri/src/claude_desktop_config.rs)。官方恢复无需中转令牌或 Core，切回保留模型分组；首次无托管配置展开设置。官方模式启动与自动修复不重新配置中转，原生账号／会话不迁移，切换需重启。macOS 临时目录双向回归与跨平台文件夹具通过，真实官方登录未测。

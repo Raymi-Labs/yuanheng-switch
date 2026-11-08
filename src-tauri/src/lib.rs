@@ -1677,6 +1677,8 @@ pub fn run() {
             commands::get_yuanheng_tool_statuses,
             commands::get_yuanheng_tool_activation_statuses,
             commands::preflight_yuanheng_tool,
+            commands::get_claude_desktop_account_mode,
+            commands::switch_claude_desktop_account_mode,
             commands::get_codex_account_mode,
             commands::get_codex_login_guide,
             commands::switch_codex_account_mode,

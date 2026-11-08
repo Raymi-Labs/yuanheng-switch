@@ -8,6 +8,19 @@ import { DESKTOP_ZH_TW } from "./desktopI18n.zhTW";
 type Values = Record<string, string | number | null | undefined>;
 
 export const DESKTOP_EN: Record<string, string> = {
+  "Claude 官方": "Claude account",
+  "Claude 官方账号": "Claude account",
+  "已切换到 Claude 官方模式，请重启客户端并完成账号登录。":
+    "Switched to Claude account mode. Restart the client and sign in.",
+  "已恢复 Claude Desktop 元衡配置，请重启客户端。":
+    "Restored the Claude Desktop relay configuration. Restart the client.",
+  "Claude Desktop 模式检测失败，请重新检测。":
+    "Could not detect the Claude Desktop mode. Refresh to try again.",
+  "官方模式使用 Claude 原生账号登录；请重启客户端，并使用原账号查看官方会话。中转模型与分组会保留，切换模式不会替你登录账号。":
+    "Account mode uses Claude’s native sign-in. Restart and use your original account to view its chats. Relay models and groups are kept; switching modes does not sign you in.",
+  "中转模式使用元衡模型与分组；切回 Claude 官方后需要重启客户端。首次使用中转，请先选择模型并应用配置。":
+    "Relay mode uses YuanHeng models and groups. Restart after switching to Claude account mode. For first-time relay setup, select a model and apply the configuration.",
+
   "使用中转无需退出 ChatGPT 账号。建议保留原账号登录，以继续访问账号关联的项目和功能。":
     "Using the relay does not require signing out of ChatGPT. Keep your original account to access its projects and features.",
   "推荐：保留或恢复 ChatGPT 登录":

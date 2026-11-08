@@ -167,6 +167,12 @@ export interface CodexSessionBridgeStatus {
 
 export type CodexAccountMode = "yuanheng" | "official" | "unknown";
 
+export interface ClaudeDesktopAccountModeStatus {
+  mode: CodexAccountMode;
+  yuanhengAvailable: boolean;
+  restartRequired: boolean;
+}
+
 export interface CodexAccountModeStatus {
   mode: CodexAccountMode;
   officialLoginAvailable: boolean;
@@ -359,6 +365,15 @@ export const yuanhengApi = {
     return invoke("get_codex_session_bridge_status");
   },
 
+  getClaudeDesktopAccountMode(): Promise<ClaudeDesktopAccountModeStatus> {
+    return invoke("get_claude_desktop_account_mode");
+  },
+  switchClaudeDesktopAccountMode(
+    mode: Exclude<CodexAccountMode, "unknown">,
+    expectedMode?: CodexAccountMode,
+  ): Promise<ClaudeDesktopAccountModeStatus> {
+    return invoke("switch_claude_desktop_account_mode", { mode, expectedMode });
+  },
   getCodexAccountMode(): Promise<CodexAccountModeStatus> {
     return invoke("get_codex_account_mode");
   },

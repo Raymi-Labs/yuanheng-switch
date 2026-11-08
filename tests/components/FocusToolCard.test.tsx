@@ -74,6 +74,18 @@ function createSwitcher(
         message: null,
       },
     } as ModelSwitchCenterState["codexAccountMode"],
+    claudeDesktopMode: {
+      refetch: vi.fn(),
+      data: {
+        mode: "yuanheng",
+        yuanhengAvailable: true,
+        restartRequired: false,
+      },
+      pending: false,
+      error: false,
+      setupRequested: false,
+      switchMode: vi.fn(),
+    },
     codexModePending: false,
     refreshModels: vi.fn(),
     install: vi.fn(),

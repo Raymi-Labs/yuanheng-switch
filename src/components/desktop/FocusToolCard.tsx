@@ -1,3 +1,4 @@
+import { ClaudeDesktopModeSwitch } from "./ClaudeDesktopModeSwitch";
 import { toolReasoningLevels } from "@/lib/agentReasoning";
 import { ToolInstallProgress } from "./ToolInstallProgress";
 import { CodexHistoryHint } from "./CodexHistoryHint";
@@ -347,10 +348,19 @@ export function FocusToolCard({
     );
   }
 
-  const pending = pendingApps.has(app) || switcher.installingApps.has(app);
+  const pending =
+    pendingApps.has(app) ||
+    switcher.installingApps.has(app) ||
+    (app === "claude-desktop" && switcher.claudeDesktopMode?.pending);
   const isCodexSurface = app === "codex" || app === "chatgpt-desktop";
   const usesOfficialCodexAccount =
     isCodexSurface && codexAccountMode.data?.mode === "official";
+  const usesOfficialClaudeAccount =
+    app === "claude-desktop" &&
+    switcher.claudeDesktopMode?.data?.mode === "official" &&
+    !switcher.claudeDesktopMode.setupRequested;
+  const usesOfficialAccount =
+    usesOfficialCodexAccount || usesOfficialClaudeAccount;
   const supportedReasoning = toolReasoningLevels(
     app,
     current ?? undefined,
@@ -370,7 +380,7 @@ export function FocusToolCard({
   ];
   const codexStatus =
     app === "codex" &&
-    !usesOfficialCodexAccount &&
+    !usesOfficialAccount &&
     codexBridge.data?.connectedTerminals
       ? codexBridge.data.pendingTerminals > 0
         ? dt("待 {{v0}} 个终端下一条消息应用", {
@@ -452,16 +462,20 @@ export function FocusToolCard({
       <div className="relative mt-4 flex flex-wrap items-baseline gap-x-3 gap-y-1">
         <span className="text-[11px] text-white/55">{dt("当前模型")}</span>
         <span className="font-display text-2xl font-semibold tabular-nums tracking-tight">
-          {usesOfficialCodexAccount
-            ? dt("OpenAI 官方账号")
+          {usesOfficialAccount
+            ? dt(
+                usesOfficialClaudeAccount
+                  ? "Claude 官方账号"
+                  : "OpenAI 官方账号",
+              )
             : (current ?? dt("未选择"))}
         </span>
-        {!usesOfficialCodexAccount && currentGroup && (
+        {!usesOfficialAccount && currentGroup && (
           <span className="rounded-full bg-white/10 px-2 py-0.5 text-[10px] text-white/75">
             {currentGroup} {dt("分组")}
           </span>
         )}
-        {!usesOfficialCodexAccount && currentReasoning !== "auto" && (
+        {!usesOfficialAccount && currentReasoning !== "auto" && (
           <span className="rounded-full bg-white/10 px-2 py-0.5 text-[10px] text-white/75">
             {currentReasoning} {dt("推理")}
           </span>
@@ -507,6 +521,14 @@ export function FocusToolCard({
         </p>
       )}
 
+      {app === "claude-desktop" && switcher.claudeDesktopMode && (
+        <ClaudeDesktopModeSwitch
+          control={switcher.claudeDesktopMode}
+          busy={pending}
+          dark
+        />
+      )}
+
       {isCodexSurface && (
         <div className="relative mt-3 flex items-center justify-between gap-3 rounded-xl border border-white/10 bg-white/[0.05] px-3 py-2">
           <div>
@@ -549,7 +571,7 @@ export function FocusToolCard({
         </div>
       )}
 
-      {isCodexSurface && !usesOfficialCodexAccount && (
+      {isCodexSurface && !usesOfficialAccount && (
         <p
           role="status"
           className="relative mt-2 text-xs leading-relaxed text-white/70"
@@ -584,7 +606,7 @@ export function FocusToolCard({
         />
       </div>
 
-      {!usesOfficialCodexAccount && (
+      {!usesOfficialAccount && (
         <div className="relative mt-4 rounded-xl border border-white/10 bg-black/10 p-3">
           <div className="space-y-3">
             {connection && (
