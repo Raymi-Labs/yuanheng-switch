@@ -2,6 +2,19 @@
 import { MEDIA_ZH_TW } from "./mediaStudioTranslations";
 import { BROWSER_LOGIN_ZH_TW } from "./browserLoginTranslations";
 export const DESKTOP_ZH_TW: Record<string, string> = {
+  "使用中转无需退出 ChatGPT 账号。建议保留原账号登录，以继续访问账号关联的项目和功能。":
+    "使用中轉無需登出 ChatGPT 帳號。建議保留原帳號登入，以繼續存取帳號關聯的專案與功能。",
+  "推荐：保留或恢复 ChatGPT 登录": "建議：保留或恢復 ChatGPT 登入",
+  "已登录 ChatGPT 时保持当前登录；需要登录时选择 Continue to sign in 或 Sign in with ChatGPT，并使用原账号和工作区。":
+    "已登入 ChatGPT 時保持目前登入；需要登入時選擇 Continue to sign in 或 Sign in with ChatGPT，並使用原帳號與工作區。",
+  "若已用 API Key 登录且找不到原项目，请保存当前工作后在客户端账号菜单退出，再登录原 ChatGPT 账号。元衡中转配置可以保留。":
+    "若已用 API Key 登入且找不到原專案，請儲存目前工作後在用戶端帳號選單登出，再登入原 ChatGPT 帳號。元衡中轉設定可以保留。",
+  "可选：仅使用 API Key": "可選：僅使用 API Key",
+  "API Key 不能恢复 ChatGPT 账号关联的云端项目和功能；项目不可见不代表本地记录已被删除。仅需本地 API 使用时再选择此方式。":
+    "API Key 無法恢復 ChatGPT 帳號關聯的雲端專案與功能；專案不可見不代表本機記錄已刪除。僅需本機 API 使用時再選擇此方式。",
+  "使用中转无需退出 ChatGPT 账号。若 API Key 登录后原项目不可见，请保存工作并重新登录原 ChatGPT 账号和工作区，中转配置可以保留。":
+    "使用中轉無需登出 ChatGPT 帳號。若 API Key 登入後原專案不可見，請儲存工作並重新登入原 ChatGPT 帳號與工作區，中轉設定可以保留。",
+
   ...BROWSER_LOGIN_ZH_TW,
   "推理设置按各工具原生优先级生效；会话、环境变量或全局设置可能影响结果，必要时重开会话。":
     "推理設定按各工具原生優先順序生效；工作階段、環境變數或全域設定可能影響結果，必要時重開工作階段。",

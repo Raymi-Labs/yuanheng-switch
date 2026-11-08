@@ -2,6 +2,19 @@
 import { MEDIA_KO } from "./mediaStudioTranslations";
 import { BROWSER_LOGIN_KO } from "./browserLoginTranslations";
 export const DESKTOP_KO: Record<string, string> = {
+  "使用中转无需退出 ChatGPT 账号。建议保留原账号登录，以继续访问账号关联的项目和功能。":
+    "중계를 사용해도 ChatGPT에서 로그아웃할 필요가 없습니다. 기존 계정을 유지하여 연결된 프로젝트와 기능에 접근하세요.",
+  "推荐：保留或恢复 ChatGPT 登录": "권장: ChatGPT 로그인 유지 또는 복원",
+  "已登录 ChatGPT 时保持当前登录；需要登录时选择 Continue to sign in 或 Sign in with ChatGPT，并使用原账号和工作区。":
+    "ChatGPT에 로그인되어 있다면 유지하세요. 로그인이 필요하면 Continue to sign in 또는 Sign in with ChatGPT를 선택하고 기존 계정과 워크스페이스를 사용하세요.",
+  "若已用 API Key 登录且找不到原项目，请保存当前工作后在客户端账号菜单退出，再登录原 ChatGPT 账号。元衡中转配置可以保留。":
+    "API Key로 로그인한 후 기존 프로젝트가 보이지 않으면 작업을 저장하고 계정 메뉴에서 로그아웃한 뒤 기존 ChatGPT 계정으로 로그인하세요. 중계 설정은 유지할 수 있습니다.",
+  "可选：仅使用 API Key": "선택: API Key만 사용",
+  "API Key 不能恢复 ChatGPT 账号关联的云端项目和功能；项目不可见不代表本地记录已被删除。仅需本地 API 使用时再选择此方式。":
+    "API Key는 ChatGPT 계정의 클라우드 프로젝트와 기능을 복원하지 않습니다. 프로젝트가 보이지 않아도 로컬 기록이 삭제된 것은 아닙니다. 로컬 API만 사용할 때 선택하세요.",
+  "使用中转无需退出 ChatGPT 账号。若 API Key 登录后原项目不可见，请保存工作并重新登录原 ChatGPT 账号和工作区，中转配置可以保留。":
+    "중계 사용에 ChatGPT 로그아웃은 필요 없습니다. API Key 로그인 후 프로젝트가 보이지 않으면 작업을 저장하고 기존 ChatGPT 계정과 워크스페이스로 로그인하세요. 중계 설정은 유지할 수 있습니다.",
+
   ...BROWSER_LOGIN_KO,
   "推理设置按各工具原生优先级生效；会话、环境变量或全局设置可能影响结果，必要时重开会话。":
     "추론 설정은 각 도구의 기본 우선순위를 따릅니다. 세션·환경 변수·전역 설정이 영향을 줄 수 있으므로 필요하면 새 세션을 시작하세요.",

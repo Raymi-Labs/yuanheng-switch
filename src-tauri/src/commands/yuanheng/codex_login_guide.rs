@@ -8,7 +8,7 @@ pub struct CodexLoginGuide {
     group: String,
 }
 
-fn login_material_present(path: &std::path::Path) -> Result<bool, String> {
+fn oauth_login_material_present(path: &std::path::Path) -> Result<bool, String> {
     match std::fs::read(path) {
         Ok(bytes) => {
             let auth: Value = serde_json::from_slice(&bytes)
@@ -16,7 +16,17 @@ fn login_material_present(path: &std::path::Path) -> Result<bool, String> {
             if !auth.is_object() {
                 return Err("无法确认 Codex 登录状态，请检查后重新应用配置".into());
             }
-            Ok(crate::codex_config::codex_auth_has_login_material(&auth))
+            // API key login does not restore ChatGPT account features. Metadata
+            // such as last_refresh is not evidence of OAuth credentials either.
+            Ok(auth["auth_mode"].as_str() != Some("apikey")
+                && ["access_token", "refresh_token", "id_token"]
+                    .iter()
+                    .any(|key| {
+                        auth.get("tokens")
+                            .and_then(|tokens| tokens.get(*key))
+                            .and_then(Value::as_str)
+                            .is_some_and(|token| !token.trim().is_empty())
+                    }))
         }
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
         Err(_) => Err("无法读取 Codex 登录状态，请检查后重新应用配置".into()),
@@ -34,7 +44,7 @@ fn prepare(state: &AppState, user_id: &str) -> Result<Option<CodexLoginGuide>, S
         return Err("账号已变更，请重新应用 Codex 配置".into());
     }
     if !managed_codex_surface_route_active(&state.db, CodexSurface::Desktop)
-        || login_material_present(&crate::codex_config::get_codex_auth_path())?
+        || oauth_login_material_present(&crate::codex_config::get_codex_auth_path())?
     {
         return Ok(None);
     }
@@ -71,24 +81,28 @@ mod tests {
     fn codex_login_guide_distinguishes_login_from_empty_or_unknown_auth() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("auth.json");
-        assert!(!login_material_present(&path).unwrap());
+        assert!(!oauth_login_material_present(&path).unwrap());
         for auth in [
             json!({}),
             json!({"auth_mode": "apikey", "OPENAI_API_KEY": null}),
+            json!({"OPENAI_API_KEY": "synthetic"}),
+            json!({"last_refresh": "2026-11-09"}),
+            json!({"tokens": {"access_token": " "}}),
+            json!({"auth_mode": "apikey", "tokens": {"access_token": "stale"}}),
         ] {
             std::fs::write(&path, auth.to_string()).unwrap();
-            assert!(!login_material_present(&path).unwrap());
+            assert!(!oauth_login_material_present(&path).unwrap());
         }
         for auth in [
-            json!({"OPENAI_API_KEY": "synthetic"}),
+            json!({"tokens": {"refresh_token": "synthetic"}}),
             json!({"tokens": {"access_token": "synthetic"}}),
         ] {
             std::fs::write(&path, auth.to_string()).unwrap();
-            assert!(login_material_present(&path).unwrap());
+            assert!(oauth_login_material_present(&path).unwrap());
         }
         for text in ["broken-json", "null", "[]"] {
             std::fs::write(&path, text).unwrap();
-            assert!(login_material_present(&path).is_err());
+            assert!(oauth_login_material_present(&path).is_err());
         }
     }
 
@@ -127,6 +141,10 @@ mod tests {
         assert!(!crate::codex_config::get_codex_auth_path().exists());
         assert!(prepare(&state, "other").is_err());
         let auth = crate::codex_config::get_codex_auth_path();
+        let api_auth = r#"{"auth_mode":"apikey","OPENAI_API_KEY":"synthetic-existing"}"#;
+        std::fs::write(&auth, api_auth).unwrap();
+        assert!(prepare(&state, "42").unwrap().is_some());
+        assert_eq!(std::fs::read_to_string(&auth).unwrap(), api_auth);
         let original = r#"{"tokens":{"access_token":"synthetic-official"}}"#;
         std::fs::write(&auth, original).unwrap();
         assert!(prepare(&state, "42").unwrap().is_none());

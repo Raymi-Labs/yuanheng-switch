@@ -105,12 +105,31 @@ export function CodexLoginGuide({ userId }: { userId: string }) {
           </DialogTitle>
           <DialogDescription>
             {dt(
-              "已为本次配置准备好平台令牌，无需再去平台创建。按下面步骤完成登录即可。",
+              "使用中转无需退出 ChatGPT 账号。建议保留原账号登录，以继续访问账号关联的项目和功能。",
             )}
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-4 overflow-y-auto px-6 py-4 text-sm">
           <div className="space-y-3 rounded-xl border bg-muted/40 p-4">
+            <p className="font-medium">{dt("推荐：保留或恢复 ChatGPT 登录")}</p>
+            <p>
+              {dt(
+                "已登录 ChatGPT 时保持当前登录；需要登录时选择 Continue to sign in 或 Sign in with ChatGPT，并使用原账号和工作区。",
+              )}
+            </p>
+            <p>
+              {dt(
+                "若已用 API Key 登录且找不到原项目，请保存当前工作后在客户端账号菜单退出，再登录原 ChatGPT 账号。元衡中转配置可以保留。",
+              )}
+            </p>
+          </div>
+          <div className="space-y-3 rounded-xl border bg-muted/40 p-4">
+            <p className="font-medium">{dt("可选：仅使用 API Key")}</p>
+            <p className="text-muted-foreground">
+              {dt(
+                "API Key 不能恢复 ChatGPT 账号关联的云端项目和功能；项目不可见不代表本地记录已被删除。仅需本地 API 使用时再选择此方式。",
+              )}
+            </p>
             <div className="flex items-center justify-between gap-2">
               <span className="font-medium">{dt("平台令牌（API Key）")}</span>
               <Button

@@ -549,6 +549,17 @@ export function FocusToolCard({
         </div>
       )}
 
+      {isCodexSurface && !usesOfficialCodexAccount && (
+        <p
+          role="status"
+          className="relative mt-2 text-xs leading-relaxed text-white/70"
+        >
+          {dt(
+            "使用中转无需退出 ChatGPT 账号。若 API Key 登录后原项目不可见，请保存工作并重新登录原 ChatGPT 账号和工作区，中转配置可以保留。",
+          )}
+        </p>
+      )}
+
       {usesOfficialCodexAccount && (
         <p
           role="status"

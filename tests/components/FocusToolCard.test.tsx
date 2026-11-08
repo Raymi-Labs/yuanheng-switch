@@ -454,6 +454,7 @@ describe("FocusToolCard", () => {
       const { rerender } = render(
         <FocusToolCard switcher={switcher} onOpenTools={vi.fn()} />,
       );
+      expect(screen.getByText(/使用中转无需退出 ChatGPT 账号/)).toBeVisible();
       const official = screen.getByRole("button", { name: "OpenAI 官方" });
       expect(official).toBeEnabled();
       fireEvent.click(official);

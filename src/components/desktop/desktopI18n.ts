@@ -8,6 +8,20 @@ import { DESKTOP_ZH_TW } from "./desktopI18n.zhTW";
 type Values = Record<string, string | number | null | undefined>;
 
 export const DESKTOP_EN: Record<string, string> = {
+  "使用中转无需退出 ChatGPT 账号。建议保留原账号登录，以继续访问账号关联的项目和功能。":
+    "Using the relay does not require signing out of ChatGPT. Keep your original account to access its projects and features.",
+  "推荐：保留或恢复 ChatGPT 登录":
+    "Recommended: keep or restore ChatGPT sign-in",
+  "已登录 ChatGPT 时保持当前登录；需要登录时选择 Continue to sign in 或 Sign in with ChatGPT，并使用原账号和工作区。":
+    "If already signed in to ChatGPT, stay signed in. Otherwise choose Continue to sign in or Sign in with ChatGPT, using your original account and workspace.",
+  "若已用 API Key 登录且找不到原项目，请保存当前工作后在客户端账号菜单退出，再登录原 ChatGPT 账号。元衡中转配置可以保留。":
+    "If you signed in with an API key and cannot find your projects, save your work, sign out from the client account menu, and sign in to your original ChatGPT account. Keep the YuanHeng relay configuration.",
+  "可选：仅使用 API Key": "Optional: use only an API key",
+  "API Key 不能恢复 ChatGPT 账号关联的云端项目和功能；项目不可见不代表本地记录已被删除。仅需本地 API 使用时再选择此方式。":
+    "An API key cannot restore cloud projects and features tied to a ChatGPT account. Missing projects do not mean local records were deleted. Choose this option only for local API use.",
+  "使用中转无需退出 ChatGPT 账号。若 API Key 登录后原项目不可见，请保存工作并重新登录原 ChatGPT 账号和工作区，中转配置可以保留。":
+    "The relay does not require signing out of ChatGPT. If projects disappear after API key sign-in, save your work and sign in to your original ChatGPT account and workspace. Keep the relay configuration.",
+
   ...BROWSER_LOGIN_EN,
   "推理设置按各工具原生优先级生效；会话、环境变量或全局设置可能影响结果，必要时重开会话。":
     "Reasoning follows each tool’s native precedence. Session, environment or global settings can affect the result; start a new session if needed.",

@@ -33,6 +33,9 @@ describe("Codex first login guide", () => {
       completed = true;
     });
     expect(await screen.findByText(guide.apiKey)).toBeInTheDocument();
+    expect(screen.getByText("推荐：保留或恢复 ChatGPT 登录")).toBeVisible();
+    expect(screen.getByText(/Continue to sign in/)).toBeVisible();
+    expect(screen.getByText(/API Key 不能恢复/)).toBeVisible();
     expect(screen.getByText(/Sign in with an API key/)).toBeInTheDocument();
     expect(mocks.invoke).toHaveBeenCalledWith("get_codex_login_guide", {
       userId: "42",

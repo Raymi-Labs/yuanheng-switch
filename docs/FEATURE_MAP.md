@@ -267,3 +267,7 @@ QA人工启动入口按2026-10-21用户授权启用剪贴板共享，并在guest
 ## 桌面端统一令牌（2026-11-08）
 
 工具配置、Agent 图像连接、图片视频生成和通用凭据修复共用 [device_credentials](../src-tauri/src/commands/yuanheng/device_credentials.rs) 的账号统一令牌。首次配置以所选真实分组优先，其他授权真实组按名称排序，auto 不作为 routing_config 成员；后续保留平台分组顺序、模型规则、额度和限制。目录分组只筛选模型，实际路由及收费由平台决定。新 Provider 标记 routing=token，本地用量显示自动路由并不猜测分组报价。既有配置在重新应用前保持旧凭据；旧视频仍按记录 token_id 查询，升级不自动删除令牌。详见[决定与边界](../.agents/notes/implemented/architecture/2026-11-08-account-shared-token.md)。
+
+## ChatGPT 登录与中转配置（2026-11-09）
+
+[首次配置引导](../src/components/desktop/CodexLoginGuide.tsx)优先保留／恢复原 ChatGPT 账号与工作区；API Key 为可选本地使用方式，不能恢复账号云端功能。[只读判定](../src-tauri/src/commands/yuanheng/codex_login_guide.rs)仅 OAuth token 材料跳过，API Key 和仅元数据仍显示指引；[工具卡](../src/components/desktop/FocusToolCard.tsx)持续显示恢复提示。配置保留 auth.json 与历史记录，文件检测不证明钥匙串或服务端登录有效；启动故障需单独证据。
