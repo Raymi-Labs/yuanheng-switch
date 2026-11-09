@@ -258,10 +258,7 @@ async fn mobile_api(
         (request, None)
     } else {
         let (session, epoch) = state.snapshot()?;
-        if matches!(
-            operation.as_str(),
-            "redemption_create" | "aff_transfer" | "service_tiers"
-        ) {
+        if matches!(operation.as_str(), "redemption_create" | "aff_transfer") {
             MobileState::require_user(&session, expected_user_id)?;
         }
         (
@@ -293,38 +290,11 @@ async fn mobile_chat(
     id: String,
     body: Value,
     on_chunk: Channel<Vec<u8>>,
-    expected_user_id: Option<i64>,
-    expected_multiplier: Option<u32>,
 ) -> Result<(), String> {
     transport::validate_chat(&body)?;
     let (session, epoch) = state.snapshot()?;
-    MobileState::require_user(&session, expected_user_id)?;
     let cancel = state.begin_ai(&id, epoch)?;
     let work = async {
-        if let Some(tier) = body.get("service_tier") {
-            let tier = tier
-                .as_str()
-                .filter(|v| ["priority", "ultrafast"].contains(v))
-                .ok_or("速度档位无效")?;
-            let model = body["model"].as_str().ok_or("模型无效")?;
-            let group = body["group"].as_str().ok_or("分组无效")?;
-            let (_, path) = api_route("service_tiers", &json!({"model":model,"group":group}))?;
-            let response = state
-                .request(Method::GET, &path, &session)
-                .timeout(Duration::from_secs(15))
-                .send()
-                .await
-                .map_err(|_| "无法确认速度档位；未发送模型请求")?;
-            let capability = bounded_json(response, 64 * 1024).await?;
-            transport::validate_service_tier_capability(
-                &capability,
-                model,
-                group,
-                tier,
-                expected_multiplier,
-            )?;
-        }
-        state.check(epoch)?;
         let response = state
             .request(Method::POST, "/pg/chat/completions", &session)
             .json(&body)
@@ -333,11 +303,10 @@ async fn mobile_chat(
             .await
             .map_err(|_| "聊天连接失败或等待超时，请先查看用量后再决定是否重试")?;
         if !response.status().is_success() {
-            let status = response.status().as_u16();
-            return match bounded_json(response, 64 * 1024).await {
-                Err(e) => Err(e),
-                Ok(_) => Err(format!("聊天请求失败（HTTP {status}）")),
-            };
+            return Err(format!(
+                "聊天请求失败（HTTP {}）",
+                response.status().as_u16()
+            ));
         }
         if !response
             .headers()

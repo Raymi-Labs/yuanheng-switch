@@ -413,28 +413,6 @@ select {
 .login-card form > .primary {
   margin-top: 18px;
 }
-.speed-controls {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin: 0 0 8px;
-}
-.speed-help {
-  position: relative;
-}
-.speed-help [role="tooltip"] {
-  position: absolute;
-  z-index: 30;
-  left: 0;
-  top: 100%;
-  width: min(240px, 65vw);
-  padding: 10px;
-  background: var(--paper);
-  color: var(--ink);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  font-size: 12px;
-}
 .chat-page {
   height: calc(
     100vh - 146px - env(safe-area-inset-top) - env(safe-area-inset-bottom)

@@ -87,8 +87,6 @@ async function run() {
           group: "test",
         };
         window.__TAURI_INTERNALS__ = {
-          transformCallback: () => 1,
-          unregisterCallback: () => {},
           invoke: async (cmd, args) => {
             window.__mediaTest.calls.push({ cmd, args });
             if (cmd === "mobile_restore") return account;
@@ -97,40 +95,12 @@ async function run() {
             if (cmd === "mobile_ai_consent") return;
             if (cmd === "mobile_gallery_list") return [];
             if (cmd === "mobile_tts") return { data: audio, mime: "audio/wav" };
-            if (cmd === "mobile_chat") {
-              args.onChunk.onmessage([
-                ...new TextEncoder().encode(
-                  'data: {"choices":[{"delta":{"content":"synthetic reply"}}]}\n\ndata: [DONE]\n\n',
-                ),
-              ]);
-              return;
-            }
             if (cmd === "mobile_api") {
               if (args.operation === "pricing")
                 return {
-                  data: [
-                    { model_name: "synthetic-chat", enable_groups: ["test"] },
-                  ],
+                  data: [],
                   group_ratio: { test: 1 },
                   usable_group: { test: "Test" },
-                };
-              if (args.operation === "service_tiers")
-                return {
-                  success: true,
-                  data: {
-                    model: args.body.model,
-                    group: args.body.group,
-                    managed: true,
-                    tiers: [
-                      { id: "default", multiplier: 1 },
-                      ...(window.__mediaTest.standardOnly
-                        ? []
-                        : [
-                            { id: "priority", multiplier: 2 },
-                            { id: "ultrafast", multiplier: 6 },
-                          ]),
-                    ],
-                  },
                 };
               const data = {
                 status: { quota_per_unit: 500000, price: 1 },
@@ -170,11 +140,13 @@ async function run() {
       .getByText("同意数据处理并继续")
       .click();
     await page.locator("nav").getByText("声音", { exact: true }).click();
-    await page.getByLabel("上传声音样本").setInputFiles({
-      name: "synthetic.wav",
-      mimeType: "audio/wav",
-      buffer: wav,
-    });
+    await page
+      .getByLabel("上传声音样本")
+      .setInputFiles({
+        name: "synthetic.wav",
+        mimeType: "audio/wav",
+        buffer: wav,
+      });
     await page.waitForFunction(
       () =>
         document.querySelector('audio[aria-label="声音样本试听"]')
@@ -237,64 +209,6 @@ async function run() {
       }
     }
     await page.locator("nav").getByText("生图", { exact: true }).click();
-    await page.locator("nav").getByText("聊天", { exact: true }).click();
-    await page.waitForFunction(() =>
-      window.__mediaTest.calls.some(
-        (c) => c.args?.operation === "service_tiers",
-      ),
-    );
-    for (const [label, tier] of [
-      ["标准", undefined],
-      ["Fast", "priority"],
-      ["UltraFast", "ultrafast"],
-    ]) {
-      await page.getByLabel("选择速度").click();
-      if (label === "Fast" && process.env.TIER_SCREENSHOT) {
-        await page.getByRole("dialog", { name: "选择速度" }).waitFor();
-        await page.evaluate(async () => {
-          await Promise.all(
-            document.getAnimations().map((a) => a.finished.catch(() => {})),
-          );
-        });
-        await page.screenshot({ path: process.env.TIER_SCREENSHOT });
-      }
-      await page
-        .getByRole("dialog", { name: "选择速度" })
-        .getByText(label, { exact: true })
-        .click();
-      await page.getByLabel("输入消息").fill("synthetic " + label);
-      await page.getByLabel("发送消息").click();
-      await page.waitForFunction(
-        (n) =>
-          window.__mediaTest.calls.filter((c) => c.cmd === "mobile_chat")
-            .length === n,
-        label === "标准" ? 1 : label === "Fast" ? 2 : 3,
-      );
-      assert.equal(
-        await page.evaluate(
-          () =>
-            window.__mediaTest.calls
-              .filter((c) => c.cmd === "mobile_chat")
-              .at(-1).args.body.service_tier,
-        ),
-        tier,
-      );
-      await page.getByLabel("发送消息").waitFor();
-    }
-    await page.locator("nav").getByText("声音", { exact: true }).click();
-    await page.evaluate(() => {
-      window.__mediaTest.standardOnly = true;
-    });
-    await page.locator("nav").getByText("聊天", { exact: true }).click();
-    await page
-      .getByRole("alert")
-      .filter({ hasText: "不支持 UltraFast" })
-      .waitFor();
-    await page.getByLabel("输入消息").fill("must not send");
-    assert.equal(await page.getByLabel("发送消息").isDisabled(), true);
-    await page.getByLabel("新建对话").click();
-    assert.match(await page.getByLabel("选择速度").innerText(), /标准/);
-    await page.locator("nav").getByText("生图", { exact: true }).click();
     const png = await page.evaluate(() => {
       const c = document.createElement("canvas");
       c.width = 200;
@@ -304,11 +218,13 @@ async function run() {
       x.fillRect(0, 0, 200, 100);
       return c.toDataURL().split(",")[1];
     });
-    await page.getByLabel("上传参考图").setInputFiles({
-      name: "synthetic.png",
-      mimeType: "image/png",
-      buffer: Buffer.from(png, "base64"),
-    });
+    await page
+      .getByLabel("上传参考图")
+      .setInputFiles({
+        name: "synthetic.png",
+        mimeType: "image/png",
+        buffer: Buffer.from(png, "base64"),
+      });
     await page.getByText("局部重绘", { exact: true }).click();
     const canvas = page.locator('[role="dialog"] canvas');
     await page.waitForFunction(
@@ -363,7 +279,6 @@ async function run() {
         viewports: [320, 390],
         externalRequests: 0,
         nativeDeviceTested: false,
-        serviceTiersVerified: ["omitted", "priority", "ultrafast"],
       }),
     );
   } finally {

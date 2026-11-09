@@ -62,8 +62,17 @@ fn owned(item: &Item) -> bool {
                 | "requires_openai_auth"
                 | "supports_websockets"
                 | "experimental_bearer_token"
+                | "request_max_retries"
+                | "stream_max_retries"
         )
     }) {
+        return false;
+    }
+    // Only the exact generated no-replay policy is owned; preserve user edits.
+    if ["request_max_retries", "stream_max_retries"]
+        .iter()
+        .any(|key| item.get(key).is_some_and(|v| v.as_integer() != Some(0)))
+    {
         return false;
     }
     if string(item, "wire_api") != Some("responses")

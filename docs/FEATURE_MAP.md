@@ -1,6 +1,6 @@
 # YuanHeng Desktop: capability map
 
-移动聊天速度档位：[Chat](../mobile/src/Chat.tsx) / [能力状态](../mobile/src/useServiceTiers.ts) → [统一请求快照](../mobile/src/serviceTiers.ts) → mobile_api(service_tiers) / mobile_chat → `/api/user/service-tiers` 与 `/pg/chat/completions`。本人/模型/组能力查询，原生发送前复核；按账号对话保存，失败重试固定快照，不静默升降档。标准不传字段，Fast=priority，UltraFast=ultrafast。后端未部署或渠道停用时不开付费档；不修改桌面Agent全局配置。见[指南](guides/mobile-service-tiers.md)与[决定](../.agents/notes/implemented/feature/2026-11-08-mobile-service-tiers.md)。
+桌面Codex原生速度：[配置能力查询](../src-tauri/src/commands/yuanheng/service_tiers.rs) → [模型目录](../src-tauri/src/codex_config.rs)的service_tiers → 官方原生线程/单轮选择 → [Core档位守卫](../src-tauri/src/services/desktop_service_tiers.rs)。能力按账号/组/精确模型读取，404/缺失不开放；标准全局默认，不写付费全局档位；付费请求不自动故障转移，最终字段/模型被改写时拒发。兼容托管历史alias的零重试字段，不覆盖用户自定义非零重试配置。见[桌面指南](guides/desktop-service-tiers.md)与[决定](../.agents/notes/implemented/feature/2026-11-09-desktop-native-service-tiers.md)。安卓误实现已回退，不算桌面交付。
 
 移动音频播放使用[打包CSP](../mobile/src-tauri/tauri.conf.json)的media-src self/data/blob，保持脚本和外部连接约束；[浏览器回归](../mobile/scripts/test-media-browser.cjs)对生产dist验证旧策略拒绝、新策略播放、遮罩真实alpha与320/390六入口布局，全部合成IPC，无原生/收费验收推断。声音/遮罩纳入[AI同意说明](../mobile/src/App.tsx)，声音页去除标语。
 
