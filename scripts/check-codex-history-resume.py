@@ -118,22 +118,37 @@ def main():
                 }})
             path.write_text("".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8")
 
-        for phase in ["broken", "official", "returned", "native"]:
+        # Modern app-server validates saved identity against configuration, even
+        # if thread/resume explicitly asks for that alias and it is configured.
+        server = Server("official")
+        try:
+            thread = threads["yuanheng"]
+            result = server.call("thread/resume", {
+                "threadId": thread["id"], "path": thread["path"],
+                "modelProvider": "yuanheng", "approvalPolicy": "never", "sandbox": "read-only",
+            })
+            assert result.get("error", {}).get("data", {}).get("type") == "modelProviderMismatch", result
+            print("before repair: configured identical alias still causes modelProviderMismatch")
+        finally:
+            server.close()
+
+        # All writers for this synthetic home have stopped. The injected process
+        # guard is only for this isolated fixture, never the user's real home.
+        (root / "config.toml").write_text((fixtures / "relay.toml").read_text())
+        module = (fixtures.parents[2] / "scripts/repair-codex-provider-identity.mjs").as_uri()
+        code = f"import {{repair}} from {json.dumps(module)}; console.log(JSON.stringify(await repair({json.dumps(str(root))}, {{apply:true, checkStopped:()=>{{}}}})));"
+        subprocess.run(["node", "--input-type=module", "-e", code], check=True)
+        for phase in ["official", "returned", "native"]:
             server = Server(phase)
             try:
                 for alias, thread in threads.items():
                     result = server.call("thread/resume", {
                         "threadId": thread["id"], "path": thread["path"],
-                        "modelProvider": alias, "approvalPolicy": "never", "sandbox": "read-only",
+                        "approvalPolicy": "never", "sandbox": "read-only",
                     })
-                    if phase == "broken" and alias != "yuanheng-switch-official":
-                        expected = f"Model provider `{alias}` not found"
-                        assert expected in result.get("error", {}).get("message", ""), result
-                        print(f"{phase}: {alias}: reproduced missing provider")
-                    else:
-                        assert "result" in result, result
-                        assert result["result"]["thread"]["id"] == thread["id"]
-                        print(f"{phase}: {alias}: resume OK")
+                    assert "result" in result, result
+                    assert result["result"]["thread"]["id"] == thread["id"]
+                    print(f"{phase}: previous {alias}: resume OK")
             finally:
                 server.close()
 

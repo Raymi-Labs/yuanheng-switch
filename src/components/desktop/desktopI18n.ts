@@ -536,8 +536,8 @@ export const DESKTOP_EN: Record<string, string> = {
     "History settings conflict with custom providers ({{providers}}). Your settings were preserved; review the provider configuration.",
   "历史会话配置需要修复，请再次点击当前使用方式。":
     "History settings need repair. Click the currently selected account mode again.",
-  "历史对话沿用当前使用方式；旧模型不可用时，请在 Codex 中重新选择模型。":
-    "Past conversations use the current account mode. If an old model is unavailable, select another model in Codex.",
+  "切换方式会保留会话提供商标识；旧对话若提示提供商不匹配，需要修复历史标识。":
+    "Switching modes preserves the provider ID. Older chats reporting a provider mismatch need their saved provider IDs repaired.",
 
   检查通过: "Checks Passed",
   "配置检查已通过，实际调用以请求记录为准。":
