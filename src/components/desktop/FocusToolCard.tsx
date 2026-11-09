@@ -34,7 +34,6 @@ import {
 } from "./useModelSwitchCenter";
 import { dt } from "./desktopI18n";
 import { launchDirectoryLabel } from "./useToolLaunchDirectories";
-import { ToolActivationProgress } from "./ToolActivationProgress";
 import { AccioConnectionNotice } from "./AccioConnectionNotice";
 import { accioConfigurationBlocked } from "@/lib/api/yuanheng";
 import { CodexProjectRecovery } from "./CodexProjectRecovery";
@@ -235,8 +234,6 @@ export function FocusToolCard({
     launchDirectories,
     launchDirectoryPendingApps,
     statusMap,
-    activationMap,
-    preflightResults,
     codexBridge,
     codexAccountMode,
     codexModePending,
@@ -596,18 +593,11 @@ export function FocusToolCard({
         </p>
       )}
 
-      <div className="relative mt-3">
-        <AccioConnectionNotice status={status} dark />
-        <ToolActivationProgress
-          activation={activationMap.get(app)}
-          preflight={preflightResults[app]}
-          restartRequired={restartRequired}
-          onRefresh={switcher.refreshActivation}
-          refreshing={switcher.activationRefreshing}
-          refreshFailed={switcher.activationRefreshFailed}
-          dark
-        />
-      </div>
+      {app === "accio-work" && (
+        <div className="relative mt-3">
+          <AccioConnectionNotice status={status} dark />
+        </div>
+      )}
 
       {!usesOfficialAccount && (
         <div className="relative mt-4 rounded-xl border border-white/10 bg-black/10 p-3">

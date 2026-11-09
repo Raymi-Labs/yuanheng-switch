@@ -102,18 +102,28 @@ pub(crate) fn codex_model_is_gpt(model: &str) -> bool {
         .starts_with("gpt-")
 }
 
-/// Codex ignores this obsolete top-level option. Clean it at preparation AND
+/// Codex ignores obsolete storage and MCP transport options. Clean at preparation AND
 /// final writes, because shared snippets can otherwise merge it back in.
 /// This is not a replacement for the Responses API's request-level `store`.
 pub(crate) fn remove_obsolete_codex_settings(config_text: &str) -> Result<String, AppError> {
     let mut doc = config_text
         .parse::<DocumentMut>()
         .map_err(|e| AppError::Message(format!("Invalid Codex config.toml: {e}")))?;
-    if doc
+    let mut changed = doc
         .as_table_mut()
         .remove("disable_response_storage")
-        .is_some()
+        .is_some();
+    if let Some(servers) = doc
+        .get_mut("mcp_servers")
+        .and_then(toml_edit::Item::as_table_like_mut)
     {
+        for (_, server) in servers.iter_mut() {
+            if let Some(table) = server.as_table_like_mut() {
+                changed |= table.remove("type").is_some();
+            }
+        }
+    }
+    if changed {
         Ok(doc.to_string())
     } else {
         Ok(config_text.to_string())
@@ -2446,6 +2456,23 @@ pub fn remove_codex_toml_base_url_if(toml_str: &str, predicate: impl Fn(&str) ->
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn obsolete_mcp_type_cleanup_preserves_server_settings() {
+        for input in [
+            "# keep\n[mcp_servers.computer-use]\ntype = \"stdio\"\ncommand = \"client\"\nenabled = false\n[mcp_servers.computer-use.env]\ntype = \"keep\"\n[mcp_servers.node_repl]\ntype = \"stdio\"\ncommand = \"node\"\n",
+            "mcp_servers = { remote = { type = \"http\", url = \"https://example.com/mcp\", http_headers = { type = \"keep\" } } }\n",
+        ] {
+            let mut expected: toml::Value = input.parse().unwrap();
+            for (_, server) in expected["mcp_servers"].as_table_mut().unwrap().iter_mut() {
+                server.as_table_mut().unwrap().remove("type");
+            }
+            let cleaned = remove_obsolete_codex_settings(input).unwrap();
+            assert_eq!(cleaned.parse::<toml::Value>().unwrap(), expected);
+            assert_eq!(remove_obsolete_codex_settings(&cleaned).unwrap(), cleaned);
+            if input.starts_with('#') { assert!(cleaned.starts_with("# keep")); }
+        }
+    }
 
     #[test]
     fn obsolete_storage_option_cleanup_is_narrow_and_idempotent() {

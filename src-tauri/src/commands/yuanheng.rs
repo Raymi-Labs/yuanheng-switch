@@ -2992,8 +2992,10 @@ fn provider_schema_current(provider: &Provider, app: &AppType) -> bool {
                 .settings_config
                 .get("config")
                 .and_then(Value::as_str)
-                .and_then(|text| text.parse::<toml::Value>().ok())
-                .is_some_and(|doc| doc.get("disable_response_storage").is_none())
+                .is_some_and(|text| {
+                    crate::codex_config::remove_obsolete_codex_settings(text)
+                        .is_ok_and(|cleaned| cleaned == text)
+                })
                 && codex_provider_catalog_settings(provider)["modelCatalog"]
                     == provider.settings_config["modelCatalog"];
             provider.settings_config["yuanhengServiceTiersSchema"] == 1
@@ -6406,12 +6408,16 @@ mod tests {
                 CodexSurface::Terminal => codex_terminal_profile_path(),
                 CodexSurface::Desktop => crate::codex_config::get_codex_config_path(),
             };
-            crate::config::write_text_file(&profile_path, "disable_response_storage = true\nmodel_context_window = 921000\n[mcp_servers.test]\ncommand = \"test-only\"\n").unwrap();
+            crate::config::write_text_file(&profile_path, "disable_response_storage = true\nmodel_context_window = 921000\n[mcp_servers.test]\ntype = \"stdio\"\ncommand = \"test-only\"\n").unwrap();
             write_codex_surface_config_at_origin(&state, surface, "http://127.0.0.1:15721")
                 .unwrap();
             let first = std::fs::read_to_string(&profile_path).unwrap();
             let doc = first.parse::<toml::Value>().unwrap();
             assert!(doc.get("disable_response_storage").is_none());
+            assert!(doc
+                .get("mcp_servers")
+                .and_then(toml::Value::as_table)
+                .is_none_or(|servers| servers.values().all(|server| server.get("type").is_none())));
             assert!(doc.get("model_context_window").is_none());
             let catalog_path = crate::codex_config::get_codex_named_model_catalog_path(
                 doc["model_catalog_json"].as_str().unwrap(),
