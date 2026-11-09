@@ -112,6 +112,17 @@ export const handlers = [
       });
     },
   ),
+  http.post(`${TAURI_ENDPOINT}/repair_codex_project_map`, () =>
+    success({
+      projectsFound: 0,
+      projectsRestored: 0,
+      assignmentsRestored: 0,
+      backupPath: null,
+      blockedReason: null,
+      fingerprint: "test",
+      applied: false,
+    }),
+  ),
   http.post(`${TAURI_ENDPOINT}/get_codex_account_mode`, () =>
     success({
       mode: "yuanheng",

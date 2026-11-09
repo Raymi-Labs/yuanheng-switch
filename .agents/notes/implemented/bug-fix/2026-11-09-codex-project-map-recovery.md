@@ -10,6 +10,8 @@ Status: implemented
 
 [Codex 项目适配器](../../../../src-tauri/src/session_sync/projects/codex_source.rs)读取 SQLite 用于 DSH 同步，不能恢复账号隔离的原始项目 ID；其行为保留。扩展[工具卡](../../../../src/components/desktop/FocusToolCard.tsx)与 Tauri session_sync 命令，在官方和中转模式都提供入口。[登录指引](../../implemented/bug-fix/2026-11-09-codex-account-login-guidance.md)保持认证边界，但本地项目恢复不再仅建议重新登录。[跨客户端同步](../../proposed/feature/2026-11-03-local-session-sync.md)不负责本地账号状态，两个流程不混用。
 
+自动检查触发入口由[项目自动检查](../../implemented/feature/2026-11-09-codex-project-auto-check.md)替代；恢复确认与写入保护保持。
+
 ## Decision
 
 只读预览唯一历史登录的本地项目及确切会话归属，显式确认后合并到当前活动列表。保留项目 ID、名称、根目录与原 core ID，既有当前项目、归属、未分配选择优先，不根据 cwd 猜测；同目录不同 ID 保留为独立项目。只复制本地项目字段，不迁移账号 atoms、认证、云端项目、历史账号容器或会话正文，不改 SQLite。多个历史来源、坏格式或并发变化时拒绝写入。

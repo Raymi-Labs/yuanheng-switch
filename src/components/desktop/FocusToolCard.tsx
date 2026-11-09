@@ -36,7 +36,6 @@ import { dt } from "./desktopI18n";
 import { launchDirectoryLabel } from "./useToolLaunchDirectories";
 import { AccioConnectionNotice } from "./AccioConnectionNotice";
 import { accioConfigurationBlocked } from "@/lib/api/yuanheng";
-import { CodexProjectRecovery } from "./CodexProjectRecovery";
 import { ToolInstallCancel } from "./ToolInstallCancel";
 import { toolInstallLabel } from "./toolInstallFeedback";
 import { useToolLifecycleState } from "@/lib/toolLifecycleState";
@@ -594,19 +593,6 @@ export function FocusToolCard({
           busy={pending}
           dark
         />
-      )}
-
-      {isCodexSurface && <CodexProjectRecovery />}
-
-      {isCodexSurface && !usesOfficialAccount && (
-        <p
-          role="status"
-          className="relative mt-2 text-xs leading-relaxed text-white/70"
-        >
-          {dt(
-            "使用中转无需退出 ChatGPT 账号。若 API Key 登录后原项目不可见，请保存工作并重新登录原 ChatGPT 账号和工作区，中转配置可以保留。",
-          )}
-        </p>
       )}
 
       {usesOfficialCodexAccount && (
