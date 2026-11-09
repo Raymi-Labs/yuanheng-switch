@@ -2,6 +2,20 @@
 import { MEDIA_JA } from "./mediaStudioTranslations";
 import { BROWSER_LOGIN_JA } from "./browserLoginTranslations";
 export const DESKTOP_JA: Record<string, string> = {
+  "项目消失可能与登录切换有关。可检查历史登录保存在本机的项目映射。":
+    "プロジェクトが消えた場合は、以前のログインで保存されたローカル一覧を確認できます。",
+  检查本地项目: "ローカルプロジェクトを確認",
+  "可补充 {{projects}} 个项目、{{sessions}} 条会话归属。":
+    "プロジェクト {{projects}} 件、会話の割り当て {{sessions}} 件を復元できます。",
+  "这会把历史登录的本地项目合并到当前列表。先退出 ChatGPT/Codex 及 CLI，再检查并恢复；云端项目和账号设置不迁移。":
+    "以前のログインのローカルプロジェクトを現在の一覧に統合します。ChatGPT/Codex と CLI を終了してから確認・復元してください。クラウドプロジェクトとアカウント設定は移行しません。",
+  备份并恢复: "バックアップして復元",
+  "本地项目映射已恢复，请重新打开 Codex。备份：{{path}}":
+    "ローカル一覧を復元しました。Codex を開き直してください。バックアップ：{{path}}",
+  "未发现可补充的本地项目或会话归属。":
+    "追加できるローカルプロジェクトや会話の割り当てはありません。",
+  "恢复 Codex 项目列表失败": "Codex のプロジェクト一覧を復元できませんでした",
+
   "Claude 官方": "Claude 公式",
   "Claude 官方账号": "Claude 公式アカウント",
   "已切换到 Claude 官方模式，请重启客户端并完成账号登录。":

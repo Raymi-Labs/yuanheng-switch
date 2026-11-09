@@ -37,6 +37,7 @@ import { launchDirectoryLabel } from "./useToolLaunchDirectories";
 import { ToolActivationProgress } from "./ToolActivationProgress";
 import { AccioConnectionNotice } from "./AccioConnectionNotice";
 import { accioConfigurationBlocked } from "@/lib/api/yuanheng";
+import { CodexProjectRecovery } from "./CodexProjectRecovery";
 import { ToolInstallCancel } from "./ToolInstallCancel";
 import { toolInstallLabel } from "./toolInstallFeedback";
 import { useToolLifecycleState } from "@/lib/toolLifecycleState";
@@ -570,6 +571,8 @@ export function FocusToolCard({
           </div>
         </div>
       )}
+
+      {isCodexSurface && <CodexProjectRecovery />}
 
       {isCodexSurface && !usesOfficialAccount && (
         <p

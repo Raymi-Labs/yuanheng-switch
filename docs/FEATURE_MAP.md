@@ -281,3 +281,7 @@ QA人工启动入口按2026-10-21用户授权启用剪贴板共享，并在guest
 ## Claude Desktop 账号模式（2026-11-09）
 
 工作台／工具管理复用 [模式选择器](../src/components/desktop/ClaudeDesktopModeSwitch.tsx) → [模式命令](../src-tauri/src/commands/yuanheng/claude_desktop_mode.rs) → [1p/3p 配置与回滚](../src-tauri/src/claude_desktop_config.rs)。官方恢复无需中转令牌或 Core，切回保留模型分组；首次无托管配置展开设置。官方模式启动与自动修复不重新配置中转，原生账号／会话不迁移，切换需重启。macOS 临时目录双向回归与跨平台文件夹具通过，真实官方登录未测。
+
+## Codex 本地项目列表恢复（2026-11-09）
+
+工作台 CLI/App 工具卡共用[恢复入口](../src/components/desktop/CodexProjectRecovery.tsx) → `repair_codex_project_map` → [历史登录映射合并](../src-tauri/src/session_sync/projects/codex_local_map.rs)。先只读预览，再显式备份恢复；客户端/CLI 运行、来源歧义、格式异常或指纹变化均拒绝写入。保留原项目 ID、会话归属、当前未分配选择及账号容器；不写 SQLite、认证、模型配置或云端项目。同目录不同 ID 不强制合并。支持[离线维护工具与恢复指南](guides/codex-project-recovery.md)，真实本机恢复待退出宿主后验证。

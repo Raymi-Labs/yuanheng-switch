@@ -8,6 +8,20 @@ import { DESKTOP_ZH_TW } from "./desktopI18n.zhTW";
 type Values = Record<string, string | number | null | undefined>;
 
 export const DESKTOP_EN: Record<string, string> = {
+  "项目消失可能与登录切换有关。可检查历史登录保存在本机的项目映射。":
+    "Missing projects may be related to a login change. Check the local project map saved under a previous login.",
+  检查本地项目: "Check local projects",
+  "可补充 {{projects}} 个项目、{{sessions}} 条会话归属。":
+    "Can restore {{projects}} projects and {{sessions}} chat assignments.",
+  "这会把历史登录的本地项目合并到当前列表。先退出 ChatGPT/Codex 及 CLI，再检查并恢复；云端项目和账号设置不迁移。":
+    "This merges local projects from a previous login into the current list. Quit ChatGPT/Codex and the CLI, then check and restore. Cloud projects and account settings are not migrated.",
+  备份并恢复: "Back up and restore",
+  "本地项目映射已恢复，请重新打开 Codex。备份：{{path}}":
+    "Local project map restored. Reopen Codex. Backup: {{path}}",
+  "未发现可补充的本地项目或会话归属。":
+    "No missing local projects or chat assignments were found.",
+  "恢复 Codex 项目列表失败": "Could not restore the Codex project list",
+
   "Claude 官方": "Claude account",
   "Claude 官方账号": "Claude account",
   "已切换到 Claude 官方模式，请重启客户端并完成账号登录。":

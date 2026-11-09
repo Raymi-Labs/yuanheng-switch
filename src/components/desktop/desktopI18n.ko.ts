@@ -2,6 +2,20 @@
 import { MEDIA_KO } from "./mediaStudioTranslations";
 import { BROWSER_LOGIN_KO } from "./browserLoginTranslations";
 export const DESKTOP_KO: Record<string, string> = {
+  "项目消失可能与登录切换有关。可检查历史登录保存在本机的项目映射。":
+    "프로젝트가 사라지면 이전 로그인에 저장된 로컬 프로젝트 목록을 확인하세요。",
+  检查本地项目: "로컬 프로젝트 확인",
+  "可补充 {{projects}} 个项目、{{sessions}} 条会话归属。":
+    "프로젝트 {{projects}}개와 대화 연결 {{sessions}}개를 복원할 수 있습니다.",
+  "这会把历史登录的本地项目合并到当前列表。先退出 ChatGPT/Codex 及 CLI，再检查并恢复；云端项目和账号设置不迁移。":
+    "이전 로그인의 로컬 프로젝트를 현재 목록에 병합합니다. ChatGPT/Codex와 CLI를 종료한 뒤 확인하고 복원하세요. 클라우드 프로젝트와 계정 설정은 이전하지 않습니다.",
+  备份并恢复: "백업 및 복원",
+  "本地项目映射已恢复，请重新打开 Codex。备份：{{path}}":
+    "로컬 프로젝트 목록을 복원했습니다. Codex를 다시 여세요. 백업: {{path}}",
+  "未发现可补充的本地项目或会话归属。":
+    "추가할 로컬 프로젝트나 대화 연결이 없습니다.",
+  "恢复 Codex 项目列表失败": "Codex 프로젝트 목록을 복원하지 못했습니다",
+
   "Claude 官方": "Claude 공식",
   "Claude 官方账号": "Claude 공식 계정",
   "已切换到 Claude 官方模式，请重启客户端并完成账号登录。":

@@ -2,6 +2,19 @@
 import { MEDIA_ZH_TW } from "./mediaStudioTranslations";
 import { BROWSER_LOGIN_ZH_TW } from "./browserLoginTranslations";
 export const DESKTOP_ZH_TW: Record<string, string> = {
+  "项目消失可能与登录切换有关。可检查历史登录保存在本机的项目映射。":
+    "專案消失可能與登入切換有關。可檢查歷史登入儲存在本機的專案映射。",
+  检查本地项目: "檢查本機專案",
+  "可补充 {{projects}} 个项目、{{sessions}} 条会话归属。":
+    "可補充 {{projects}} 個專案、{{sessions}} 條會話歸屬。",
+  "这会把历史登录的本地项目合并到当前列表。先退出 ChatGPT/Codex 及 CLI，再检查并恢复；云端项目和账号设置不迁移。":
+    "這會把歷史登入的本機專案合併到目前清單。先退出 ChatGPT/Codex 及 CLI，再檢查並恢復；雲端專案和帳號設定不遷移。",
+  备份并恢复: "備份並恢復",
+  "本地项目映射已恢复，请重新打开 Codex。备份：{{path}}":
+    "本機專案映射已恢復，請重新開啟 Codex。備份：{{path}}",
+  "未发现可补充的本地项目或会话归属。": "未發現可補充的本機專案或會話歸屬。",
+  "恢复 Codex 项目列表失败": "恢復 Codex 專案清單失敗",
+
   "Claude 官方": "Claude 官方",
   "Claude 官方账号": "Claude 官方帳號",
   "已切换到 Claude 官方模式，请重启客户端并完成账号登录。":
