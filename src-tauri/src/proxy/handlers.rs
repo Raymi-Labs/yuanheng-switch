@@ -1038,9 +1038,19 @@ pub(super) async fn forward_responses_with_context(
     endpoint: String,
     body: Value,
     headers: HeaderMap,
-    extensions: http::Extensions,
+    mut extensions: http::Extensions,
 ) -> Result<axum::response::Response, ProxyError> {
     let app_type = ctx.app_type.clone();
+    if matches!(app_type, AppType::Codex) {
+        let owner = state
+            .db
+            .get_setting("yuanheng_connection_cache")
+            .ok()
+            .flatten()
+            .and_then(|raw| serde_json::from_str::<Value>(&raw).ok())
+            .and_then(|value| value["userId"].as_str().map(str::to_string));
+        extensions.insert(crate::services::desktop_service_tiers::RequestOwner(owner));
+    }
 
     let is_stream = body
         .get("stream")

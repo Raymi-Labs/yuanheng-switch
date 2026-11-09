@@ -24,4 +24,6 @@ Status: implemented
 
 ## Consequences
 
+GitHub草稿无法通过GET release-by-tag获取，改为CLI草稿列表解析；隔离撤回job拥有读取草稿所需contents:write，正常分发仍contents:read。成功作业42564970769逐个核对并删除alpha.5两个R2对象、HEAD确认源站不存在；公开sha256为404，APK旧URL部分边缘节点仍HIT（immutable缓存），带新查询参数回源为404。本机/仓库未找到可用Zone Cache Purge凭据，不能宣称CDN已清除；需管理员对该精确APK URL执行单文件purge，不能purge everything或删除其他版本。
+
 已有手机安装无法远程卸载；alpha.4为回退基线，未来正式移动版本必须使用更高versionCode。新增定向撤回入口仅接受alpha.5，GitHub凭据和R2凭据只在既有CI Secrets中使用。原移动feature的提交保留Git历史，当前能力地图随撤回恢复。

@@ -696,7 +696,8 @@ fn codex_catalog_model_entry(
     entry_obj.insert("max_context_window".to_string(), json!(spec.context_window));
     entry_obj.insert("priority".to_string(), json!(1000 + priority));
     entry_obj.insert("additional_speed_tiers".to_string(), json!([]));
-    entry_obj.insert("service_tiers".to_string(), json!([]));
+    entry_obj.insert("service_tiers".to_string(), json!(spec.service_tiers));
+    entry_obj.insert("default_service_tier".to_string(), Value::Null);
     entry_obj.insert("availability_nux".to_string(), Value::Null);
     entry_obj.insert("upgrade".to_string(), Value::Null);
 
@@ -787,6 +788,7 @@ fn codex_catalog_model_entry(
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct CodexCatalogModelSpec {
+    service_tiers: Vec<Value>,
     model: String,
     display_name: String,
     context_window: u64,
@@ -931,6 +933,11 @@ fn codex_catalog_model_specs(settings: &Value, config_text: &str) -> Vec<CodexCa
             .map(|format| CodexCatalogToolProfile::from_api_format(Some(format)));
 
         specs.push(CodexCatalogModelSpec {
+            service_tiers: model_config
+                .get("serviceTiers")
+                .and_then(Value::as_array)
+                .cloned()
+                .unwrap_or_default(),
             model: model.to_string(),
             display_name: display_name.to_string(),
             context_window,
@@ -3277,6 +3284,7 @@ base_url = "https://production.api/v1"
         let mut template = json!({ "slug": "gpt-5.5" });
         fill_template_fields_from_static(&mut template);
         let specs = vec![CodexCatalogModelSpec {
+            service_tiers: Vec::new(),
             model: "k3".to_string(),
             display_name: "Kimi K3".to_string(),
             context_window: 262_144,
@@ -3294,6 +3302,30 @@ base_url = "https://production.api/v1"
                 .and_then(Value::as_bool),
             Some(true)
         );
+    }
+
+    #[test]
+    fn desktop_paid_tiers_project_only_declared_rows_without_global_default() {
+        let settings = json!({"modelCatalog":{"models":[{"model":"synthetic","apiFormat":"openai_responses","serviceTiers":[{"id":"priority","name":"Fast ×2","description":"cost"},{"id":"ultrafast","name":"UltraFast ×6","description":"cost"}]},{"model":"standard-only"}]}});
+        let specs = codex_catalog_model_specs(&settings, "");
+        let catalog = codex_model_catalog_from_specs(
+            &specs,
+            &serde_json::from_str(include_str!(
+                "resources/codex_native_responses_template.json"
+            ))
+            .unwrap(),
+            CodexCatalogToolProfile::NativeResponses,
+        );
+        assert_eq!(catalog["models"][0]["service_tiers"][0]["id"], "priority");
+        assert_eq!(
+            catalog["models"][0]["service_tiers"][1]["name"],
+            "UltraFast ×6"
+        );
+        assert!(catalog["models"][0]["default_service_tier"].is_null());
+        assert!(catalog["models"][1]["service_tiers"]
+            .as_array()
+            .unwrap()
+            .is_empty());
     }
 
     #[test]
@@ -3520,6 +3552,7 @@ base_url = "https://production.api/v1"
         });
         let specs = vec![
             CodexCatalogModelSpec {
+                service_tiers: Vec::new(),
                 model: "gpt-5.4".to_string(),
                 display_name: "GPT 5.4".to_string(),
                 context_window: 128_000,
@@ -3530,6 +3563,7 @@ base_url = "https://production.api/v1"
                 tool_profile: None,
             },
             CodexCatalogModelSpec {
+                service_tiers: Vec::new(),
                 model: "deepseek/deepseek-v4-pro".to_string(),
                 display_name: "DeepSeek V4 Pro".to_string(),
                 context_window: 128_000,
@@ -3540,6 +3574,7 @@ base_url = "https://production.api/v1"
                 tool_profile: None,
             },
             CodexCatalogModelSpec {
+                service_tiers: Vec::new(),
                 model: "glm-5.2v".to_string(),
                 display_name: "GLM 5.2V".to_string(),
                 context_window: 128_000,
@@ -3550,6 +3585,7 @@ base_url = "https://production.api/v1"
                 tool_profile: None,
             },
             CodexCatalogModelSpec {
+                service_tiers: Vec::new(),
                 model: "deepseek-v4-flash".to_string(),
                 display_name: "Explicit Visual Override".to_string(),
                 context_window: 128_000,
@@ -3560,6 +3596,7 @@ base_url = "https://production.api/v1"
                 tool_profile: None,
             },
             CodexCatalogModelSpec {
+                service_tiers: Vec::new(),
                 model: "custom-text-alias".to_string(),
                 display_name: "Explicit Text Override".to_string(),
                 context_window: 128_000,
@@ -3633,6 +3670,7 @@ base_url = "https://production.api/v1"
         // freeform apply_patch tool (the proxy rewrites custom<->function).
         let template = load_codex_native_responses_template();
         let specs = vec![CodexCatalogModelSpec {
+            service_tiers: Vec::new(),
             model: "x".to_string(),
             display_name: "x".to_string(),
             context_window: 128_000,

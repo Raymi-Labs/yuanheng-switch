@@ -17,6 +17,7 @@ mod imagegen_credentials;
 mod media_studio;
 mod model_catalog;
 mod reasoning;
+mod service_tiers;
 pub use media_studio::*;
 
 pub use desktop_feedback::*;
@@ -1816,9 +1817,10 @@ fn managed_provider_with_models(
             }
         }),
         AppType::Codex => json!({
+            "yuanhengServiceTiersSchema": 1,
             "auth": { "OPENAI_API_KEY": token },
             "config": format!(
-                "model_provider = \"custom\"\nmodel = {}\n{}\n[model_providers.custom]\nname = {}\nbase_url = {}\nwire_api = \"responses\"\nrequires_openai_auth = true\n",
+                "model_provider = \"custom\"\nmodel = {}\nservice_tier = \"default\"\n{}\n[model_providers.custom]\nname = {}\nbase_url = {}\nwire_api = \"responses\"\nrequires_openai_auth = true\nrequest_max_retries = 0\nstream_max_retries = 0\n",
                 toml_string(model),
                 if reasoning == "auto" {
                     String::new()
@@ -2815,6 +2817,7 @@ async fn configure_codex_surface(
             codex_provider_catalog_settings(previous)["modelCatalog"].clone();
     }
     set_codex_available_models(&mut selected, model, available_models);
+    service_tiers::annotate(state, &mut selected, group).await?;
 
     let mut terminal = if surface == CodexSurface::Terminal {
         selected.clone()
@@ -2993,7 +2996,8 @@ fn provider_schema_current(provider: &Provider, app: &AppType) -> bool {
                 .is_some_and(|doc| doc.get("disable_response_storage").is_none())
                 && codex_provider_catalog_settings(provider)["modelCatalog"]
                     == provider.settings_config["modelCatalog"];
-            api_format_current
+            provider.settings_config["yuanhengServiceTiersSchema"] == 1
+                && api_format_current
                 && display_name_current
                 && catalog_is_current
                 && compatibility_current

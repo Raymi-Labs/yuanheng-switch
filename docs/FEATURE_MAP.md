@@ -1,5 +1,7 @@
 # YuanHeng Desktop: capability map
 
+桌面Codex原生速度：[配置能力查询](../src-tauri/src/commands/yuanheng/service_tiers.rs) → [模型目录](../src-tauri/src/codex_config.rs)的service_tiers → 官方原生线程/单轮选择 → [Core档位守卫](../src-tauri/src/services/desktop_service_tiers.rs)。能力按账号/组/精确模型读取，404/缺失不开放；标准全局默认，不写付费全局档位；付费请求不自动故障转移，最终字段/模型被改写时拒发。兼容托管历史alias的零重试字段，不覆盖用户自定义非零重试配置。见[桌面指南](guides/desktop-service-tiers.md)与[决定](../.agents/notes/implemented/feature/2026-11-09-desktop-native-service-tiers.md)。安卓误实现已回退，不算桌面交付。
+
 移动音频播放使用[打包CSP](../mobile/src-tauri/tauri.conf.json)的media-src self/data/blob，保持脚本和外部连接约束；[浏览器回归](../mobile/scripts/test-media-browser.cjs)对生产dist验证旧策略拒绝、新策略播放、遮罩真实alpha与320/390六入口布局，全部合成IPC，无原生/收费验收推断。声音/遮罩纳入[AI同意说明](../mobile/src/App.tsx)，声音页去除标语。
 
 移动媒体交互边界：[声音页](../mobile/src/Voice.tsx)替换样本立即撤销旧输入和授权，读取失败不回退旧音频；[遮罩](../mobile/src/MaskEditor.tsx)要求图片解码就绪，支持轻点画笔并隔离次要触点，捕获丢失停止绘制。合成回归不替代Android实际触摸与像素验证，见[外部改版审查](reviews/2026-11-07-mobile-external-review.md)。
