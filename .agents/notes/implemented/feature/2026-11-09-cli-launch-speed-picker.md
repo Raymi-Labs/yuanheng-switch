@@ -26,6 +26,8 @@ Status: implemented
 
 ## Verification
 
+原生TUI补验及remote认证兼容修复见[原生终端验证](../testing/2026-11-09-native-cli-speed-launch.md)。启动票据经Bearer认证传递，不附加URL路径。
+
 前端64项相关测试验证作用域失效、迟到响应、离线重试、选择到启动参数和成功重置；类型及renderer构建通过。11项桥接测试包含真实WebSocket与假CLI子进程，验证ultrafast逐轮注入、票据重放拒绝、换账号后拒发并等待子进程退出；Clippy lib/bins通过。宽1280/窄430真实FocusToolCard以合成账号渲染，无页面错误及横向溢出。官方app-server另用既有7请求脚本复核参数和不重试；不等同完整GUI启动官方CLI的端到端验收。
 
 ## Consequences

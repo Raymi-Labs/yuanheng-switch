@@ -3765,7 +3765,7 @@ pub async fn launch_tool(
         return Ok(true);
     }
     if tool == "codex" {
-        let speed_path = if let Some(scope) = speed {
+        let speed_token = if let Some(scope) = speed {
             let state = app.state::<crate::store::AppState>();
             scope.check(&state.db)?;
             let tiers = super::yuanheng::service_tiers::query_launch_tiers(
@@ -3778,9 +3778,12 @@ pub async fn launch_tool(
             if !tiers.iter().any(|row| row["id"] == scope.tier) {
                 return Err("当前模型或分组不支持所选速度，请重新选择；未启动".into());
             }
-            crate::services::codex_launch_speed::issue(scope, state.db.clone())?
+            Some(crate::services::codex_launch_speed::issue(
+                scope,
+                state.db.clone(),
+            )?)
         } else {
-            String::new()
+            None
         };
         let launch_cwd = resolve_tool_launch_cwd(&app, &tool, cwd)?;
         let codex_executable = resolve_path_launch_command("codex")
@@ -3788,8 +3791,12 @@ pub async fn launch_tool(
         let endpoint =
             crate::services::codex_session_bridge::ensure_codex_session_bridge(codex_executable)
                 .await?;
-        let command =
-            crate::loopback_proxy::cli_command(&format!("codex --remote {endpoint}{speed_path}"));
+        let command = crate::loopback_proxy::cli_command(
+            &crate::services::codex_launch_speed::terminal_command(
+                &endpoint,
+                speed_token.as_deref(),
+            ),
+        );
         tokio::task::spawn_blocking(move || {
             launch_terminal_running(&command, "tool_codex", Some(&launch_cwd))
         })

@@ -101,13 +101,15 @@ pub fn issue(scope: LaunchSpeed, db: Arc<Database>) -> Result<String, String> {
     }
     let token = uuid::Uuid::new_v4().to_string();
     tickets.insert(token.clone(), (Instant::now(), scope, db));
-    Ok(format!("/launch/{token}"))
+    Ok(token)
 }
-pub fn take(path: &str) -> Result<Option<(LaunchSpeed, Arc<Database>)>, String> {
-    if path == "/" {
+pub fn take(authorization: Option<&str>) -> Result<Option<(LaunchSpeed, Arc<Database>)>, String> {
+    let Some(authorization) = authorization else {
         return Ok(None);
-    }
-    let token = path.strip_prefix("/launch/").ok_or("无效的启动票据")?;
+    };
+    let token = authorization
+        .strip_prefix("Bearer ")
+        .ok_or("无效的启动票据")?;
     let (time, scope, db) = tickets()
         .lock()
         .map_err(|_| "启动状态不可用")?
@@ -118,6 +120,20 @@ pub fn take(path: &str) -> Result<Option<(LaunchSpeed, Arc<Database>)>, String> 
     }
     scope.check(&db)?;
     Ok(Some((scope, db)))
+}
+
+pub fn terminal_command(endpoint: &str, token: Option<&str>) -> String {
+    let command = format!("codex --remote {endpoint}");
+    let Some(token) = token else {
+        return command;
+    };
+    // Only internally generated UUIDs reach this helper, never user shell text.
+    #[cfg(target_os="windows")]
+    return format!("$env:YUANHENG_CODEX_LAUNCH='{token}'; {command} --remote-auth-token-env YUANHENG_CODEX_LAUNCH");
+    #[cfg(not(target_os = "windows"))]
+    format!(
+        "YUANHENG_CODEX_LAUNCH='{token}' {command} --remote-auth-token-env YUANHENG_CODEX_LAUNCH"
+    )
 }
 
 #[cfg(test)]
@@ -150,7 +166,9 @@ mod tests {
         assert!(scope("ultrafast")
             .apply(r#"{"method":"thread/resume"}"#)
             .is_err());
-        assert!(take("/launch/unknown").is_err());
-        assert!(take("/").unwrap().is_none());
+        assert!(take(Some("Bearer unknown")).is_err());
+        assert!(take(None).unwrap().is_none());
+        assert!(terminal_command("ws://127.0.0.1:1234", Some("synthetic"))
+            .contains("--remote-auth-token-env YUANHENG_CODEX_LAUNCH"));
     }
 }

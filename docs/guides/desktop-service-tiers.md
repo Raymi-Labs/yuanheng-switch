@@ -14,6 +14,8 @@
 
 ## 验证边界
 
+v0.2.12新增官方CLI 0.166.0-alpha.5.1的真实PTY启动测试：通过元衡桥接和remote-auth-token-env认证，一条业务请求携带ultrafast；原生会话标题请求另行识别。测试在隔离配置/本机HTTP中完成，不代表真实Windows终端或生产计费验收。可运行 `YUANHENG_NATIVE_CODEX=<官方二进制绝对路径> cargo test --manifest-path src-tauri/Cargo.toml --lib native_cli_paid_launch -- --ignored --test-threads=1`。未知旧版本需支持官方远程认证参数。
+
 本机官方codex-cli 0.166.0-alpha.5.1的app-server schema支持ModelServiceTier `{id,name,description}`、turn/start的serviceTier与serviceTierForTurn。隔离CODEX_HOME/合成目录/loopback服务验证：标准省略字段、Fast=priority、UltraFast=ultrafast、单轮覆盖不改变线程原档位、新线程标准。未改官方程序、未读取个人会话、未调用付费模型。可重复脚本：`node scripts/test-codex-service-tiers.cjs <官方Codex可执行文件绝对路径>`。
 
 该验证不等同所有旧版官方GUI菜单验收；旧版可能忽略动态档位目录，需要更新官方客户端。其他Agent的原生速度入口尚未验证，不泛称全Agent支持。官方文档站读取返回403，以上结构以官方运行时实际导出和出站证据为准，不把推测当作官方文档结论。
