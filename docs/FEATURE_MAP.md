@@ -2,6 +2,8 @@ Codex 配置与 MCP 同步自动移除服务顶层无效 `type` 字段；HTTP �
 
 # YuanHeng Desktop: capability map
 
+CLI付费启动的空快照修复：[身份检查与单模型刷新](../src-tauri/src/services/codex_launch_speed.rs) → [配置切换锁内写入共享DB与CLI目录](../src-tauri/src/commands/yuanheng/service_tiers.rs) → 票据/桥接/Core原有校验。不会在实时查询前被旧空记录拦截；超时及并发账号/组/模型变化拒发，已配置工具不为付费启动重配全目录。见[失败场景与验证](../.agents/notes/implemented/bug-fix/2026-11-09-cli-empty-tier-snapshot.md)。
+
 Codex CLI本次启动速度：[工作台](../src/components/desktop/FocusToolCard.tsx) → [自动能力查询与偏好](../src/components/desktop/useCodexLaunchSpeed.ts) → launch_tool再次核对 → [一次性连接票据](../src-tauri/src/services/codex_launch_speed.rs) → [终端桥接](../src-tauri/src/services/codex_session_bridge.rs)。首次标准、换账号标准，付费不落盘；模型/分组切换确认支持后保留，不支持自动标准；进入/聚焦/联网自动刷新，无后台轮询。成功启动保留选择并独立显示最近启动档位。既有连接与在途请求不改档，配置不匹配或恢复旧线程拒发。最终扣费看服务端日志，不伪称结算确认。见[启动决定](../.agents/notes/implemented/feature/2026-11-09-cli-launch-speed-picker.md)与[偏好决定](../.agents/notes/implemented/feature/2026-11-09-cli-speed-capability-retention.md)。
 
 桌面Codex原生速度：[配置能力查询](../src-tauri/src/commands/yuanheng/service_tiers.rs) → [模型目录](../src-tauri/src/codex_config.rs)的service_tiers → 官方原生线程/单轮选择 → [Core档位守卫](../src-tauri/src/services/desktop_service_tiers.rs)。能力按账号/组/精确模型读取，404/缺失不开放；标准全局默认，不写付费全局档位；付费请求不自动故障转移，最终字段/模型被改写时拒发。兼容托管历史alias的零重试字段，不覆盖用户自定义非零重试配置。见[桌面指南](guides/desktop-service-tiers.md)与[决定](../.agents/notes/implemented/feature/2026-11-09-desktop-native-service-tiers.md)。安卓误实现已回退，不算桌面交付。

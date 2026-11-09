@@ -3931,13 +3931,36 @@ mod tests {
         provider.id = crate::commands::MANAGED_PROVIDER_ID.into();
         provider.category = Some("managed".into());
         provider.notes = Some("group=g".into());
-        provider.settings_config = json!({"auth":{"OPENAI_API_KEY":"synthetic"},"config":format!("model_provider = \"custom\"\n[model_providers.custom]\nbase_url = \"{origin}/v1\"\nwire_api = \"responses\"\n"),"yuanhengServiceTiers":{"owner":"7","group":"g","models":{"synthetic":[{"id":"priority"},{"id":"ultrafast"}]}}});
+        provider.settings_config = json!({"auth":{"OPENAI_API_KEY":"synthetic"},"config":format!("model=\"synthetic\"\nmodel_provider = \"custom\"\n[model_providers.custom]\nbase_url = \"{origin}/v1\"\nwire_api = \"responses\"\n"),"modelCatalog":{"models":[{"model":"synthetic","serviceTiers":[]}]},"yuanhengServiceTiers":{"owner":"7","group":"g","models":{}}});
         provider.meta = Some(crate::provider::ProviderMeta {
             api_format: Some("openai_responses".into()),
             ..Default::default()
         });
         let mut f = test_forwarder(Duration::from_secs(2), Duration::from_secs(2));
         f.max_attempts = 3;
+        let db = Arc::new(Database::memory().unwrap());
+        db.set_setting(
+            "yuanheng_connection_cache",
+            r#"{"userId":"7","connected":true}"#,
+        )
+        .unwrap();
+        db.save_provider("codex", &provider).unwrap();
+        db.set_current_provider("codex", &provider.id).unwrap();
+        let scope = crate::services::codex_launch_speed::LaunchSpeed {
+            tier: "ultrafast".into(),
+            model: "synthetic".into(),
+            group: "g".into(),
+            owner: "7".into(),
+        };
+        assert!(scope.check(&db).is_err());
+        crate::services::codex_launch_speed::refresh_for_launch(&db, &scope, async {
+            Ok(vec![json!({"id":"ultrafast"})])
+        })
+        .await
+        .unwrap();
+        // Core's router loads the updated provider from the shared DB, rather than a GUI snapshot.
+        let router = ProviderRouter::new(db);
+        provider = router.select_providers("codex").await.unwrap().remove(0);
         let mut ext = Extensions::new();
         ext.insert(crate::services::desktop_service_tiers::RequestOwner(Some(
             "7".into(),

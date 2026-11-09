@@ -3767,17 +3767,7 @@ pub async fn launch_tool(
     if tool == "codex" {
         let speed_token = if let Some(scope) = speed {
             let state = app.state::<crate::store::AppState>();
-            scope.check(&state.db)?;
-            let tiers = super::yuanheng::service_tiers::query_launch_tiers(
-                &state,
-                &scope.model,
-                &scope.group,
-                &scope.owner,
-            )
-            .await?;
-            if !tiers.iter().any(|row| row["id"] == scope.tier) {
-                return Err("当前模型或分组不支持所选速度，请重新选择；未启动".into());
-            }
+            super::yuanheng::service_tiers::prepare_launch(&state, &scope).await?;
             Some(crate::services::codex_launch_speed::issue(
                 scope,
                 state.db.clone(),

@@ -6277,6 +6277,87 @@ mod tests {
         assert_eq!(provider.settings_config, once);
     }
 
+    #[tokio::test]
+    #[serial]
+    async fn codex_empty_tiers_launch_refreshes_profile_without_touching_desktop() {
+        let (_home, state) = isolated_state();
+        let mut proxy_config = state.db.get_proxy_config().await.unwrap();
+        proxy_config.listen_port = 0;
+        state.db.update_proxy_config(proxy_config).await.unwrap();
+        state.proxy_service.start().await.unwrap();
+        let outcome = async {
+            state
+                .db
+                .set_setting(CACHE_KEY, r#"{"userId":"7","connected":true}"#)
+                .unwrap();
+            let mut provider = managed_provider_with_models(
+                &AppType::Codex,
+                "synthetic",
+                "gpt-6-astra",
+                &["gpt-6-astra".into()],
+                "enterprise",
+                "high",
+            )
+            .unwrap();
+            normalize_managed_codex_surface(&mut provider, CodexSurface::Terminal);
+            provider.settings_config["yuanhengServiceTiers"] =
+                json!({"owner":"7","group":"enterprise","models":{}});
+            save_managed_codex_provider(&state, "codex", &provider).unwrap();
+            let live = crate::codex_config::get_codex_config_dir().join("config.toml");
+            crate::config::write_text_file(
+                &live,
+                "# synthetic desktop remains untouched\nmodel=\"desktop-model\"\n",
+            )
+            .unwrap();
+            let before = std::fs::read(&live).unwrap();
+            let scope = crate::services::codex_launch_speed::LaunchSpeed {
+                tier: "priority".into(),
+                model: "gpt-6-astra".into(),
+                group: "enterprise".into(),
+                owner: "7".into(),
+            };
+            assert!(scope.check(&state.db).is_err());
+            service_tiers::prepare_launch_with_query(&state, &scope, async {
+                Ok(vec![
+                    json!({"id":"priority","name":"Fast ×2","description":"synthetic cost"}),
+                ])
+            })
+            .await?;
+            scope.check(&state.db)?;
+            let text = std::fs::read_to_string(codex_terminal_profile_path()).unwrap();
+            let config = text.parse::<toml::Value>().unwrap();
+            let catalog = std::path::PathBuf::from(config["model_catalog_json"].as_str().unwrap());
+            let catalog = if catalog.is_absolute() {
+                catalog
+            } else {
+                codex_terminal_profile_path()
+                    .parent()
+                    .unwrap()
+                    .join(catalog)
+            };
+            let catalog: Value =
+                serde_json::from_str(&std::fs::read_to_string(catalog).unwrap()).unwrap();
+            assert_eq!(catalog["models"][0]["service_tiers"][0]["id"], "priority");
+            assert_eq!(std::fs::read(live).unwrap(), before);
+            // A filesystem failure must prevent launch, even after positive capability lookup.
+            std::fs::remove_file(codex_terminal_profile_path()).unwrap();
+            std::fs::create_dir(codex_terminal_profile_path()).unwrap();
+            assert!(
+                service_tiers::prepare_launch_with_query(&state, &scope, async {
+                    Ok(vec![
+                        json!({"id":"priority","name":"Fast ×2","description":"synthetic cost"}),
+                    ])
+                })
+                .await
+                .is_err()
+            );
+            Ok::<(), String>(())
+        }
+        .await;
+        state.proxy_service.stop().await.unwrap();
+        outcome.unwrap();
+    }
+
     #[test]
     fn codex_context_migration_does_not_guess_custom_200k_or_non_gpt_million() {
         let mut provider =
