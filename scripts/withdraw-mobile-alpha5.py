@@ -40,7 +40,9 @@ def withdraw(s3,bucket,release):
 if __name__=='__main__':
  stage='draft_backup'
  try:
-  release=json.loads(core.run(['gh','api',f'repos/{core.REPOSITORY}/releases/tags/mobile-v{VERSION}'],60))
+  # GitHub's tag lookup excludes an unpublished draft; CLI resolves via release list.
+  raw=json.loads(core.run(['gh','release','view','mobile-v'+VERSION,'--repo',core.REPOSITORY,'--json','isDraft,tagName,assets'],60))
+  release={'draft':raw['isDraft'],'tag_name':raw['tagName'],'assets':raw['assets']}
   stage='r2_client'
   s3,bucket=core.client_from_environment();withdraw(s3,bucket,release)
  except core.DeliveryError as e:
