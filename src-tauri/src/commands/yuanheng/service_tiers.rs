@@ -11,7 +11,7 @@ async fn fetch_capability(
         client
             .get(url)
             .header("Accept", "application/json")
-            .header("User-Agent", "yuanheng-desktop/0.1"),
+            .header("User-Agent", "codex_cli_rs/yuanheng-desktop"),
         Some(cookie),
         Some(owner),
     )
@@ -30,6 +30,33 @@ async fn fetch_capability(
         body.extend_from_slice(&chunk);
     }
     serde_json::from_slice(&body).ok()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[tokio::test]
+    async fn desktop_tier_query_uses_codex_client_scope_and_bounded_response() {
+        use axum::{routing::get, Json, Router};
+        let app=Router::new().route("/cap",get(|headers:axum::http::HeaderMap|async move{
+   assert_eq!(headers.get("user-agent").unwrap(),"codex_cli_rs/yuanheng-desktop");
+   assert_eq!(headers.get("new-api-user").unwrap(),"7");
+   Json(json!({"success":true,"data":{"model":"m","group":"g","managed":true,"tiers":[{"id":"default","multiplier":1},{"id":"priority","multiplier":2}]}}))
+  })).route("/large",get(||async{"x".repeat(65537)}));
+        let socket = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let base = format!("http://{}", socket.local_addr().unwrap());
+        let task = tokio::spawn(async move { axum::serve(socket, app).await.unwrap() });
+        let client = reqwest::Client::builder().no_proxy().build().unwrap();
+        let cap = fetch_capability(&client, &format!("{base}/cap"), "synthetic", "7").await;
+        let large = fetch_capability(&client, &format!("{base}/large"), "synthetic", "7").await;
+        task.abort();
+        let _ = task.await;
+        assert!(
+            crate::services::desktop_service_tiers::parse_capability(&cap.unwrap(), "m", "g")
+                .is_some()
+        );
+        assert!(large.is_none());
+    }
 }
 
 pub(super) async fn annotate(

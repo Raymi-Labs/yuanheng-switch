@@ -28,6 +28,8 @@ GUI/Core编译、Clippy与前端类型/生产构建已验证。新增schema标�
 
 ## Consequences
 
+能力查询User-Agent使用目标Codex客户端范围（codex_cli_rs/yuanheng-desktop），与服务端DetectClient对codex_cli_rs前缀规则一致，避免通用管理UA把仅允许Codex的渠道漏掉；仍使用本人会话且无权限扩大。局部HTTP桩核对client scope/用户头及64KiB响应上限，循环服务关闭。
+
 补验官方运行时对503的自动重试策略：共7次合成请求，最后付费priority返回503仍只有一次出站，原生进程/HTTP/临时配置清理完成。最终Codex回归554通过、2忽略，相关前端52通过，Clippy lib/bins通过。仅客户端内部与原生协议验证，不宣称实际GUI点击或真实Muze加速/计费验收。发布版本准备0.2.8，桌面安装包构建/公证/分发结果另行核验。
 
 模型目录是配置时快照，实际能力变更最终由Meta服务端再次校验；旧目录需在元衡重新应用并重开Codex刷新。官方GUI对动态菜单的显示依赖版本，不能仅凭schema保证所有版本相同。桌面账号控制台分组与原生模型菜单职责保持分离。真实2/6计费验收仍未运行。
