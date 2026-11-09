@@ -295,3 +295,5 @@ QA人工启动入口按2026-10-21用户授权启用剪贴板共享，并在guest
 Codex 项目检查：工作台移除常驻提示与检查按钮；[统一工具 API](../src/lib/api/yuanheng.ts)在模式/CLI目录切换后与启动前自动只读检查，通过[恢复窗口](../src/components/desktop/CodexProjectRecovery.tsx)仅展示缺失项目。窗口回焦自动重检，写入仍需退出 Codex 并确认备份恢复；不监听原生侧栏项目事件。
 
 Meta API 切换与工具配置在写入前复用本人账号查询校验会话；过期清理本机会话并刷新连接缓存，保留工具令牌，旧账号请求不得清理新登录。官方模式不受此校验限制。见[修复说明](../.agents/notes/implemented/bug-fix/2026-11-10-meta-switch-session.md)。
+
+Codex 切换模式保留稳定 custom 提供商 ID（外部占用时使用专用 ID），官方识别依据实际托管路由；代理清理仍保留 ID，避免当前引擎按 ID 严格检查导致同名 OpenAI 不匹配。旧混合 ID 历史不自动迁移，见[兼容边界](../.agents/notes/implemented/bug-fix/2026-11-10-codex-stable-provider-bucket.md)。

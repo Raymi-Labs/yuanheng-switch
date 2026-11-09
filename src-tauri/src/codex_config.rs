@@ -2012,19 +2012,7 @@ pub fn apply_codex_official_proxy_route(
 
 /// Whether a live Codex config is the official route projected by YuanHeng Switch.
 pub fn codex_config_has_official_proxy_route(config_text: &str) -> bool {
-    if !config_text.contains(CC_SWITCH_CODEX_OFFICIAL_PROXY_PROVIDER_ID) {
-        return false;
-    }
-    config_text
-        .parse::<DocumentMut>()
-        .ok()
-        .and_then(|doc| {
-            doc.get("model_provider")
-                .and_then(|item| item.as_str())
-                .map(str::to_string)
-        })
-        .as_deref()
-        == Some(CC_SWITCH_CODEX_OFFICIAL_PROXY_PROVIDER_ID)
+    crate::codex_history_routes::is_official(config_text)
 }
 
 /// Remove only the official takeover route owned by YuanHeng Switch. This is a
@@ -2584,7 +2572,7 @@ command = "example"
 
         assert_eq!(
             doc.get("model_provider").and_then(toml::Value::as_str),
-            Some(CC_SWITCH_CODEX_OFFICIAL_PROXY_PROVIDER_ID)
+            Some(CC_SWITCH_CODEX_MODEL_PROVIDER_ID)
         );
         assert!(doc.get("experimental_bearer_token").is_none());
         assert!(
@@ -2619,7 +2607,7 @@ command = "example"
                 .expect("project");
         let cleaned = remove_codex_official_proxy_route(&projected).expect("clean");
         let doc: toml::Value = toml::from_str(&cleaned).expect("parse cleaned");
-        assert!(doc.get("model_provider").is_none());
+        assert_eq!(doc["model_provider"].as_str(), Some("custom"));
         for alias in [
             "custom",
             "yuanheng",
@@ -2665,7 +2653,7 @@ model_providers = { rightcode = { name = "RightCode", experimental_bearer_token 
 
         let cleaned = remove_codex_official_proxy_route(&projected).expect("clean projected");
         let cleaned_doc: toml::Value = toml::from_str(&cleaned).expect("parse cleaned");
-        assert!(cleaned_doc.get("model_provider").is_none());
+        assert_eq!(cleaned_doc["model_provider"].as_str(), Some("custom"));
         assert!(cleaned_doc["model_providers"].get("rightcode").is_some());
         assert!(
             cleaned_doc["model_providers"][CC_SWITCH_CODEX_OFFICIAL_PROXY_PROVIDER_ID]

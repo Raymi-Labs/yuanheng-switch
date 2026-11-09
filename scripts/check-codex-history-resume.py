@@ -128,8 +128,11 @@ def main():
                     })
                     if phase == "broken" and alias != "yuanheng-switch-official":
                         expected = f"Model provider `{alias}` not found"
-                        assert expected in result.get("error", {}).get("message", ""), result
+                        assert result.get("error", {}).get("data", {}).get("type") == "modelProviderNotConfigured", result
                         print(f"{phase}: {alias}: reproduced missing provider")
+                    elif phase != "broken" and alias != "custom":
+                        assert result.get("error", {}).get("data", {}).get("type") == "modelProviderMismatch", result
+                        print(f"{phase}: {alias}: legacy mixed bucket requires explicit migration")
                     else:
                         assert "result" in result, result
                         assert result["result"]["thread"]["id"] == thread["id"]

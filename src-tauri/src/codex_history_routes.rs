@@ -115,6 +115,20 @@ fn native_route() -> Item {
     Item::Table(table)
 }
 
+/// Route identity is independent from account mode.
+pub(crate) fn is_official(config: &str) -> bool {
+    let Ok(doc) = parse(config) else {
+        return false;
+    };
+    let Ok(tables) = providers(&doc) else {
+        return false;
+    };
+    active_route(&doc, &tables).is_some_and(|route| {
+        string(&route, "name") == Some("OpenAI")
+            && string(&route, "base_url").is_some_and(local_route)
+    })
+}
+
 pub(crate) fn manages(config: &str) -> Result<bool, AppError> {
     let doc = parse(config)?;
     let tables = providers(&doc)?;
@@ -142,6 +156,14 @@ pub(crate) fn prepare(previous: &str, next: &str) -> Result<String, AppError> {
         && active.as_deref() == Some("custom")
         && old_tables.get("custom").is_some_and(|item| !owned(item))
     {
+        if old_tables
+            .get(MANAGED_PROVIDER)
+            .is_some_and(|item| !owned(item))
+        {
+            return Err(AppError::Message(
+                "Codex 稳定会话供应商名称已被自定义配置占用，未覆盖".into(),
+            ));
+        }
         let generated = route.take().expect("route checked above");
         tables.insert(MANAGED_PROVIDER, generated);
         doc["model_provider"] = toml_edit::value(MANAGED_PROVIDER);
@@ -186,7 +208,23 @@ pub(crate) fn prepare(previous: &str, next: &str) -> Result<String, AppError> {
             tables.insert(alias, route.clone());
         }
     }
-    if tables.get(MANAGED_PROVIDER).is_some_and(owned) {
+    let cleaned_managed = old_tables
+        .get(MANAGED_PROVIDER)
+        .filter(|item| owned(item))
+        .map(|item| {
+            let mut cleaned = item.clone();
+            if let Some(table) = cleaned.as_table_like_mut() {
+                table.remove("experimental_bearer_token");
+            }
+            cleaned.to_string()
+        });
+    if tables.get(MANAGED_PROVIDER).is_some_and(owned)
+        || cleaned_managed.as_deref().is_some_and(|cleaned| {
+            tables
+                .get(MANAGED_PROVIDER)
+                .is_some_and(|item| item.to_string() == cleaned)
+        })
+    {
         tables.insert(MANAGED_PROVIDER, route.clone());
     }
     // A restored third-party takeover can contribute a non-YuanHeng alias.
@@ -203,6 +241,24 @@ pub(crate) fn prepare(previous: &str, next: &str) -> Result<String, AppError> {
             }
         }
     }
+    // Recent Codex versions require exact provider identity on resume, even
+    // when aliases have identical definitions. Both account modes use the
+    // historical relay bucket; never activate a user-owned custom provider.
+    let stable_id = if tables.get("custom").is_some_and(owned) {
+        "custom"
+    } else {
+        if tables
+            .get(MANAGED_PROVIDER)
+            .is_some_and(|item| !owned(item))
+        {
+            return Err(AppError::Message(
+                "Codex 稳定会话供应商名称已被自定义配置占用，未覆盖".into(),
+            ));
+        }
+        MANAGED_PROVIDER
+    };
+    tables.insert(stable_id, route.clone());
+    doc["model_provider"] = toml_edit::value(stable_id);
     doc["model_providers"] = Item::Table(tables);
     let output = doc.to_string();
     // Avoid rewrites/backups solely because toml_edit normalized formatting.
@@ -248,21 +304,21 @@ pub(crate) fn health(config: &str) -> Result<Health, AppError> {
 /// token so those tasks can use native ChatGPT login after Core is stopped.
 pub(crate) fn release_official(config: &str) -> Result<String, AppError> {
     let mut doc = parse(config)?;
-    if doc.get("model_provider").and_then(Item::as_str) != Some(OFFICIAL) {
+    if !is_official(config) {
         return Ok(config.into());
     }
     let mut tables = providers(&doc)?;
-    if !tables.get(OFFICIAL).is_some_and(owned) {
+    if active_route(&doc, &tables).is_none() {
         return Err(AppError::Message(
             "Codex 官方路由已被外部修改，未自动清理".into(),
         ));
     }
-    for alias in ALIASES {
+    for alias in ALIASES.into_iter().chain([MANAGED_PROVIDER]) {
         if tables.get(alias).is_some_and(owned) {
             tables.insert(alias, native_route());
         }
     }
-    doc.as_table_mut().remove("model_provider");
+    // Keep the stable bucket when removing the local endpoint.
     doc["model_providers"] = Item::Table(tables);
     Ok(doc.to_string())
 }
@@ -321,6 +377,54 @@ experimental_bearer_token = "PROXY_MANAGED"
 
     fn value(text: &str) -> toml::Value {
         toml::from_str(text).unwrap()
+    }
+
+    #[test]
+    fn account_modes_share_stable_identity_and_cleanup_retains_it() {
+        let relay = prepare("", &managed()).unwrap();
+        let official = prepare(&relay, &official()).unwrap();
+        assert!(is_official(&official));
+        let returned = prepare(&official, &managed()).unwrap();
+        assert!(!is_official(&returned));
+        let native = release_official(&official).unwrap();
+        assert!(!is_official(&native));
+        for config in [&relay, &official, &returned, &native] {
+            assert_eq!(value(config)["model_provider"].as_str(), Some("custom"));
+            assert_eq!(prepare(config, config).unwrap(), *config);
+        }
+    }
+
+    #[test]
+    fn occupied_stable_buckets_are_not_overwritten() {
+        let source = "[model_providers.custom]\nname = 'Mine'\n[model_providers.yuanheng-switch]\nname = 'Also mine'\n";
+        assert!(prepare(source, &managed()).is_err());
+        assert!(prepare(source, &official()).is_err());
+    }
+
+    #[test]
+    fn dedicated_bucket_retains_identity_when_custom_is_foreign() {
+        let foreign = "[model_providers.custom]\nname = 'Mine'\nbase_url = 'https://example.com/v1'\nenv_key = 'MY_KEY'\n";
+        let relay = prepare(foreign, &managed()).unwrap();
+        let official = crate::codex_config::apply_codex_official_proxy_route(
+            &relay,
+            "http://127.0.0.1:15721/v1",
+        )
+        .unwrap();
+        assert!(is_official(&official));
+        let native = release_official(&official).unwrap();
+        for config in [&relay, &official, &native] {
+            assert_eq!(
+                value(config)["model_provider"].as_str(),
+                Some(MANAGED_PROVIDER)
+            );
+            assert_eq!(
+                value(config)["model_providers"]["custom"],
+                value(foreign)["model_providers"]["custom"]
+            );
+        }
+        assert!(value(&native)["model_providers"][MANAGED_PROVIDER]
+            .get("base_url")
+            .is_none());
     }
 
     #[test]
@@ -469,7 +573,7 @@ api_key_env = "MY_KEY"
         let source = official();
         let cleaned = release_official(&source).unwrap();
         let doc = value(&cleaned);
-        assert!(doc.get("model_provider").is_none());
+        assert_eq!(doc["model_provider"].as_str(), Some("custom"));
         for id in ALIASES {
             let table = &doc["model_providers"][id];
             assert!(table.get("base_url").is_none());
