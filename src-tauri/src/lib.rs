@@ -1657,6 +1657,7 @@ pub fn run() {
             commands::get_tool_launch_cwd,
             commands::set_tool_launch_cwd,
             commands::launch_tool,
+            commands::get_codex_launch_tiers,
             loopback_proxy::get_loopback_proxy_compatibility,
             loopback_proxy::set_loopback_proxy_compatibility,
             commands::get_codex_session_bridge_status,

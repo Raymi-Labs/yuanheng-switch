@@ -459,7 +459,7 @@ describe("useModelSwitchCenter", () => {
       false,
     );
 
-    let launch!: Promise<void>;
+    let launch!: Promise<boolean | undefined>;
     act(() => {
       launch = result.current.launch("dsh");
     });
