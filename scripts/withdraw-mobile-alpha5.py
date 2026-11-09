@@ -38,8 +38,12 @@ def withdraw(s3,bucket,release):
  print('alpha.5 origin objects withdrawn; GitHub draft retained; no other versions touched')
 
 if __name__=='__main__':
+ stage='draft_backup'
  try:
   release=json.loads(core.run(['gh','api',f'repos/{core.REPOSITORY}/releases/tags/mobile-v{VERSION}'],60))
+  stage='r2_client'
   s3,bucket=core.client_from_environment();withdraw(s3,bucket,release)
- except Exception:
-  raise SystemExit('Withdrawal failed; inspect bounded diagnostics; draft retained')
+ except core.DeliveryError as e:
+  raise SystemExit('Withdrawal failed at '+stage+': '+str(e))
+ except Exception as e:
+  raise SystemExit('Withdrawal failed at '+stage+': '+type(e).__name__+'; draft retained')
