@@ -1,6 +1,20 @@
 // Chinese source, English, Japanese, Korean and Traditional Chinese.
 const rows = [
   [
+    "暂无可用的生图或视频分组。",
+    "No image or video groups available.",
+    "画像・動画に使えるグループがありません。",
+    "사용 가능한 이미지 또는 영상 그룹이 없습니다.",
+    "暫無可用的生圖或影片分組。",
+  ],
+  [
+    "部分分组目录读取失败，请刷新重试。",
+    "Some group catalogs could not be loaded. Refresh to retry.",
+    "一部のグループ一覧を読み込めません。更新してください。",
+    "일부 그룹 목록을 불러오지 못했습니다. 새로고침하세요.",
+    "部分分組目錄讀取失敗，請重新整理再試。",
+  ],
+  [
     "目录分组",
     "Catalog group",
     "カタロググループ",

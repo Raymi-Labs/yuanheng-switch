@@ -63,7 +63,10 @@ export function MediaStudioContent({ scope }: { scope: string }) {
   const [switchingGroup, setSwitchingGroup] = useState(false);
   const [groupError, setGroupError] = useState("");
   const groupLock = useRef(false);
-  const group = chosenGroup ?? groups.data?.selectedGroup ?? "";
+  const candidateGroup = chosenGroup ?? groups.data?.selectedGroup ?? "";
+  const group = groups.data?.groups.some((g) => g.id === candidateGroup)
+    ? candidateGroup
+    : "";
   const groupAllowed =
     !!group && !!groups.data?.groups.some((g) => g.id === group);
   const groupReady =
@@ -672,15 +675,9 @@ export function MediaStudioContent({ scope }: { scope: string }) {
               <option value="" disabled>
                 {dt(groups.isPending ? "正在读取分组…" : "请选择创作分组")}
               </option>
-              {group && !groupAllowed && (
-                <option value={group} disabled>
-                  {group} · {dt("已不可用")}
-                </option>
-              )}
               {groups.data?.groups.map((g) => (
                 <option key={g.id} value={g.id}>
                   {g.id}
-                  {g.description ? ` · ${g.description}` : ""}
                 </option>
               ))}
             </select>
@@ -711,11 +708,20 @@ export function MediaStudioContent({ scope }: { scope: string }) {
               {groupError || extractErrorMessage(groups.error)}
             </p>
           )}
+          {!groups.isError && !!groups.data?.unverifiedGroupCount && (
+            <p
+              role="alert"
+              className="w-full text-xs text-destructive dark:text-red-300"
+            >
+              {dt("部分分组目录读取失败，请刷新重试。")}
+            </p>
+          )}
           {!groups.isPending &&
             !groups.isError &&
+            !groups.data?.unverifiedGroupCount &&
             !groups.data?.groups.length && (
               <p role="alert" className="w-full text-xs">
-                {dt("当前账号没有可用分组，请检查权限。")}
+                {dt("暂无可用的生图或视频分组。")}
               </p>
             )}
           {!groups.isPending &&

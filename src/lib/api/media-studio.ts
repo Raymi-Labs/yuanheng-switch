@@ -4,6 +4,7 @@ import type { YuanhengGroupOption } from "./yuanheng";
 export interface MediaGroups {
   groups: YuanhengGroupOption[];
   selectedGroup: string | null;
+  unverifiedGroupCount?: number;
 }
 
 export interface MediaModel {
