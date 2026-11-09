@@ -4,6 +4,7 @@
 //! 来源目前是 Codex Desktop 的项目，目标目前是 DSH 的工作区。两边都以"项目目录"为身份：
 //! Codex 的项目对应一个或多个根目录，DSH 的工作区对应一个目录。
 
+pub mod codex_local_map;
 pub mod codex_source;
 pub mod dsh_target;
 

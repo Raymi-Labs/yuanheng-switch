@@ -65,6 +65,16 @@ export interface YuanhengAnnouncementFeed {
   source: "platform" | "legacy";
 }
 
+export interface CodexProjectMapRepairResult {
+  fingerprint: string;
+  applied: boolean;
+  projectsFound: number;
+  projectsRestored: number;
+  assignmentsRestored: number;
+  backupPath: string | null;
+  blockedReason: string | null;
+}
+
 export interface YuanhengModelVendor {
   id: string;
   name: string;
@@ -383,6 +393,12 @@ export const yuanhengApi = {
     expectedMode?: CodexAccountMode,
   ): Promise<CodexAccountModeStatus> {
     return invoke("switch_codex_account_mode", { mode, expectedMode });
+  },
+
+  repairCodexProjectMap(
+    expected?: string,
+  ): Promise<CodexProjectMapRepairResult> {
+    return invoke("repair_codex_project_map", { expected });
   },
 
   getLoopbackProxyCompatibility(): Promise<LoopbackProxyCompatibility> {

@@ -133,6 +133,17 @@ pub async fn run_project_sync(
 }
 
 #[tauri::command]
+pub async fn repair_codex_project_map(
+    expected: Option<String>,
+) -> Result<session_sync::projects::codex_local_map::CodexProjectMapRepairResult, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        session_sync::projects::codex_local_map::repair_codex_project_map(expected)
+    })
+    .await
+    .map_err(|e| format!("恢复 Codex 项目列表失败: {e}"))?
+}
+
+#[tauri::command]
 pub async fn check_project_sync_before_launch(
     state: State<'_, AppState>,
     targetProvider: String,

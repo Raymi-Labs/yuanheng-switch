@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { runToolLifecycleJob } from "@/lib/toolLifecycleState";
+import { yuanhengApi } from "@/lib/api/yuanheng";
 import { FocusToolCard } from "@/components/desktop/FocusToolCard";
 import type {
   ModelSwitchBootstrapPhase,
@@ -486,6 +487,33 @@ describe("FocusToolCard", () => {
       expect(switcher.switchCodexMode).toHaveBeenCalledWith("yuanheng");
     },
   );
+
+  it("exposes Codex project recovery and reports the restored counts", async () => {
+    const repair = vi
+      .spyOn(yuanhengApi, "repairCodexProjectMap")
+      .mockResolvedValue({
+        fingerprint: "preview-hash",
+        applied: false,
+        projectsFound: 34,
+        projectsRestored: 33,
+        assignmentsRestored: 120,
+        backupPath: "/tmp/codex-state.bak",
+        blockedReason: null,
+      });
+    const switcher = createSwitcher("ready");
+    switcher.rows = ["chatgpt-desktop"];
+    switcher.runnableRows = ["chatgpt-desktop"];
+    switcher.installedApps = new Set(["chatgpt-desktop"]);
+    render(<FocusToolCard switcher={switcher} onOpenTools={vi.fn()} />);
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "检查本地项目" }));
+    });
+
+    expect(repair).toHaveBeenCalledOnce();
+    expect(screen.getByRole("button", { name: "备份并恢复" })).toBeVisible();
+    repair.mockRestore();
+  });
 
   it("官方模式隐藏元衡模型控件并允许切回中转", () => {
     const switcher = createSwitcher("ready");
