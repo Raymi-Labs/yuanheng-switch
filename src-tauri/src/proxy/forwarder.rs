@@ -752,6 +752,38 @@ impl RequestForwarder {
                         && crate::services::desktop_service_tiers::managed(provider)
                         && crate::services::desktop_service_tiers::paid(&body)
                     {
+                        // 付费档位停止重试，但仍须归还探测名额并记录本次失败。
+                        match self.categorize_proxy_error(&e, provider) {
+                            ErrorCategory::Retryable => {
+                                let _ = self
+                                    .router
+                                    .record_result(
+                                        &provider.id,
+                                        app_type_str,
+                                        used_half_open_permit,
+                                        false,
+                                        Some(e.to_string()),
+                                    )
+                                    .await;
+                            }
+                            ErrorCategory::NonRetryable | ErrorCategory::ClientAbort => {
+                                self.router
+                                    .release_permit_neutral(
+                                        &provider.id,
+                                        app_type_str,
+                                        used_half_open_permit,
+                                    )
+                                    .await;
+                            }
+                        }
+                        let mut status = self.status.write().await;
+                        status.failed_requests += 1;
+                        status.last_error = Some(e.to_string());
+                        if status.total_requests > 0 {
+                            status.success_rate = (status.success_requests as f32
+                                / status.total_requests as f32)
+                                * 100.0;
+                        }
                         return Err(ForwardError {
                             error: e,
                             provider: Some(provider.clone()),
@@ -3917,6 +3949,16 @@ mod tests {
         assert!(r.is_err());
         assert_eq!(captured.len(), 1);
         assert_eq!(captured[0]["service_tier"], "ultrafast");
+        let status = f.status.read().await;
+        assert_eq!(status.failed_requests, 1);
+        assert_eq!(status.success_requests, 0);
+        assert!(status.last_error.as_ref().unwrap().contains("503"));
+        let breaker = f
+            .router
+            .get_circuit_breaker_stats(&provider.id, "codex")
+            .await
+            .unwrap();
+        assert_eq!(breaker.failed_requests, 1);
     }
 
     #[test]
