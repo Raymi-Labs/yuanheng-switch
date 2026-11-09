@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { offerSessionSyncBeforeLaunch } from "@/lib/sessionSyncLaunch";
+import { captureCodexProjectCheck } from "@/lib/codexProjectCheck";
 import { captureCodexLoginGuide } from "@/lib/codexLoginGuide";
 import type { AppId } from "./types";
 import {
@@ -388,11 +389,17 @@ export const yuanhengApi = {
     return invoke("get_codex_account_mode");
   },
 
-  switchCodexAccountMode(
+  async switchCodexAccountMode(
     mode: Exclude<CodexAccountMode, "unknown">,
     expectedMode?: CodexAccountMode,
   ): Promise<CodexAccountModeStatus> {
-    return invoke("switch_codex_account_mode", { mode, expectedMode });
+    const check = captureCodexProjectCheck();
+    const result = await invoke<CodexAccountModeStatus>(
+      "switch_codex_account_mode",
+      { mode, expectedMode },
+    );
+    await check();
+    return result;
   },
 
   repairCodexProjectMap(
@@ -464,8 +471,14 @@ export const yuanhengApi = {
     return invoke("get_tool_launch_cwd", { tool: app });
   },
 
-  setLaunchDirectory(app: YuanhengToolId, cwd: string): Promise<string> {
-    return invoke("set_tool_launch_cwd", { tool: app, cwd });
+  async setLaunchDirectory(app: YuanhengToolId, cwd: string): Promise<string> {
+    const check = captureCodexProjectCheck();
+    const saved = await invoke<string>("set_tool_launch_cwd", {
+      tool: app,
+      cwd,
+    });
+    if (app === "codex") await check();
+    return saved;
   },
 
   getCodexLaunchTiers(
@@ -491,6 +504,9 @@ export const yuanhengApi = {
       throw new Error("已取消启动 Accio Work");
     }
     if (app === "claude-desktop") await ensureClaudeWorkspaceReady();
+    if (app === "codex" || app === "chatgpt-desktop") {
+      await captureCodexProjectCheck()();
+    }
     // 重启不询问：重启只为应用新配置，不是用户开始新工作。
     if (!restart) await offerSessionSyncBeforeLaunch(app, cwd);
     return invoke("launch_tool", {
