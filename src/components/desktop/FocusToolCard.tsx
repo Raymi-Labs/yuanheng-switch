@@ -679,40 +679,35 @@ export function FocusToolCard({
                 </label>
               )}
               {app === "codex" && speed.visible && (
-                <div className="min-w-0">
-                  <label
-                    htmlFor="codex-launch-speed"
-                    className="mb-1 block text-[11px] font-medium text-white/70"
-                  >
+                <div
+                  className="min-w-0"
+                  title={dt(
+                    "仅本次启动的新对话；×2/×6是费用倍率，不保证速度。实际结算请查看使用日志。",
+                  )}
+                >
+                  <span className="mb-1 block text-[11px] font-medium text-white/70">
                     {dt("速度")}
-                  </label>
-                  <select
-                    id="codex-launch-speed"
-                    aria-label={dt("本次启动速度")}
+                  </span>
+                  <CompactSelectPicker
+                    label={dt("本次启动速度")}
                     value={speed.tier}
                     disabled={pending || speed.loading}
-                    title={dt(
-                      "仅本次启动的新对话；×2/×6是费用倍率，不保证速度。实际结算请查看使用日志。",
-                    )}
-                    className="h-9 w-full rounded-md border border-white/15 bg-[#21443d] px-2.5 text-xs text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#e9b67c]"
-                    onChange={(e) => speed.select(e.target.value)}
-                  >
-                    <option value="default">{dt("标准")}</option>
-                    {Array.from(
-                      new Set([
-                        ...speed.tiers,
-                        ...(speed.tier !== "default" ? [speed.tier] : []),
-                      ]),
-                    ).map((tier) => (
-                      <option
-                        key={tier}
-                        value={tier}
-                        disabled={!speed.tiers.includes(tier)}
-                      >
-                        {tier === "priority" ? "Fast ×2" : "UltraFast ×6"}
-                      </option>
-                    ))}
-                  </select>
+                    triggerClassName="border-white/15 bg-white/[0.08] px-2.5 text-[10.5px] text-white transition-colors hover:bg-white/[0.12] focus:border-[#e9b67c]/70"
+                    onChange={speed.select}
+                    options={[
+                      { value: "default", label: dt("标准") },
+                      ...Array.from(
+                        new Set([
+                          ...speed.tiers,
+                          ...(speed.tier !== "default" ? [speed.tier] : []),
+                        ]),
+                      ).map((tier) => ({
+                        value: tier,
+                        disabled: !speed.tiers.includes(tier),
+                        label: tier === "priority" ? "Fast ×2" : "UltraFast ×6",
+                      })),
+                    ]}
+                  />
                   {speed.loading && (
                     <span className="text-xs text-white/70" role="status">
                       {dt("正在确认支持档位…")}

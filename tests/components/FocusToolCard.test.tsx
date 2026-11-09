@@ -136,7 +136,8 @@ describe("FocusToolCard", () => {
     expect(
       screen.queryByRole("option", { name: "UltraFast ×6" }),
     ).not.toBeInTheDocument();
-    fireEvent.change(picker, { target: { value: "priority" } });
+    fireEvent.click(picker);
+    fireEvent.click(screen.getByRole("option", { name: "Fast ×2" }));
     switcher.groups = { codex: "unsupported" };
     await act(async () => {
       rerender(<FocusToolCard switcher={switcher} onOpenTools={vi.fn()} />);
@@ -166,7 +167,8 @@ describe("FocusToolCard", () => {
     render(<FocusToolCard switcher={switcher} onOpenTools={vi.fn()} />);
     const speed = await screen.findByRole("combobox", { name: "本次启动速度" });
     await waitFor(() => expect(speed).toBeEnabled());
-    fireEvent.change(speed, { target: { value: "ultrafast" } });
+    fireEvent.click(speed);
+    fireEvent.click(screen.getByRole("option", { name: "UltraFast ×6" }));
     expect(screen.getByText(/6倍费用请求/)).toBeVisible();
     fireEvent.click(screen.getByRole("button", { name: "启动 Codex" }));
     expect(switcher.launch).toHaveBeenCalledWith(
@@ -175,8 +177,9 @@ describe("FocusToolCard", () => {
       { tier: "ultrafast", model: "gpt-6-astra", group: "g", owner: "1024" },
     );
     await screen.findByText("最近启动：UltraFast ×6");
-    expect(speed).toHaveValue("ultrafast");
-    fireEvent.change(speed, { target: { value: "default" } });
+    expect(speed).toHaveTextContent("UltraFast ×6");
+    fireEvent.click(speed);
+    fireEvent.click(screen.getByRole("option", { name: "标准" }));
     expect(screen.getByText("最近启动：UltraFast ×6")).toBeVisible();
     query.mockRestore();
   });
