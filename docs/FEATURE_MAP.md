@@ -289,3 +289,5 @@ QA人工启动入口按2026-10-21用户授权启用剪贴板共享，并在guest
 ## Codex 本地项目列表恢复（2026-11-09）
 
 工作台 CLI/App 工具卡共用[恢复入口](../src/components/desktop/CodexProjectRecovery.tsx) → `repair_codex_project_map` → [历史登录映射合并](../src-tauri/src/session_sync/projects/codex_local_map.rs)。先只读预览，再显式备份恢复；客户端/CLI 运行、来源歧义、格式异常或指纹变化均拒绝写入。保留原项目 ID、会话归属、当前未分配选择及账号容器；不写 SQLite、认证、模型配置或云端项目。同目录不同 ID 不强制合并。支持[离线维护工具与恢复指南](guides/codex-project-recovery.md)，真实本机恢复待退出宿主后验证。
+
+Codex 项目检查：工作台移除常驻提示与检查按钮；[统一工具 API](../src/lib/api/yuanheng.ts)在模式/CLI目录切换后与启动前自动只读检查，通过[恢复窗口](../src/components/desktop/CodexProjectRecovery.tsx)仅展示缺失项目。窗口回焦自动重检，写入仍需退出 Codex 并确认备份恢复；不监听原生侧栏项目事件。

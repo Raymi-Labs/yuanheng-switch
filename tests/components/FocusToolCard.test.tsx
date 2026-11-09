@@ -548,7 +548,7 @@ describe("FocusToolCard", () => {
       const { rerender } = render(
         <FocusToolCard switcher={switcher} onOpenTools={vi.fn()} />,
       );
-      expect(screen.getByText(/使用中转无需退出 ChatGPT 账号/)).toBeVisible();
+      expect(screen.queryByText(/使用中转无需退出 ChatGPT 账号/)).toBeNull();
       const official = screen.getByRole("button", { name: "OpenAI" });
       expect(official).toBeEnabled();
       fireEvent.click(official);
@@ -565,33 +565,6 @@ describe("FocusToolCard", () => {
       expect(switcher.switchCodexMode).toHaveBeenCalledWith("yuanheng");
     },
   );
-
-  it("exposes Codex project recovery and reports the restored counts", async () => {
-    const repair = vi
-      .spyOn(yuanhengApi, "repairCodexProjectMap")
-      .mockResolvedValue({
-        fingerprint: "preview-hash",
-        applied: false,
-        projectsFound: 34,
-        projectsRestored: 33,
-        assignmentsRestored: 120,
-        backupPath: "/tmp/codex-state.bak",
-        blockedReason: null,
-      });
-    const switcher = createSwitcher("ready");
-    switcher.rows = ["chatgpt-desktop"];
-    switcher.runnableRows = ["chatgpt-desktop"];
-    switcher.installedApps = new Set(["chatgpt-desktop"]);
-    render(<FocusToolCard switcher={switcher} onOpenTools={vi.fn()} />);
-
-    await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: "检查本地项目" }));
-    });
-
-    expect(repair).toHaveBeenCalledOnce();
-    expect(screen.getByRole("button", { name: "备份并恢复" })).toBeVisible();
-    repair.mockRestore();
-  });
 
   it("在当前模型行显示 Meta API/OpenAI 切换并允许切回 Meta API", () => {
     const switcher = createSwitcher("ready");
