@@ -8940,6 +8940,9 @@ mod tests {
         let auth_before: Value =
             crate::config::read_json_file(&crate::codex_config::get_codex_auth_path()).unwrap();
 
+        let initial: toml::Value =
+            toml::from_str(&crate::codex_config::read_codex_config_text().unwrap()).unwrap();
+        let initial_id = initial["model_provider"].as_str().unwrap();
         let official = switch_codex_account_mode_at_origin(
             &state,
             "official",
@@ -8955,6 +8958,7 @@ mod tests {
             &official_live
         ));
         let official_doc: toml::Value = toml::from_str(&official_live).unwrap();
+        assert_eq!(official_doc["model_provider"].as_str(), Some(initial_id));
         let routes = &official_doc["model_providers"];
         assert_eq!(
             routes["yuanheng"],
@@ -8996,6 +9000,7 @@ mod tests {
         assert!(terminal_profile.contains("model = \"gpt-5.6-sol\""));
         let desktop_doc: toml::Value = toml::from_str(&desktop_live).unwrap();
         let active = desktop_doc["model_provider"].as_str().unwrap();
+        assert_eq!(active, initial_id);
         assert_eq!(
             desktop_doc["model_providers"]["yuanheng"],
             desktop_doc["model_providers"][active]

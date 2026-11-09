@@ -148,6 +148,18 @@ pub(crate) fn prepare(previous: &str, next: &str) -> Result<String, AppError> {
         active = Some(MANAGED_PROVIDER.to_string());
         route = tables.get(MANAGED_PROVIDER).cloned();
     }
+    // Codex compares the saved provider ID, even when aliases have identical
+    // definitions. Keep the owned identity across account-mode/surface changes.
+    if route.is_some() && active_route(&old_doc, &old_tables).is_some() {
+        let previous_id = old_doc["model_provider"]
+            .as_str()
+            .expect("owned active route");
+        if tables.get(previous_id).is_none_or(owned) {
+            doc["model_provider"] = toml_edit::value(previous_id);
+            active = Some(previous_id.to_string());
+            tables.insert(previous_id, route.clone().expect("selected route"));
+        }
+    }
     // A non-YuanHeng custom provider is outside this feature's scope.
     if route.is_none() && active.as_deref().is_some_and(|id| id != "openai") {
         return Ok(next.into());
@@ -244,25 +256,30 @@ pub(crate) fn health(config: &str) -> Result<Health, AppError> {
     Ok(health)
 }
 
-/// Crash cleanup keeps old task IDs, but removes every owned local endpoint and
-/// token so those tasks can use native ChatGPT login after Core is stopped.
+/// Determine the account mode from the owned route, not its stable identity.
+pub(crate) fn is_official_proxy(config: &str) -> bool {
+    let Ok(doc) = parse(config) else { return false };
+    let Ok(tables) = providers(&doc) else {
+        return false;
+    };
+    active_route(&doc, &tables).is_some_and(|route| {
+        string(&route, "name") == Some("OpenAI")
+            && string(&route, "base_url").is_some_and(local_route)
+    })
+}
+
+/// Crash cleanup removes owned proxy endpoints while keeping the active identity.
 pub(crate) fn release_official(config: &str) -> Result<String, AppError> {
     let mut doc = parse(config)?;
-    if doc.get("model_provider").and_then(Item::as_str) != Some(OFFICIAL) {
+    if !is_official_proxy(config) {
         return Ok(config.into());
     }
     let mut tables = providers(&doc)?;
-    if !tables.get(OFFICIAL).is_some_and(owned) {
-        return Err(AppError::Message(
-            "Codex 官方路由已被外部修改，未自动清理".into(),
-        ));
-    }
-    for alias in ALIASES {
+    for alias in ALIASES.into_iter().chain([MANAGED_PROVIDER]) {
         if tables.get(alias).is_some_and(owned) {
             tables.insert(alias, native_route());
         }
     }
-    doc.as_table_mut().remove("model_provider");
     doc["model_providers"] = Item::Table(tables);
     Ok(doc.to_string())
 }
@@ -321,6 +338,27 @@ experimental_bearer_token = "PROXY_MANAGED"
 
     fn value(text: &str) -> toml::Value {
         toml::from_str(text).unwrap()
+    }
+
+    #[test]
+    fn mode_switch_and_reconfiguration_keep_owned_identity() {
+        for id in ALIASES.into_iter().chain([MANAGED_PROVIDER]) {
+            let mut previous = parse(&prepare("", &managed()).unwrap()).unwrap();
+            previous["model_provider"] = toml_edit::value(id);
+            previous["model_providers"][id] = previous["model_providers"]["custom"].clone();
+            let official = prepare(&previous.to_string(), &official()).unwrap();
+            assert_eq!(value(&official)["model_provider"].as_str(), Some(id));
+            assert!(is_official_proxy(&official));
+            let relay = prepare(&official, &managed()).unwrap();
+            assert_eq!(value(&relay)["model_provider"].as_str(), Some(id));
+            assert!(!is_official_proxy(&relay));
+            let native = release_official(&official).unwrap();
+            assert_eq!(value(&native)["model_provider"].as_str(), Some(id));
+            assert!(value(&native)["model_providers"][id]
+                .get("base_url")
+                .is_none());
+            assert!(!is_official_proxy(&native));
+        }
     }
 
     #[test]
@@ -469,7 +507,10 @@ api_key_env = "MY_KEY"
         let source = official();
         let cleaned = release_official(&source).unwrap();
         let doc = value(&cleaned);
-        assert!(doc.get("model_provider").is_none());
+        assert_eq!(
+            doc["model_provider"].as_str(),
+            value(&source)["model_provider"].as_str()
+        );
         for id in ALIASES {
             let table = &doc["model_providers"][id];
             assert!(table.get("base_url").is_none());

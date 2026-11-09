@@ -22,7 +22,7 @@ export function CodexHistoryHint({
         : status?.historyRepairNeeded
           ? dt("历史会话配置需要修复，请再次点击当前使用方式。")
           : dt(
-              "历史对话沿用当前使用方式；旧模型不可用时，请在 Codex 中重新选择模型。",
+              "切换方式会保留会话提供商标识；旧对话若提示提供商不匹配，需要修复历史标识。",
             )}
     </p>
   );

@@ -1997,7 +1997,8 @@ pub fn apply_codex_official_proxy_route(
 
     // Clean only YuanHeng Switch's placeholder from every stale provider table. Real
     // user bearer tokens are preserved, as are all unrelated provider fields.
-    remove_codex_proxy_placeholders_from_providers(&mut providers);
+    // Cleanup follows identity preservation so the previous owned tables remain
+    // recognizable while the new route is selected.
 
     // The local proxy currently exposes HTTP/SSE, not Codex websocket routes.
     let table = codex_official_provider_table(Some(proxy_base_url), false);
@@ -2007,24 +2008,19 @@ pub fn apply_codex_official_proxy_route(
         toml_edit::Item::Table(table),
     );
     doc["model_providers"] = toml_edit::Item::Table(providers);
-    crate::codex_history_routes::prepare(config_text, &doc.to_string())
+    let projected = crate::codex_history_routes::prepare(config_text, &doc.to_string())?;
+    let mut doc = projected
+        .parse::<DocumentMut>()
+        .map_err(|e| AppError::Message(format!("Invalid Codex config.toml: {e}")))?;
+    if let Some(providers) = doc["model_providers"].as_table_mut() {
+        remove_codex_proxy_placeholders_from_providers(providers);
+    }
+    Ok(doc.to_string())
 }
 
 /// Whether a live Codex config is the official route projected by YuanHeng Switch.
 pub fn codex_config_has_official_proxy_route(config_text: &str) -> bool {
-    if !config_text.contains(CC_SWITCH_CODEX_OFFICIAL_PROXY_PROVIDER_ID) {
-        return false;
-    }
-    config_text
-        .parse::<DocumentMut>()
-        .ok()
-        .and_then(|doc| {
-            doc.get("model_provider")
-                .and_then(|item| item.as_str())
-                .map(str::to_string)
-        })
-        .as_deref()
-        == Some(CC_SWITCH_CODEX_OFFICIAL_PROXY_PROVIDER_ID)
+    crate::codex_history_routes::is_official_proxy(config_text)
 }
 
 /// Remove only the official takeover route owned by YuanHeng Switch. This is a
@@ -2619,7 +2615,10 @@ command = "example"
                 .expect("project");
         let cleaned = remove_codex_official_proxy_route(&projected).expect("clean");
         let doc: toml::Value = toml::from_str(&cleaned).expect("parse cleaned");
-        assert!(doc.get("model_provider").is_none());
+        assert_eq!(
+            doc["model_provider"].as_str(),
+            Some(CC_SWITCH_CODEX_OFFICIAL_PROXY_PROVIDER_ID)
+        );
         for alias in [
             "custom",
             "yuanheng",
@@ -2665,7 +2664,10 @@ model_providers = { rightcode = { name = "RightCode", experimental_bearer_token 
 
         let cleaned = remove_codex_official_proxy_route(&projected).expect("clean projected");
         let cleaned_doc: toml::Value = toml::from_str(&cleaned).expect("parse cleaned");
-        assert!(cleaned_doc.get("model_provider").is_none());
+        assert_eq!(
+            cleaned_doc["model_provider"].as_str(),
+            Some(CC_SWITCH_CODEX_OFFICIAL_PROXY_PROVIDER_ID)
+        );
         assert!(cleaned_doc["model_providers"].get("rightcode").is_some());
         assert!(
             cleaned_doc["model_providers"][CC_SWITCH_CODEX_OFFICIAL_PROXY_PROVIDER_ID]
