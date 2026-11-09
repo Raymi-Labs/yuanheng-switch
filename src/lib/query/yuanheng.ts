@@ -322,6 +322,8 @@ export function useSwitchCodexAccountMode() {
       mode: Exclude<CodexAccountMode, "unknown">;
       expectedMode?: CodexAccountMode;
     }) => yuanhengApi.switchCodexAccountMode(mode, expectedMode),
+    onSettled: () =>
+      queryClient.invalidateQueries({ queryKey: yuanhengKeys.connection }),
     onSuccess: (status) => {
       queryClient.setQueryData(yuanhengKeys.codexAccountMode, status);
       queryClient.invalidateQueries({ queryKey: yuanhengKeys.tools });
@@ -464,6 +466,7 @@ export function useConfigureYuanhengTools() {
     // Refresh saved choices on either outcome so resuming cannot show stale data.
     onSettled: () =>
       Promise.all([
+        queryClient.invalidateQueries({ queryKey: yuanhengKeys.connection }),
         queryClient.invalidateQueries({
           queryKey: yuanhengKeys.claudeDesktopMode,
         }),

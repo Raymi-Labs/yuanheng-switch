@@ -464,6 +464,46 @@ fn is_yuanheng_session_auth_error(error: &str) -> bool {
         || normalized.contains("not logged in")
 }
 
+/// Validate the account session before changing tool configuration. A stale
+/// request must never clear a replacement login; API tokens remain untouched.
+async fn validate_tool_session_at(
+    state: &AppState,
+    client: &reqwest::Client,
+    origin: &str,
+    cookie: &str,
+    user: &str,
+) -> Result<(), String> {
+    let result = async {
+        let value = fetch_json(
+            client,
+            &format!("{origin}/api/user/self"),
+            Some(cookie),
+            Some(user),
+        )
+        .await?;
+        parse_account(&value).map(|_| ())
+    }
+    .await;
+    device_credentials::check_owner(state, cookie, user)?;
+    match result {
+        Err(error) if is_yuanheng_session_auth_error(&error) => {
+            invalidate_yuanheng_session(state)?;
+            Err("Meta API 登录会话已过期，请重新登录后再切换或配置工具".into())
+        }
+        other => other,
+    }
+}
+
+async fn validate_tool_session(state: &AppState) -> Result<(), String> {
+    let cookie = get_yuanheng_secret(state, SESSION_COOKIE_KEY)?
+        .filter(|value| !value.is_empty())
+        .ok_or("Meta API 尚未登录，请先完成登录和两步验证")?;
+    let user = get_yuanheng_secret(state, USER_ID_KEY)?
+        .filter(|value| !value.is_empty())
+        .ok_or("Meta API 登录状态不完整，请重新登录")?;
+    validate_tool_session_at(state, &yuanheng_client()?, BASE_URL, &cookie, &user).await
+}
+
 const YUANHENG_SECURE_KEYS: [&str; 5] = [
     TOKEN_KEY,
     USER_ID_KEY,
@@ -4819,6 +4859,9 @@ pub async fn switch_codex_account_mode(
     } else if !yuanheng_codex_mode_available(&state) {
         return Err("元衡 Codex 配置尚未准备好，请先连接账号并完成一次配置".to_string());
     }
+    if mode == "yuanheng" {
+        validate_tool_session(&state).await?;
+    }
     if !state.proxy_service.is_running().await {
         state
             .proxy_service
@@ -5538,6 +5581,7 @@ pub async fn configure_yuanheng_tools(
     if apps.is_empty() || apps.len() > 12 {
         return Err("请选择 1 到 12 个 AI 工具".to_string());
     }
+    validate_tool_session(&state).await?;
     // Check before fetching/creating tool credentials or changing local state.
     // Per-tool failures must not prevent unrelated tools in a batch from working.
     let accio_preflight = if apps.iter().any(|app| app == crate::accio_work::SCOPE) {
@@ -6922,6 +6966,71 @@ mod tests {
                 .as_deref(),
             Some("session=legacy")
         );
+        crate::secure_storage::clear_for_tests();
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn tool_session_validation_clears_only_expired_current_login() {
+        use axum::{routing::get, Json, Router};
+        crate::secure_storage::clear_for_tests();
+        let (_home, state) = isolated_state();
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let origin = format!("http://{}", listener.local_addr().unwrap());
+        let router = Router::new().route("/api/user/self", get(|| async {
+            Json(json!({"success": false, "message": "无权进行此操作，未登录且未提供 access token"}))
+        }));
+        let task = tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
+        for (key, value) in [
+            (USER_ID_KEY, "42"),
+            (SESSION_COOKIE_KEY, "session=current"),
+            (API_TOKEN_KEY, "sk-preserved"),
+        ] {
+            crate::secure_storage::set_secret(key, value).unwrap();
+        }
+        let client = yuanheng_client().unwrap();
+        // A late failure for a previous login cannot log out the replacement.
+        let stale = validate_tool_session_at(&state, &client, &origin, "session=old", "42")
+            .await
+            .unwrap_err();
+        assert!(stale.contains("已变化"));
+        assert_eq!(
+            get_yuanheng_secret(&state, SESSION_COOKIE_KEY)
+                .unwrap()
+                .as_deref(),
+            Some("session=current")
+        );
+        // Network failures must leave the current login intact.
+        let offline = validate_tool_session_at(
+            &state,
+            &client,
+            "http://127.0.0.1:1",
+            "session=current",
+            "42",
+        )
+        .await;
+        assert!(offline.is_err());
+        assert_eq!(
+            get_yuanheng_secret(&state, SESSION_COOKIE_KEY)
+                .unwrap()
+                .as_deref(),
+            Some("session=current")
+        );
+        let expired = validate_tool_session_at(&state, &client, &origin, "session=current", "42")
+            .await
+            .unwrap_err();
+        assert!(expired.contains("请重新登录"));
+        assert!(!expired.contains("access token"));
+        assert!(get_yuanheng_secret(&state, SESSION_COOKIE_KEY)
+            .unwrap()
+            .is_none());
+        assert_eq!(
+            get_yuanheng_secret(&state, API_TOKEN_KEY)
+                .unwrap()
+                .as_deref(),
+            Some("sk-preserved")
+        );
+        task.abort();
         crate::secure_storage::clear_for_tests();
     }
 
