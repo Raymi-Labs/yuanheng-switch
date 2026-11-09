@@ -399,7 +399,7 @@ describe("media group selection boundaries", () => {
     choosePartner();
     await waitFor(() => expect(groupSelect()).toHaveValue("伙伴创作"));
     await ready();
-    expect(screen.getByText("提交分组：生图和视频")).toBeVisible();
+    expect(screen.getByText("提交时的目录分组：生图和视频")).toBeVisible();
     fireEvent.click(screen.getByRole("button", { name: "继续查询" }));
     await waitFor(() => expect(mocks.refresh).toHaveBeenCalledWith(item().id), {
       timeout: 4000,

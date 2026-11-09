@@ -18,6 +18,7 @@ export const yuanhengKeys = {
   tools: ["yuanheng", "tools"] as const,
   diagnostics: ["yuanheng", "diagnostics"] as const,
   codexBridge: ["yuanheng", "codex-bridge"] as const,
+  claudeDesktopMode: ["yuanheng", "claude-desktop-mode"] as const,
   codexAccountMode: ["yuanheng", "codex-account-mode"] as const,
   activation: ["yuanheng", "activation"] as const,
 };
@@ -265,6 +266,43 @@ export function useCodexSessionBridgeStatus() {
   });
 }
 
+export function useClaudeDesktopAccountMode() {
+  return useQuery({
+    queryKey: yuanhengKeys.claudeDesktopMode,
+    queryFn: () => yuanhengApi.getClaudeDesktopAccountMode(),
+    retry: false,
+    refetchOnWindowFocus: true,
+  });
+}
+
+export function useSwitchClaudeDesktopAccountMode() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      mode,
+      expectedMode,
+    }: {
+      mode: Exclude<CodexAccountMode, "unknown">;
+      expectedMode?: CodexAccountMode;
+    }) => yuanhengApi.switchClaudeDesktopAccountMode(mode, expectedMode),
+    onSuccess: (status) => {
+      queryClient.setQueryData(yuanhengKeys.claudeDesktopMode, status);
+    },
+    onSettled: () =>
+      Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: yuanhengKeys.claudeDesktopMode,
+        }),
+        queryClient.invalidateQueries({ queryKey: yuanhengKeys.tools }),
+        queryClient.invalidateQueries({ queryKey: yuanhengKeys.activation }),
+        queryClient.invalidateQueries({ queryKey: yuanhengKeys.diagnostics }),
+        queryClient.invalidateQueries({
+          queryKey: ["providers", "claude-desktop"],
+        }),
+      ]),
+  });
+}
+
 export function useCodexAccountMode() {
   return useQuery({
     queryKey: yuanhengKeys.codexAccountMode,
@@ -328,9 +366,13 @@ export function useRepairYuanheng() {
       const connection = await yuanhengApi.refresh();
       const statuses = await yuanhengApi.getToolStatuses();
       const codexMode = await yuanhengApi.getCodexAccountMode();
+      const claudeMode = await yuanhengApi.getClaudeDesktopAccountMode();
       const apps = statuses
         .filter(
           (item) =>
+            !(
+              item.app === "claude-desktop" && claudeMode.mode === "official"
+            ) &&
             !(
               codexMode.mode === "official" &&
               (item.app === "codex" || item.app === "chatgpt-desktop")
@@ -422,6 +464,9 @@ export function useConfigureYuanhengTools() {
     // Refresh saved choices on either outcome so resuming cannot show stale data.
     onSettled: () =>
       Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: yuanhengKeys.claudeDesktopMode,
+        }),
         queryClient.invalidateQueries({ queryKey: yuanhengKeys.tools }),
         queryClient.invalidateQueries({ queryKey: yuanhengKeys.diagnostics }),
         queryClient.invalidateQueries({

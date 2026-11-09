@@ -1,3 +1,4 @@
+import { useClaudeDesktopMode } from "./useClaudeDesktopMode";
 import { toolReasoningLevels } from "@/lib/agentReasoning";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useInstallContinuation } from "./useInstallContinuation";
@@ -72,6 +73,7 @@ export function useModelSwitchCenter() {
   const preflight = usePreflightYuanhengTool();
   const activationStatuses = useYuanhengToolActivationStatuses();
   const codexAccountMode = useCodexAccountMode();
+  const claudeDesktopMode = useClaudeDesktopMode();
   const switchCodexAccountMode = useSwitchCodexAccountMode();
   const codexBridge = useCodexSessionBridgeStatus();
   const desktopInstall = useDesktopInstallFlow();
@@ -271,6 +273,7 @@ export function useModelSwitchCenter() {
       inventory.refetch(),
       statuses.refetch(),
       codexAccountMode.refetch(),
+      claudeDesktopMode.refetch(),
       activationStatuses.refetch(),
     ]);
   };
@@ -368,6 +371,13 @@ export function useModelSwitchCenter() {
         if (!canContinue()) return;
         if (app === "dsh") {
           if (connection?.connected) await launch(app, canContinue);
+          return;
+        }
+        if (
+          app === "claude-desktop" &&
+          (await yuanhengApi.getClaudeDesktopAccountMode()).mode === "official"
+        ) {
+          if (canContinue()) await launch(app, canContinue);
           return;
         }
         const freshStatuses = await yuanhengApi.getToolStatuses();
@@ -730,9 +740,13 @@ export function useModelSwitchCenter() {
     const operationId = beginOperation(app);
     try {
       const status = statusMap.get(app);
+      const usesOfficialClaude =
+        app === "claude-desktop" &&
+        (await yuanhengApi.getClaudeDesktopAccountMode()).mode === "official";
       const usesOfficialCodexAccount =
-        (app === "codex" || app === "chatgpt-desktop") &&
-        codexAccountMode.data?.mode === "official";
+        usesOfficialClaude ||
+        ((app === "codex" || app === "chatgpt-desktop") &&
+          codexAccountMode.data?.mode === "official");
       const model = models[app] ?? status?.recommendedModel ?? status?.model;
       const group = model
         ? pickPreferredGroup(
@@ -844,6 +858,7 @@ export function useModelSwitchCenter() {
     preflightPending: preflight.isPending,
     codexBridge,
     codexAccountMode,
+    claudeDesktopMode,
     codexModePending: switchCodexAccountMode.isPending,
     refreshModels,
     install,

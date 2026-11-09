@@ -32,6 +32,11 @@ describe("Yuanheng credential repair", () => {
       announcement: null,
       lastSyncedAt: 1,
     });
+    vi.spyOn(yuanhengApi, "getClaudeDesktopAccountMode").mockResolvedValue({
+      mode: "official",
+      yuanhengAvailable: true,
+      restartRequired: false,
+    });
     vi.spyOn(yuanhengApi, "getCodexAccountMode").mockResolvedValue({
       mode: "official",
       officialLoginAvailable: true,
@@ -40,19 +45,25 @@ describe("Yuanheng credential repair", () => {
       message: null,
     });
     vi.spyOn(yuanhengApi, "getToolStatuses").mockResolvedValue(
-      (["codex", "chatgpt-desktop", "claude", "gemini"] as const).map(
-        (app) => ({
-          app,
-          supported: true,
-          configured: true,
-          needsUpdate: false,
-          model: "test-model",
-          group: `group-${app}`,
-          reasoning: "auto" as const,
-          recommendedModel: "test-model",
-          message: null,
-        }),
-      ),
+      (
+        [
+          "codex",
+          "chatgpt-desktop",
+          "claude-desktop",
+          "claude",
+          "gemini",
+        ] as const
+      ).map((app) => ({
+        app,
+        supported: true,
+        configured: true,
+        needsUpdate: false,
+        model: "test-model",
+        group: `group-${app}`,
+        reasoning: "auto" as const,
+        recommendedModel: "test-model",
+        message: null,
+      })),
     );
     vi.spyOn(yuanhengApi, "configureTools").mockResolvedValue([
       {

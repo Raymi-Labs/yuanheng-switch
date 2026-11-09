@@ -9,6 +9,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 import {
   checkBatch,
@@ -240,7 +241,7 @@ test("CLI check missing files fails closed with no raw paths or product data", (
   const r = spawnSync(
     process.execPath,
     [
-      new URL("./accio-commerce-workflow.mjs", import.meta.url).pathname,
+      fileURLToPath(new URL("./accio-commerce-workflow.mjs", import.meta.url)),
       "check",
       root,
     ],

@@ -404,6 +404,7 @@ async fn handle_terminal(
 
     let executable_parent = codex_executable.parent().map(PathBuf::from);
     let mut command = Command::new(&codex_executable);
+    command.envs(crate::loopback_proxy::environment());
     if let Some(profile_path) = model_profile.as_deref().filter(|path| path.is_file()) {
         command.env("YUANHENG_IMAGEGEN_SURFACE", "codex");
         command.env("CODEX_HOME", crate::codex_config::get_codex_config_dir());

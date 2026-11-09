@@ -121,6 +121,7 @@ impl Drop for ActiveConnectionGuard {
 
 pub struct RequestForwarder {
     provider_namespace: Option<&'static str>,
+    automatic_switch_enabled: bool,
     route: Option<crate::route_selection::RequestRoute>,
     /// 共享的 ProviderRouter（持有熔断器状态）
     router: Arc<ProviderRouter>,
@@ -326,6 +327,7 @@ impl RequestForwarder {
         let max_attempts = (max_retries as usize).saturating_add(1);
         Self {
             provider_namespace: None,
+            automatic_switch_enabled: false,
             route: None,
             router,
             status,
@@ -360,6 +362,15 @@ impl RequestForwarder {
     pub(super) fn with_provider_namespace(mut self, namespace: Option<&'static str>) -> Self {
         self.provider_namespace = namespace;
         self
+    }
+
+    pub(super) fn with_automatic_switch(mut self, enabled: bool) -> Self {
+        self.automatic_switch_enabled = enabled;
+        self
+    }
+
+    fn should_switch_provider(&self, provider_id: &str) -> bool {
+        self.automatic_switch_enabled && self.current_provider_id_at_start != provider_id
     }
 
     async fn record_success_result(
@@ -703,8 +714,7 @@ impl RequestForwarder {
                         let mut status = self.status.write().await;
                         status.success_requests += 1;
                         status.last_error = None;
-                        let should_switch =
-                            self.current_provider_id_at_start.as_str() != provider.id.as_str();
+                        let should_switch = self.should_switch_provider(&provider.id);
                         if should_switch {
                             status.failover_count += 1;
 
@@ -738,6 +748,47 @@ impl RequestForwarder {
                     });
                 }
                 Err(e) => {
+                    if matches!(app_type, AppType::Codex)
+                        && crate::services::desktop_service_tiers::managed(provider)
+                        && crate::services::desktop_service_tiers::paid(&body)
+                    {
+                        // 付费档位停止重试，但仍须归还探测名额并记录本次失败。
+                        match self.categorize_proxy_error(&e, provider) {
+                            ErrorCategory::Retryable => {
+                                let _ = self
+                                    .router
+                                    .record_result(
+                                        &provider.id,
+                                        app_type_str,
+                                        used_half_open_permit,
+                                        false,
+                                        Some(e.to_string()),
+                                    )
+                                    .await;
+                            }
+                            ErrorCategory::NonRetryable | ErrorCategory::ClientAbort => {
+                                self.router
+                                    .release_permit_neutral(
+                                        &provider.id,
+                                        app_type_str,
+                                        used_half_open_permit,
+                                    )
+                                    .await;
+                            }
+                        }
+                        let mut status = self.status.write().await;
+                        status.failed_requests += 1;
+                        status.last_error = Some(e.to_string());
+                        if status.total_requests > 0 {
+                            status.success_rate = (status.success_requests as f32
+                                / status.total_requests as f32)
+                                * 100.0;
+                        }
+                        return Err(ForwardError {
+                            error: e,
+                            provider: Some(provider.clone()),
+                        });
+                    }
                     // 检测是否需要触发整流器（仅 Claude/ClaudeAuth 供应商）
                     let provider_type = ProviderType::from_app_type_and_config(app_type, provider);
                     let is_anthropic_provider = matches!(
@@ -815,8 +866,7 @@ impl RequestForwarder {
                                         status.success_requests += 1;
                                         status.last_error = None;
                                         let should_switch =
-                                            self.current_provider_id_at_start.as_str()
-                                                != provider.id.as_str();
+                                            self.should_switch_provider(&provider.id);
                                         if should_switch {
                                             status.failover_count += 1;
                                             let fm = self.failover_manager.clone();
@@ -969,8 +1019,7 @@ impl RequestForwarder {
                                             status.success_requests += 1;
                                             status.last_error = None;
                                             let should_switch =
-                                                self.current_provider_id_at_start.as_str()
-                                                    != provider.id.as_str();
+                                                self.should_switch_provider(&provider.id);
                                             if should_switch {
                                                 status.failover_count += 1;
 
@@ -1141,8 +1190,7 @@ impl RequestForwarder {
                                         status.success_requests += 1;
                                         status.last_error = None;
                                         let should_switch =
-                                            self.current_provider_id_at_start.as_str()
-                                                != provider.id.as_str();
+                                            self.should_switch_provider(&provider.id);
                                         if should_switch {
                                             status.failover_count += 1;
                                             let fm = self.failover_manager.clone();
@@ -1342,6 +1390,15 @@ impl RequestForwarder {
         extensions: &Extensions,
         adapter: &dyn ProviderAdapter,
     ) -> Result<(ProxyResponse, Option<String>, Option<String>, bool, bool), ProxyError> {
+        if matches!(app_type, AppType::Codex) {
+            crate::services::desktop_service_tiers::validate(
+                provider,
+                body,
+                extensions
+                    .get::<crate::services::desktop_service_tiers::RequestOwner>()
+                    .and_then(|v| v.0.as_deref()),
+            )?;
+        }
         // 使用适配器提取 base_url
         let mut base_url = adapter.extract_base_url(provider)?;
 
@@ -1805,6 +1862,13 @@ impl RequestForwarder {
                     filtered_body = prepare_upstream_request_body(filtered_body);
                 }
             }
+        }
+        if matches!(app_type, AppType::Codex) {
+            crate::services::desktop_service_tiers::validate_outbound(
+                provider,
+                body,
+                &mut filtered_body,
+            )?;
         }
         if codex_responses_to_chat {
             // Validate the final target after user body overrides too. Do not let
@@ -3820,6 +3884,7 @@ mod tests {
 
         RequestForwarder {
             provider_namespace: None,
+            automatic_switch_enabled: false,
             route: None,
             router: Arc::new(ProviderRouter::new(db.clone())),
             status: Arc::new(RwLock::new(ProxyStatus::default())),
@@ -3839,6 +3904,74 @@ mod tests {
             streaming_first_byte_timeout,
             max_attempts: 1,
         }
+    }
+
+    #[tokio::test]
+    async fn desktop_paid_tiers_preserve_wire_and_do_not_retry_provider_failure() {
+        use axum::{routing::post, Json, Router};
+        let received = Arc::new(std::sync::Mutex::new(Vec::<Value>::new()));
+        let capture = received.clone();
+        let app = Router::new().route(
+            "/v1/responses",
+            post(move |Json(body): Json<Value>| {
+                let capture = capture.clone();
+                async move {
+                    capture.lock().unwrap().push(body);
+                    (
+                        StatusCode::SERVICE_UNAVAILABLE,
+                        Json(json!({"error":{"message":"synthetic unavailable"}})),
+                    )
+                }
+            }),
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let origin = format!("http://{}", listener.local_addr().unwrap());
+        let task = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let mut provider = test_provider_with_type(None);
+        provider.id = crate::commands::MANAGED_PROVIDER_ID.into();
+        provider.category = Some("managed".into());
+        provider.notes = Some("group=g".into());
+        provider.settings_config = json!({"auth":{"OPENAI_API_KEY":"synthetic"},"config":format!("model_provider = \"custom\"\n[model_providers.custom]\nbase_url = \"{origin}/v1\"\nwire_api = \"responses\"\n"),"yuanhengServiceTiers":{"owner":"7","group":"g","models":{"synthetic":[{"id":"priority"},{"id":"ultrafast"}]}}});
+        provider.meta = Some(crate::provider::ProviderMeta {
+            api_format: Some("openai_responses".into()),
+            ..Default::default()
+        });
+        let mut f = test_forwarder(Duration::from_secs(2), Duration::from_secs(2));
+        f.max_attempts = 3;
+        let mut ext = Extensions::new();
+        ext.insert(crate::services::desktop_service_tiers::RequestOwner(Some(
+            "7".into(),
+        )));
+        let r=f.forward_with_retry(&AppType::Codex,http::Method::POST,"/responses",json!({"model":"synthetic","service_tier":"ultrafast","stream":false,"input":"hello"}),HeaderMap::new(),ext.clone(),vec![provider.clone(),provider.clone()]).await;
+        let captured = received.lock().unwrap().clone();
+        task.abort();
+        let _ = task.await;
+        assert!(r.is_err());
+        assert_eq!(captured.len(), 1);
+        assert_eq!(captured[0]["service_tier"], "ultrafast");
+        let status = f.status.read().await;
+        assert_eq!(status.failed_requests, 1);
+        assert_eq!(status.success_requests, 0);
+        assert!(status.last_error.as_ref().unwrap().contains("503"));
+        let breaker = f
+            .router
+            .get_circuit_breaker_stats(&provider.id, "codex")
+            .await
+            .unwrap();
+        assert_eq!(breaker.failed_requests, 1);
+    }
+
+    #[test]
+    fn automatic_switch_requires_explicit_failover_policy() {
+        let forwarder = test_forwarder(Duration::ZERO, Duration::ZERO);
+        assert!(!forwarder.should_switch_provider("different-provider"));
+        let mut forwarder = forwarder.with_automatic_switch(true);
+        assert!(forwarder.should_switch_provider("different-provider"));
+        forwarder.current_provider_id_at_start = "different-provider".into();
+        assert!(!forwarder.should_switch_provider("different-provider"));
+        assert!(!forwarder
+            .with_automatic_switch(false)
+            .should_switch_provider("late-provider"));
     }
 
     #[test]

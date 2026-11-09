@@ -18,6 +18,7 @@ use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 use tokio::sync::{mpsc, oneshot, RwLock};
 
+mod info_probe;
 mod recovery;
 
 pub const CORE_PROTOCOL_VERSION: u32 = 2;
@@ -176,7 +177,9 @@ impl CoreSupervisor {
             .await
             .map_err(|error| format!("读取代理配置失败: {error}"))?;
 
-        let probe = self.query_info(&token, &config).await;
+        // A live Core may briefly be unreachable during Windows startup. Only
+        // the read-only info request is retried, before any lifecycle mutation.
+        let probe = info_probe::query(&self.config_dir, &token, &config, true).await;
         if let Ok(info) = probe {
             let installed = install_versioned_core(&self.config_dir, source)?;
             if info.protocol_version != CORE_PROTOCOL_VERSION {
@@ -558,34 +561,7 @@ impl CoreSupervisor {
     }
 
     async fn query_info(&self, token: &str, config: &ProxyConfig) -> Result<CoreInfo, String> {
-        let ports = candidate_ports(&self.config_dir, config);
-        let client = admin_client()?;
-        let mut failures = Vec::new();
-
-        for (address, port) in ports {
-            let started = std::time::Instant::now();
-            let url = format!("{}{CORE_ADMIN_PREFIX}/info", proxy_origin(&address, port));
-            match client.get(url).bearer_auth(token).send().await {
-                Ok(response) if response.status().is_success() => {
-                    return response
-                        .json::<CoreInfo>()
-                        .await
-                        .map_err(|error| recovery::probe_error("decode", port, started, &error));
-                }
-                Ok(response) => {
-                    failures.push(format!(
-                        "stage=http port={port} status={} elapsed_ms={}",
-                        response.status().as_u16(),
-                        started.elapsed().as_millis()
-                    ));
-                }
-                Err(error) => {
-                    failures.push(recovery::probe_error("request", port, started, &error));
-                }
-            }
-        }
-
-        Err(format!("Core 状态探测失败: {}", failures.join("; ")))
+        info_probe::query(&self.config_dir, token, config, false).await
     }
 
     async fn post_admin(
@@ -1754,20 +1730,26 @@ mod tests {
     #[tokio::test]
     async fn failed_info_probe_preserves_existing_core_for_http_decode_and_timeout() {
         use axum::{http::StatusCode, response::IntoResponse, routing::get, Router};
+        use std::sync::atomic::{AtomicUsize, Ordering};
 
         for (failure, expected) in [(0, "status=500"), (1, "kind=decode"), (2, "kind=timeout")] {
+            let calls = std::sync::Arc::new(AtomicUsize::new(0));
+            let seen = calls.clone();
             let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
             let port = listener.local_addr().unwrap().port();
             let router = Router::new().route(
                 "/__yuanheng/core/info",
-                get(move || async move {
-                    match failure {
-                        0 => (StatusCode::INTERNAL_SERVER_ERROR, "private-probe-body")
-                            .into_response(),
-                        1 => (StatusCode::OK, "{private-probe-body").into_response(),
-                        _ => {
-                            tokio::time::sleep(std::time::Duration::from_secs(5)).await;
-                            (StatusCode::OK, "{}").into_response()
+                get(move || {
+                    seen.fetch_add(1, Ordering::SeqCst);
+                    async move {
+                        match failure {
+                            0 => (StatusCode::INTERNAL_SERVER_ERROR, "private-probe-body")
+                                .into_response(),
+                            1 => (StatusCode::OK, "{private-probe-body").into_response(),
+                            _ => {
+                                tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+                                (StatusCode::OK, "{}").into_response()
+                            }
                         }
                     }
                 }),
@@ -1798,6 +1780,10 @@ mod tests {
             assert!(error.contains("elapsed_ms="), "{error}");
             assert!(!error.contains("private"), "{error}");
             assert_eq!(
+                calls.load(Ordering::SeqCst),
+                if failure == 2 { 3 } else { 1 }
+            );
+            assert_eq!(
                 std::fs::read(current_core_path(dir.path())).unwrap(),
                 b"old-core"
             );
@@ -1806,6 +1792,84 @@ mod tests {
                     .unwrap()
                     .count(),
                 1
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn core_start_confirms_transient_timeout_but_status_stays_single_attempt() {
+        use axum::{routing::get, Json, Router};
+        use std::sync::{
+            atomic::{AtomicUsize, Ordering},
+            Arc,
+        };
+
+        for confirm_start in [false, true] {
+            let dir = tempfile::tempdir().unwrap();
+            let source = dir.path().join("core.bin");
+            std::fs::write(&source, b"existing-core").unwrap();
+            let old = install_versioned_core(dir.path(), &source).unwrap();
+            activate_core_version(dir.path(), &old.path).unwrap();
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let port = listener.local_addr().unwrap().port();
+            super::write_runtime_record(
+                dir.path(),
+                &crate::proxy::ProxyServerInfo {
+                    address: "127.0.0.1".into(),
+                    port,
+                    started_at: String::new(),
+                },
+                &old.id,
+            )
+            .unwrap();
+            let calls = Arc::new(AtomicUsize::new(0));
+            let seen = calls.clone();
+            let info = serde_json::json!({
+                "protocolVersion": super::CORE_PROTOCOL_VERSION, "version":"synthetic",
+                "buildProfile":"test", "pid":std::process::id(), "binaryId":old.id,
+                "configDir":"test", "status":crate::proxy::ProxyStatus {
+                    running: true, port, active_connections: 1, ..Default::default()
+                }
+            });
+            let router = Router::new().route(
+                "/__yuanheng/core/info",
+                get(move || {
+                    let first = seen.fetch_add(1, Ordering::SeqCst) == 0;
+                    let info = info.clone();
+                    async move {
+                        if first {
+                            tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+                        }
+                        Json(info)
+                    }
+                }),
+            );
+            let task = tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
+            let db = crate::database::Database::memory().unwrap();
+            let mut config = db.get_proxy_config().await.unwrap();
+            config.listen_address = "127.0.0.1".into();
+            config.listen_port = port;
+            db.update_proxy_config(config.clone()).await.unwrap();
+            let supervisor = super::CoreSupervisor::new(dir.path().into());
+            let result = if confirm_start {
+                supervisor.ensure_running_from(&db, &source).await
+            } else {
+                supervisor.query_info("private-token", &config).await
+            };
+            task.abort();
+            let _ = task.await;
+            if confirm_start {
+                let info = result.unwrap();
+                assert_eq!(info.pid, std::process::id());
+                assert_eq!(info.status.active_connections, 1);
+                assert_eq!(calls.load(Ordering::SeqCst), 2);
+            } else {
+                assert!(result.unwrap_err().contains("kind=timeout"));
+                assert_eq!(calls.load(Ordering::SeqCst), 1);
+            }
+            assert_eq!(
+                std::fs::read(current_core_path(dir.path())).unwrap(),
+                b"existing-core"
             );
         }
     }

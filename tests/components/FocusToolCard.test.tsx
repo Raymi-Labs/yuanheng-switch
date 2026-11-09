@@ -74,6 +74,18 @@ function createSwitcher(
         message: null,
       },
     } as ModelSwitchCenterState["codexAccountMode"],
+    claudeDesktopMode: {
+      refetch: vi.fn(),
+      data: {
+        mode: "yuanheng",
+        yuanhengAvailable: true,
+        restartRequired: false,
+      },
+      pending: false,
+      error: false,
+      setupRequested: false,
+      switchMode: vi.fn(),
+    },
     codexModePending: false,
     refreshModels: vi.fn(),
     install: vi.fn(),
@@ -454,6 +466,7 @@ describe("FocusToolCard", () => {
       const { rerender } = render(
         <FocusToolCard switcher={switcher} onOpenTools={vi.fn()} />,
       );
+      expect(screen.getByText(/使用中转无需退出 ChatGPT 账号/)).toBeVisible();
       const official = screen.getByRole("button", { name: "OpenAI 官方" });
       expect(official).toBeEnabled();
       fireEvent.click(official);

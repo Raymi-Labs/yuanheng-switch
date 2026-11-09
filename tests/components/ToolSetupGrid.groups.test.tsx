@@ -1,4 +1,9 @@
 import {
+  markRestartRequired,
+  getRestartRequiredApps,
+  clearRestartRequired,
+} from "@/components/desktop/desktopRestartState";
+import {
   act,
   fireEvent,
   render,
@@ -27,6 +32,7 @@ const mocks = vi.hoisted(() => ({
   launch: vi.fn(),
   error: vi.fn(),
   changed: vi.fn(),
+  claudeMode: "yuanheng",
 }));
 vi.mock("@/lib/query/yuanheng", () => ({
   useYuanhengConnection: () => ({ data: mocks.connection }),
@@ -42,18 +48,35 @@ vi.mock("@/lib/query/yuanheng", () => ({
     isPending: false,
   }),
   useCodexAccountMode: () => ({ data: { mode: "yuanheng" } }),
+  useClaudeDesktopAccountMode: () => ({
+    data: {
+      mode: mocks.claudeMode,
+      yuanhengAvailable: true,
+      restartRequired: false,
+    },
+    refetch: vi.fn(),
+  }),
+  useSwitchClaudeDesktopAccountMode: () => ({
+    mutateAsync: vi.fn(),
+    isPending: false,
+  }),
 }));
 vi.mock("@/lib/api", async (original) => {
   const actual = await original<typeof import("@/lib/api")>();
   return {
     ...actual,
-    yuanhengApi: { ...actual.yuanhengApi, launchTool: mocks.launch },
+    yuanhengApi: {
+      ...actual.yuanhengApi,
+      launchTool: mocks.launch,
+      getClaudeDesktopAccountMode: async () => ({ mode: mocks.claudeMode }),
+    },
   };
 });
 vi.mock("@/lib/query/toolInventory", () => ({
   useToolInventory: () => ({
     data: [
       "claude",
+      "claude-desktop",
       "codex",
       "gemini",
       "chatgpt-desktop",
@@ -102,6 +125,8 @@ const status = (
 });
 beforeEach(() => {
   vi.clearAllMocks();
+  mocks.claudeMode = "yuanheng";
+  clearRestartRequired("claude-desktop");
   localStorage.clear();
   mocks.connection = {
     connected: true,
@@ -159,6 +184,35 @@ const chooseGroup = async (
 };
 
 describe("tool group restoration", () => {
+  it("keeps Claude official launch separate from relay configuration", async () => {
+    mocks.claudeMode = "official";
+    markRestartRequired("claude-desktop", true);
+    mocks.statuses = [...mocks.statuses!, status("claude-desktop")];
+    render(<ToolSetupGrid />);
+    expect(screen.getByRole("button", { name: "Claude 官方" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    expect(
+      screen.getByRole("button", { name: "配置 Claude Desktop" }),
+    ).toBeDisabled();
+    fireEvent.click(
+      screen.getByRole("button", { name: "启动 Claude Desktop" }),
+    );
+    await waitFor(() =>
+      expect(mocks.launch).toHaveBeenCalledWith(
+        "claude-desktop",
+        true,
+        undefined,
+      ),
+    );
+    await waitFor(() =>
+      expect(getRestartRequiredApps().has("claude-desktop")).toBe(false),
+    );
+    expect(mocks.configure).not.toHaveBeenCalled();
+    expect(mocks.preflight).not.toHaveBeenCalled();
+  });
+
   it("WorkBuddy reasoning is a draft until configure and passes the selected effort", async () => {
     mocks.statuses = [...mocks.statuses!, status("workbuddy")];
     mocks.connection!.reasoningLevels = { "model-a": ["low", "high", "ultra"] };

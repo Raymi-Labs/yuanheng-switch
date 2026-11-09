@@ -45,8 +45,7 @@ pub struct RequestContext {
     providers: Vec<Provider>,
     /// 请求开始时的"当前供应商"（用于判断是否需要同步 UI/托盘）
     ///
-    /// 这里使用本地 settings 的设备级 current provider。
-    /// 代理模式下如果实际使用的 provider 与此不一致，会触发切换以确保 UI 始终准确。
+    /// 使用实际路由命名空间；只有显式开启故障转移时才允许同步供应商。
     pub current_provider_id: String,
     /// 请求中的模型名称
     pub request_model: String,
@@ -77,12 +76,20 @@ pub struct RequestContext {
 }
 
 impl RequestContext {
-    /// Snapshot of the token group configured on the provider actually selected for this request.
+    /// Snapshot of routing mode; a catalog filter cannot identify the billed group.
     pub(crate) fn request_group(&self) -> Option<String> {
         if self.provider.category.as_deref() != Some("managed")
             || self.provider.id != crate::commands::MANAGED_PROVIDER_ID
         {
             return None;
+        }
+        if self
+            .provider
+            .notes
+            .as_deref()
+            .is_some_and(|notes| notes.split('|').any(|part| part.trim() == "routing=token"))
+        {
+            return Some("auto".into());
         }
         crate::commands::provider_group(&self.provider)
     }
@@ -159,9 +166,14 @@ impl RequestContext {
         let optimizer_config = state.db.get_optimizer_config().unwrap_or_default();
         let copilot_optimizer_config = state.db.get_copilot_optimizer_config().unwrap_or_default();
 
-        let current_provider_id = snapshot.as_ref().map(|p| p.id.clone()).unwrap_or_else(|| {
-            crate::settings::get_current_provider(&app_type).unwrap_or_default()
-        });
+        let current_provider_id = match snapshot.as_ref() {
+            Some(provider) => provider.id.clone(),
+            None => state
+                .provider_router
+                .current_provider_id(app_type_str)
+                .map_err(|error| ProxyError::DatabaseError(error.to_string()))?
+                .unwrap_or_default(),
+        };
 
         // 从请求体提取模型名称
         let request_model = body
@@ -308,7 +320,8 @@ impl RequestContext {
             max_retries,
         )
         .with_route(state.core_control.as_ref().map(|c| c.routes.snapshot()))
-        .with_provider_namespace(self.isolated_provider.then_some(self.app_type_str))
+        .with_provider_namespace(Some(self.app_type_str))
+        .with_automatic_switch(self.app_config.auto_failover_enabled && !self.isolated_provider)
     }
 
     /// 获取 Provider 列表（用于故障转移）

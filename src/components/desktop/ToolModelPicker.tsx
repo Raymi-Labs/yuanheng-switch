@@ -340,7 +340,7 @@ export function ToolModelPicker({
                     }}
                   />
                   <p className="px-3 py-2 text-[10px] text-muted-foreground">
-                    {dt("选择分组后展开模型，点选模型后应用完整组合")}
+                    {dt("分组用于筛选模型；实际路由按平台统一令牌配置执行")}
                   </p>
                 </div>
                 <CommandList
@@ -359,7 +359,7 @@ export function ToolModelPicker({
                   ) : (
                     <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)]">
                       <CommandGroup
-                        heading={dt("令牌分组")}
+                        heading={dt("目录分组")}
                         className="min-w-0 border-r"
                       >
                         {entries.map((entry) => (

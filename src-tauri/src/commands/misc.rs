@@ -3316,7 +3316,7 @@ fn launch_claude_desktop(restart: bool) -> Result<(), String> {
 
 #[cfg(target_os = "macos")]
 fn launch_supported_desktop_app(
-    _tool: &str,
+    tool: &str,
     resolution: crate::desktop_app_detection::DesktopAppResolution,
     restart: bool,
 ) -> Result<(), String> {
@@ -3331,7 +3331,18 @@ fn launch_supported_desktop_app(
         .unwrap_or("桌面应用");
     let process_name = app_name;
 
-    if restart {
+    if tool == "chatgpt-desktop"
+        && !restart
+        && crate::loopback_proxy::macos_app_needs_restart(&app_path)?
+    {
+        return Err(
+            "Codex 已运行且本机绕过环境未确认。请保存任务后使用重启按钮，或完全退出后重新启动。"
+                .into(),
+        );
+    }
+    if restart && tool == "chatgpt-desktop" {
+        crate::loopback_proxy::restart_macos_app(&app_path)?;
+    } else if restart {
         let running = std::process::Command::new("pgrep")
             .args(["-x", process_name])
             .status()
@@ -3369,10 +3380,20 @@ fn launch_supported_desktop_app(
         }
     }
 
+    let loopback_environment = if tool == "chatgpt-desktop" {
+        Some(crate::loopback_proxy::desktop_environment()?)
+    } else {
+        None
+    };
     let open_app = |force_new: bool| {
         let mut command = std::process::Command::new("open");
         if force_new {
             command.arg("-n");
+        }
+        if let Some(environment) = &loopback_environment {
+            for (key, value) in environment {
+                command.args(["--env", &format!("{key}={value}")]);
+            }
         }
         command.arg(&app_path).output()
     };
@@ -3383,6 +3404,9 @@ fn launch_supported_desktop_app(
         output = open_app(true).map_err(|error| format!("重新打开 {app_name} 失败: {error}"))?;
     }
     if output.status.success() {
+        if tool == "chatgpt-desktop" {
+            crate::loopback_proxy::verify_macos_app(&app_path)?;
+        }
         Ok(())
     } else {
         Err(format!(
@@ -3425,9 +3449,11 @@ fn launch_supported_desktop_app(
     }
     match resolution.launch_target {
         Some(crate::desktop_app_detection::DesktopLaunchTarget::Path(executable)) => {
-            let launch_result = std::process::Command::new(&executable)
-                .creation_flags(CREATE_NO_WINDOW)
-                .spawn();
+            let mut command = std::process::Command::new(&executable);
+            if tool == "chatgpt-desktop" {
+                command.envs(crate::loopback_proxy::environment());
+            }
+            let launch_result = command.creation_flags(CREATE_NO_WINDOW).spawn();
             if let Err(error) = launch_result {
                 let access_denied = error.kind() == std::io::ErrorKind::PermissionDenied
                     || error.raw_os_error() == Some(5);
@@ -3741,7 +3767,7 @@ pub async fn launch_tool(
         let endpoint =
             crate::services::codex_session_bridge::ensure_codex_session_bridge(codex_executable)
                 .await?;
-        let command = format!("codex --remote {endpoint}");
+        let command = crate::loopback_proxy::cli_command(&format!("codex --remote {endpoint}"));
         tokio::task::spawn_blocking(move || {
             launch_terminal_running(&command, "tool_codex", Some(&launch_cwd))
         })

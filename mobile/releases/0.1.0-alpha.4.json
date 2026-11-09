@@ -1,0 +1,9 @@
+{
+  "version": "0.1.0-alpha.4",
+  "filename": "YuanHeng-0.1.0-alpha.4-android-arm64.apk",
+  "size": 17230289,
+  "sha256": "96e9a070346c6531635af009b94990f45df9785b4da081290775649c70c9c805",
+  "certificate_sha256": "e1de31b926da27432d37aeb978324d18f626e053b1e23c68b3a7463c07783746",
+  "minimum_android": 10,
+  "architecture": "arm64-v8a"
+}

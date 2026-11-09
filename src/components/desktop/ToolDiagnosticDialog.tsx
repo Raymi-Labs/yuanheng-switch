@@ -35,7 +35,7 @@ export function ToolDiagnosticDialog() {
           </DialogDescription>
           <p className="text-xs text-muted-foreground">
             {dt(
-              "详细体检可能补齐 Codex 历史会话路由；其他配置修复请返回连接检查入口操作。",
+              "详细体检可能补齐 Codex 历史会话路由；本机代理兼容修复与重启需单独确认，其他配置修复请返回连接检查入口操作。",
             )}
           </p>
         </DialogHeader>

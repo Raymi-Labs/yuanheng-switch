@@ -37,6 +37,8 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog";
 
+import { LoopbackProxyCompatibility } from "./LoopbackProxyCompatibility";
+
 interface YuanhengHealthCardProps {
   compact?: boolean;
   initiallyExpanded?: boolean;
@@ -238,7 +240,7 @@ export function YuanhengHealthCard({
       return;
     if (
       !window.confirm(
-        `${dt("将为通用功能使用所选分组，实际请求按该分组计费；现有工具分组和旧令牌保持不变。是否继续？")}\n${credentialGroup}`,
+        `${dt("将为通用功能复用账号统一令牌；首次创建以所选分组优先，后续路由按平台令牌配置执行。是否继续？")}\n${credentialGroup}`,
       )
     ) {
       return;
@@ -408,6 +410,7 @@ export function YuanhengHealthCard({
               "默认体检不调用模型、不测试收费推理；服务运行、网关认证和桌面工作区是不同检查项。失败时可预览并导出同一份脱敏诊断。",
             )}
           </p>
+          <LoopbackProxyCompatibility />
           {report.checks.map((check) => (
             <div
               key={check.id}
@@ -510,7 +513,7 @@ export function YuanhengHealthCard({
             <DialogTitle>{dt("选择通用凭据分组")}</DialogTitle>
             <DialogDescription>
               {dt(
-                "用于声音克隆等通用功能；不改变已配置工具的分组。列表来自当前账号，提交时会再次验证权限。",
+                "声音克隆等通用功能与工具共用账号统一令牌。所选分组仅决定首次创建的优先顺序，已有路由规则请在平台管理。",
               )}
             </DialogDescription>
           </DialogHeader>

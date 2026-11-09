@@ -3,6 +3,7 @@ pub mod codex_oauth_models;
 pub mod codex_session_bridge;
 pub mod coding_plan;
 pub mod config;
+pub mod desktop_service_tiers;
 pub mod env_checker;
 pub mod env_manager;
 pub mod mcp;

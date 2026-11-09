@@ -1,5 +1,13 @@
 # YuanHeng Desktop: capability map
 
+桌面Codex原生速度：[配置能力查询](../src-tauri/src/commands/yuanheng/service_tiers.rs) → [模型目录](../src-tauri/src/codex_config.rs)的service_tiers → 官方原生线程/单轮选择 → [Core档位守卫](../src-tauri/src/services/desktop_service_tiers.rs)。能力按账号/组/精确模型读取，404/缺失不开放；标准全局默认，不写付费全局档位；付费请求不自动故障转移，最终字段/模型被改写时拒发。兼容托管历史alias的零重试字段，不覆盖用户自定义非零重试配置。见[桌面指南](guides/desktop-service-tiers.md)与[决定](../.agents/notes/implemented/feature/2026-11-09-desktop-native-service-tiers.md)。安卓误实现已回退，不算桌面交付。
+
+移动音频播放使用[打包CSP](../mobile/src-tauri/tauri.conf.json)的media-src self/data/blob，保持脚本和外部连接约束；[浏览器回归](../mobile/scripts/test-media-browser.cjs)对生产dist验证旧策略拒绝、新策略播放、遮罩真实alpha与320/390六入口布局，全部合成IPC，无原生/收费验收推断。声音/遮罩纳入[AI同意说明](../mobile/src/App.tsx)，声音页去除标语。
+
+移动媒体交互边界：[声音页](../mobile/src/Voice.tsx)替换样本立即撤销旧输入和授权，读取失败不回退旧音频；[遮罩](../mobile/src/MaskEditor.tsx)要求图片解码就绪，支持轻点画笔并隔离次要触点，捕获丢失停止绘制。合成回归不替代Android实际触摸与像素验证，见[外部改版审查](reviews/2026-11-07-mobile-external-review.md)。
+
+移动端外部媒体改版（待真机验收）：[Voice](../mobile/src/Voice.tsx) → [账号绑定TTS](../mobile/src-tauri/src/voice.rs) → 既有`/pg/chat/completions`，支持分组选择、同意、取消及有界音频；[Images](../mobile/src/Images.tsx)扩展4参考图和[遮罩编辑](../mobile/src/MaskEditor.tsx)，复用[账号收藏](../mobile/src-tauri/src/gallery.rs)与原有并发/幂等防护。定价查询带登录态、回前台刷新；其他移动钱包和iOS边界不变。外部APK不作为正式产物，见[审查报告](reviews/2026-11-07-mobile-external-review.md)与[移植决定](../.agents/notes/implemented/feature/2026-11-07-mobile-external-media.md)。
+
 网站账号浏览器登录：[BrowserAccountLogin](../src/components/desktop/BrowserAccountLogin.tsx)复用登录面板 → [原生短期授权](../src-tauri/src/commands/yuanheng/browser_login.rs) → Meta `/api/desktop-auth`协议与网站显式确认。系统浏览器处理GitHub/Google账号，本机proof不进入URL或前端；取消/过期/切号阻止旧会话覆盖。不自动创建工具令牌。Meta由用户部署后才可用，密码入口保留，见[交付说明](guides/browser-account-login.md)。
 
 Accio官方包自动诊断：[维护者命令/工作流指南](guides/accio-compatibility-check.md) → [完整检查脚本](../scripts/check-accio-package.py) → 官方固定元数据与ARM64包 → SHA512/归档/签名核验 → [关键声明指纹匹配](../scripts/accio-protocol-fingerprint.cjs)及既有16项隔离协议回归。0.37.2签名及102个选定声明检查通过，[结果](reviews/2026-11-01-accio-0372-protocol.json)明确原生GUI未测。诊断不修改用户版本门禁或客户端自动查询；相关PR自动回归，完整官方包通过手动工作流触发，无周期任务。见[决定](../.agents/notes/implemented/testing/2026-11-01-accio-package-automation.md)。
@@ -31,7 +39,8 @@ Verified from the local checkout on 2026-09-29. This is a scoped navigation aid,
 | TRAE 人工QA窗口监督（仅本机测试环境） | 专用QA目录中的打开TRAE测试虚拟机.command | run-manual → session-supervisor.cjs → Tart挂起 | 人工60分钟可续时、5分钟预警、退出原因本地日志；自动任务仍有界停止 | 用户登录状态保留；实际恢复/续时/挂起及重复启动拒绝通过。不是产品模型配置或推理验收，见[监督决定](../.agents/notes/implemented/testing/2026-10-26-trae-manual-vm-lifecycle.md)。 |
 | MCP, skills and prompts | [src/components/skills](../src/components/skills) | [src/lib/api/skills.ts](../src/lib/api/skills.ts) | [src-tauri/src/services/skill.rs](../src-tauri/src/services/skill.rs) | Compare existing MCP and prompt managers as well; preserve local tool compatibility. |
 | Usage and local routing | [src/components/usage](../src/components/usage) | [src/lib/api/usage.ts](../src/lib/api/usage.ts) | [src-tauri/src/services/usage_stats.rs](../src-tauri/src/services/usage_stats.rs) | Local proxy usage is not console billing; inspect provider routing and failover before changing selection. |
-| Core 健康巡检与退出恢复 | 桌面后台巡检、既有启动/升级入口 | [共享巡检退避](../src-tauri/src/services/proxy.rs) → [CoreSupervisor](../src-tauri/src/core_daemon.rs) | [进程、端口及 launchd 核验](../src-tauri/src/core_daemon/recovery.rs) | 状态失败不等于进程退出；连续探测失败后先核验，存活或未知时保留服务，最多 60 秒退避。macOS 自动恢复不卸载已有服务，显式配置迁移仍先停止旧实例。见 [恢复决策](../.agents/notes/implemented/bug-fix/2026-10-26-core-health-recovery.md)及[连接排查](guides/codex-connection-troubleshooting.md)。 |
+| Codex 本机代理兼容 | 智能体检 → 本机代理兼容；原桌面/CLI 启动按钮 | [本机保护与探针](../src-tauri/src/loopback_proxy.rs)、[macOS 登录修复](../src-tauri/src/loopback_proxy/macos.rs) → 原 App Server | 合并大小写绕过条目；LaunchServices 显式环境；实际进程检查；显式可撤销用户 LaunchAgent | 无计费直连/默认代理对照，Core 出站证据独立；已有进程需受控重启；环境与模型成功分开。真实 Dock/重新登录验收边界见[排查说明](guides/codex-connection-troubleshooting.md)。 |
+| Core 健康巡检与退出恢复 | 桌面后台巡检、既有启动/升级入口 | [共享巡检退避](../src-tauri/src/services/proxy.rs) → [CoreSupervisor](../src-tauri/src/core_daemon.rs) | [进程、端口及 launchd 核验](../src-tauri/src/core_daemon/recovery.rs) | 只读状态连接最多 3 秒，启动临时故障最多三轮确认并共用 12 秒上限；状态失败不等于进程退出；连续探测失败后先核验，存活或未知时保留服务，最多 60 秒退避。macOS 自动恢复不卸载已有服务，显式配置迁移仍先停止旧实例。见 [恢复决策](../.agents/notes/implemented/bug-fix/2026-10-26-core-health-recovery.md)及[连接排查](guides/codex-connection-troubleshooting.md)。 |
 | 请求分组与用量估算 | [请求日志/详情](../src/components/usage/PlatformQuote.tsx)、[报价目录](../src/components/usage/PlatformPricingPanel.tsx) | [请求上下文](../src-tauri/src/proxy/handler_context.rs) → [日志写入](../src-tauri/src/proxy/usage/logger.rs) → [逐请求估算](../src-tauri/src/services/platform_pricing.rs) | nullable request_group 快照；日志与聚合不受目录比较分组影响；chatgpt-desktop 输入按包含缓存处理 | 令牌请求分组不等于平台最终结算分组；历史、官方、非托管及自动组不猜倍率。见[决策笔记](../.agents/notes/implemented/bug-fix/2026-10-17-request-group-usage.md)。 |
 | 出站连接复用与连接错误诊断 | 现有全局代理设置、工具请求错误 | [Core 热刷新](../src-tauri/src/core_daemon.rs) → [共享 HTTP 客户端](../src-tauri/src/proxy/http_client.rs) | [系统代理快照](../src-tauri/src/proxy/system_proxy.rs)、[安全错误分类](../src-tauri/src/proxy/transport_error.rs) | 配置未变复用连接池，系统代理变化仍刷新；不新增重放、不改写外部 DNS/分流，图片与原始头路径沿用原策略。见 [Codex 排查说明](guides/codex-connection-troubleshooting.md)。 |
 | 账号目录连接与配置预检恢复 | 工作台/工具页安装续接、模型切换、启动与账号刷新 | [账号调用](../src-tauri/src/commands/yuanheng.rs) → [只读恢复](../src-tauri/src/commands/yuanheng/account_http.rs) | 全局代理配置下独立 15 秒账号连接池；同地址 GET 至多两次 | 连接/正文中断可恢复一次，HTTP/业务/解析/证书/未知连接错误不重试；POST 不重放。失败不放行实时权限，DSH 保留已安装状态，可手动再次启动。见[账号目录连接笔记](../.agents/notes/implemented/bug-fix/2026-10-26-account-catalog-transport.md)。 |
@@ -256,3 +265,23 @@ QA人工启动入口按2026-10-21用户授权启用剪贴板共享，并在guest
 ## Agent 推理等级配置
 
 工作台FocusToolCard、工具管理ToolSetupGrid及useModelSwitchCenter共用[能力表](../src/data/agent-reasoning-controls.json)，后端预检/配置也读取同一表。新增Claude Code、Gemini CLI（Gemini 3离散档）、Grok Build、OpenCode、OpenClaw、Hermes、WorkBuddy、DSH原生字段写入，以及Accio既有路由入口；Codex/Claude Desktop维持原路径。WorkBuddy实际回读档位，DSH持久化等级；原生不接受的显式档位拒绝，不静默降auto。Gemini/OpenClaw/Hermes使用字段归属记录恢复，外部编辑保留并报冲突。TRAE保持辅助配置并明确没有已验证外部写入接口；Gemini2.5 budget不编造等级映射。原生会话/环境/全局优先级与Hermes同名模型跨供应商影响见[使用边界](guides/agent-reasoning.md)和[决定](../.agents/notes/implemented/feature/2026-11-04-agent-reasoning-controls.md)。本轮仅本地代码及隔离验证，无真实模型调用或发布。
+
+## 自动依赖维护
+
+[Dependabot](../.github/dependabot.yml) 的 Cargo 例行更新仅刷新现有清单兼容范围内的锁文件；跨范围升级需要单独适配和三平台 CI。数据库、加密与平台接口不因例行批量更新而隐式迁移。
+
+## 桌面端统一令牌（2026-11-08）
+
+工具配置、Agent 图像连接、图片视频生成和通用凭据修复共用 [device_credentials](../src-tauri/src/commands/yuanheng/device_credentials.rs) 的账号统一令牌。首次配置以所选真实分组优先，其他授权真实组按名称排序，auto 不作为 routing_config 成员；后续保留平台分组顺序、模型规则、额度和限制。目录分组只筛选模型，实际路由及收费由平台决定。新 Provider 标记 routing=token，本地用量显示自动路由并不猜测分组报价。既有配置在重新应用前保持旧凭据；旧视频仍按记录 token_id 查询，升级不自动删除令牌。详见[决定与边界](../.agents/notes/implemented/architecture/2026-11-08-account-shared-token.md)。
+
+## ChatGPT 登录与中转配置（2026-11-09）
+
+[首次配置引导](../src/components/desktop/CodexLoginGuide.tsx)优先保留／恢复原 ChatGPT 账号与工作区；API Key 为可选本地使用方式，不能恢复账号云端功能。[只读判定](../src-tauri/src/commands/yuanheng/codex_login_guide.rs)仅 OAuth token 材料跳过，API Key 和仅元数据仍显示指引；[工具卡](../src/components/desktop/FocusToolCard.tsx)持续显示恢复提示。配置保留 auth.json 与历史记录，文件检测不证明钥匙串或服务端登录有效；启动故障需单独证据。
+
+## Codex 账号模式与请求完成（2026-11-09）
+
+[请求上下文](../src-tauri/src/proxy/handler_context.rs)与[转发器](../src-tauri/src/proxy/forwarder.rs)始终沿用实际入口命名空间；Codex Desktop 的协议适配复用 CLI，但供应商／熔断／请求状态不混写。只有显式自动故障转移且非固定快照请求允许供应商写回；[切换管理器](../src-tauri/src/proxy/failover_switch.rs)执行前复验开关，避免旧中转请求将官方配置覆盖回去。
+
+## Claude Desktop 账号模式（2026-11-09）
+
+工作台／工具管理复用 [模式选择器](../src/components/desktop/ClaudeDesktopModeSwitch.tsx) → [模式命令](../src-tauri/src/commands/yuanheng/claude_desktop_mode.rs) → [1p/3p 配置与回滚](../src-tauri/src/claude_desktop_config.rs)。官方恢复无需中转令牌或 Core，切回保留模型分组；首次无托管配置展开设置。官方模式启动与自动修复不重新配置中转，原生账号／会话不迁移，切换需重启。macOS 临时目录双向回归与跨平台文件夹具通过，真实官方登录未测。

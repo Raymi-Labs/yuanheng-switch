@@ -7,6 +7,10 @@ on:
         description: "已发布且具有校验元数据的手机版本，例如 0.1.0-alpha.1"
         required: true
         type: string
+      withdraw_alpha5:
+        description: "仅撤回误发布的alpha.5，须保留GitHub草稿"
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -17,6 +21,7 @@ concurrency:
 
 jobs:
   deliver:
+    if: ${{ !inputs.withdraw_alpha5 }}
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     env:
@@ -44,3 +49,24 @@ jobs:
           "$RUNNER_TEMP/mobile-delivery/bin/pip" install -r scripts/r2-requirements.txt
       - name: Verify signed Android release and publish immutable downloads
         run: '"$RUNNER_TEMP/mobile-delivery/bin/python" scripts/sync-mobile-r2.py "$MOBILE_VERSION"'
+  withdraw:
+    if: ${{ inputs.withdraw_alpha5 && inputs.version == '0.1.0-alpha.5' }}
+    # Draft release reads require push-level access; normal delivery stays read-only.
+    permissions:
+      contents: write
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+      R2_BUCKET: yuanheng-desktop-downloads
+      R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+      R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Prepare isolated dependencies
+        run: |
+          python3 -m venv "$RUNNER_TEMP/mobile-delivery"
+          "$RUNNER_TEMP/mobile-delivery/bin/pip" install -r scripts/r2-requirements.txt
+      - name: Withdraw mistaken alpha.5 only
+        run: '"$RUNNER_TEMP/mobile-delivery/bin/python" scripts/withdraw-mobile-alpha5.py'

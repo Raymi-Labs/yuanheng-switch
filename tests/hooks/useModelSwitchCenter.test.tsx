@@ -161,6 +161,13 @@ describe("useModelSwitchCenter", () => {
             reasoningEffort: null,
           });
         }
+        if (command === "get_claude_desktop_account_mode") {
+          return Promise.resolve({
+            mode: "yuanheng",
+            yuanhengAvailable: true,
+            restartRequired: false,
+          });
+        }
         if (command === "get_codex_account_mode") {
           return Promise.resolve({
             mode: "yuanheng",
@@ -1103,6 +1110,42 @@ describe("useModelSwitchCenter", () => {
       });
     },
   );
+  it("launches Claude official mode without reapplying relay credentials", async () => {
+    const original = invokeMock.getMockImplementation()!;
+    invokeMock.mockImplementation(async (command, payload) =>
+      command === "get_claude_workspace_preparation"
+        ? { phase: "ready", message: "Ready" }
+        : command === "get_claude_desktop_account_mode"
+          ? {
+              mode: "official",
+              yuanhengAvailable: true,
+              restartRequired: false,
+            }
+          : original(command, payload),
+    );
+    const { wrapper } = createWrapper();
+    const { result } = renderHook(() => useModelSwitchCenter(), { wrapper });
+    await waitFor(() =>
+      expect(result.current.claudeDesktopMode.data?.mode).toBe("official"),
+    );
+    invokeMock.mockClear();
+    await act(async () => {
+      await result.current.launch("claude-desktop");
+    });
+    expect(invokeMock).not.toHaveBeenCalledWith(
+      "configure_yuanheng_tools",
+      expect.anything(),
+    );
+    expect(invokeMock).not.toHaveBeenCalledWith(
+      "preflight_yuanheng_tool",
+      expect.anything(),
+    );
+    expect(invokeMock).toHaveBeenCalledWith("launch_tool", {
+      tool: "claude-desktop",
+      restart: false,
+    });
+  });
+
   it("rejects an explicit unsupported native effort rather than silently applying auto", async () => {
     connection.reasoningLevels = { "model-a": ["low", "ultra"] };
     const { wrapper } = createWrapper();

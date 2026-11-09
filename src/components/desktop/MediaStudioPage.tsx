@@ -700,7 +700,7 @@ export function MediaStudioContent({ scope }: { scope: string }) {
           </Button>
           <p className="min-w-[200px] flex-1 text-xs leading-relaxed text-muted-foreground">
             {dt(
-              "仅影响图片与视频，不改变聊天配置；旧任务继续使用提交时的分组。",
+              "分组仅筛选创作模型，实际路由由平台统一令牌决定；旧任务继续使用提交时的凭据。",
             )}
           </p>
           {(groups.isError || groupError) && (
@@ -1095,7 +1095,7 @@ export function MediaStudioContent({ scope }: { scope: string }) {
             )}
             <p className="text-xs leading-relaxed text-muted-foreground">
               {dt(
-                "点击生成会按所选模型及当前分组计费。暂不提供精确估价，费用以平台实际用量为准。",
+                "点击生成会产生费用。实际分组由平台统一令牌路由决定，费用以平台用量记录为准。",
               )}
             </p>
             {kind === "video" && (
@@ -1244,7 +1244,7 @@ export function MediaStudioContent({ scope }: { scope: string }) {
             <div className="min-w-0 flex-1 space-y-1">
               <p className="break-all text-sm font-medium">{record.model}</p>
               <p className="break-all text-xs text-muted-foreground">
-                {dt("提交分组：{{group}}", {
+                {dt("提交时的目录分组：{{group}}", {
                   group: record.group ?? "生图和视频",
                 })}
               </p>

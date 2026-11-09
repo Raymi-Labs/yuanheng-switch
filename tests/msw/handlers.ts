@@ -94,6 +94,24 @@ export const handlers = [
       reasoningEffort: null,
     }),
   ),
+  http.post(`${TAURI_ENDPOINT}/get_claude_desktop_account_mode`, () =>
+    success({
+      mode: "yuanheng",
+      yuanhengAvailable: true,
+      restartRequired: false,
+    }),
+  ),
+  http.post(
+    `${TAURI_ENDPOINT}/switch_claude_desktop_account_mode`,
+    async ({ request }) => {
+      const body = (await request.json()) as { mode: string };
+      return success({
+        mode: body.mode,
+        yuanhengAvailable: true,
+        restartRequired: true,
+      });
+    },
+  ),
   http.post(`${TAURI_ENDPOINT}/get_codex_account_mode`, () =>
     success({
       mode: "yuanheng",

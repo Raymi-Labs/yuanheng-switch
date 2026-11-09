@@ -167,6 +167,12 @@ export interface CodexSessionBridgeStatus {
 
 export type CodexAccountMode = "yuanheng" | "official" | "unknown";
 
+export interface ClaudeDesktopAccountModeStatus {
+  mode: CodexAccountMode;
+  yuanhengAvailable: boolean;
+  restartRequired: boolean;
+}
+
 export interface CodexAccountModeStatus {
   mode: CodexAccountMode;
   officialLoginAvailable: boolean;
@@ -243,6 +249,16 @@ export interface YuanhengDiagnosticCheck {
     | "repair_tools"
     | "configure_tools"
     | null;
+}
+
+export interface LoopbackProxyCompatibility {
+  supported: boolean;
+  installed: boolean;
+  loginEnvironmentProtected: boolean;
+  desktopProcesses: number;
+  backendProcesses: number;
+  protectedProcesses: number;
+  unverifiedProcesses: number;
 }
 
 export interface YuanhengDiagnosticReport {
@@ -349,6 +365,15 @@ export const yuanhengApi = {
     return invoke("get_codex_session_bridge_status");
   },
 
+  getClaudeDesktopAccountMode(): Promise<ClaudeDesktopAccountModeStatus> {
+    return invoke("get_claude_desktop_account_mode");
+  },
+  switchClaudeDesktopAccountMode(
+    mode: Exclude<CodexAccountMode, "unknown">,
+    expectedMode?: CodexAccountMode,
+  ): Promise<ClaudeDesktopAccountModeStatus> {
+    return invoke("switch_claude_desktop_account_mode", { mode, expectedMode });
+  },
   getCodexAccountMode(): Promise<CodexAccountModeStatus> {
     return invoke("get_codex_account_mode");
   },
@@ -358,6 +383,16 @@ export const yuanhengApi = {
     expectedMode?: CodexAccountMode,
   ): Promise<CodexAccountModeStatus> {
     return invoke("switch_codex_account_mode", { mode, expectedMode });
+  },
+
+  getLoopbackProxyCompatibility(): Promise<LoopbackProxyCompatibility> {
+    return invoke("get_loopback_proxy_compatibility");
+  },
+
+  setLoopbackProxyCompatibility(
+    enabled: boolean,
+  ): Promise<LoopbackProxyCompatibility> {
+    return invoke("set_loopback_proxy_compatibility", { enabled });
   },
 
   getDiagnostics(): Promise<YuanhengDiagnosticReport> {
