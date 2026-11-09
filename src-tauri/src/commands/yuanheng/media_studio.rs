@@ -439,11 +439,59 @@ fn save_group_preference(
 pub struct MediaGroups {
     groups: Vec<YuanhengGroupOption>,
     selected_group: Option<String>,
+    unverified_group_count: usize,
+}
+async fn creation_groups_at(
+    state: &AppState,
+    session: &Login,
+    client: &reqwest::Client,
+    origin: &str,
+) -> Result<(Vec<YuanhengGroupOption>, usize), String> {
+    let authorized = tokio::time::timeout(
+        Duration::from_secs(15),
+        authorized_groups_at(state, session, client, origin),
+    )
+    .await
+    .map_err(|_| "读取创作分组超时，请刷新重试")??;
+    let total = authorized.len();
+    // Buffered futures are cancelled on drop; no detached catalog workers.
+    let mut pending = futures::stream::iter(authorized.into_iter().map(|group| async move {
+        let result = media_catalog_at(state, session, client, origin, &group.id).await;
+        (group, result)
+    }))
+    .buffered(4);
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
+    let mut groups = Vec::new();
+    let mut checked = 0;
+    let mut failed = 0;
+    loop {
+        match tokio::time::timeout_at(deadline, pending.next()).await {
+            Ok(Some((group, result))) => {
+                checked += 1;
+                match result {
+                    Ok(models) if !models.is_empty() => groups.push(group),
+                    Ok(_) => {}
+                    Err(_) => failed += 1,
+                }
+            }
+            Ok(None) => break,
+            Err(_) => {
+                failed += total - checked;
+                break;
+            }
+        }
+    }
+    same_login(state, session)?;
+    if total > 0 && failed == total {
+        return Err("创作模型目录读取失败，请刷新重试".into());
+    }
+    Ok((groups, failed))
 }
 #[tauri::command]
 pub async fn get_media_studio_groups(state: State<'_, AppState>) -> Result<MediaGroups, String> {
     let session = login(&state)?;
-    let groups = authorized_groups(&state, &session).await?;
+    let (groups, unverified_group_count) =
+        creation_groups_at(&state, &session, &yuanheng_client()?, BASE_URL).await?;
     let saved = state
         .db
         .get_setting(&group_setting_key(&session.owner))
@@ -451,6 +499,7 @@ pub async fn get_media_studio_groups(state: State<'_, AppState>) -> Result<Media
     Ok(MediaGroups {
         selected_group: selected_group(saved, &groups),
         groups,
+        unverified_group_count,
     })
 }
 #[tauri::command]
@@ -460,6 +509,13 @@ pub async fn set_media_studio_group(
 ) -> Result<String, String> {
     let session = login(&state)?;
     let groups = authorized_groups(&state, &session).await?;
+    validate_group(&group, &groups)?;
+    if media_catalog_at(&state, &session, &yuanheng_client()?, BASE_URL, &group)
+        .await?
+        .is_empty()
+    {
+        return Err("此分组没有当前客户端可用的图片或视频模型，请重新选择".into());
+    }
     save_group_preference(&state, &session, &group, &groups)?;
     Ok(group)
 }
@@ -479,10 +535,20 @@ async fn catalog_at(
 ) -> Result<Vec<MediaModel>, String> {
     let groups = authorized_groups_at(state, session, client, origin).await?;
     validate_group(group, &groups)?;
+    media_catalog_at(state, session, client, origin, group).await
+}
+async fn media_catalog_at(
+    state: &AppState,
+    session: &Login,
+    client: &reqwest::Client,
+    origin: &str,
+    group: &str,
+) -> Result<Vec<MediaModel>, String> {
     let response = with_session(
         client
             .get(format!("{origin}/api/user/models"))
-            .query(&[("group", group)]),
+            .query(&[("group", group)])
+            .timeout(Duration::from_secs(10)),
         Some(&session.cookie),
         Some(&session.user),
     )
@@ -1451,6 +1517,133 @@ mod tests {
         assert_eq!(*seen.lock().unwrap(), vec!["partner-video"]);
         server.abort();
         let _ = server.await;
+    }
+    #[tokio::test]
+    #[serial_test::serial]
+    async fn creation_groups_hide_text_and_empty_groups_by_catalog_not_name() {
+        use axum::{extract::Query, routing::get, Json, Router};
+        let (_home, state) = super::super::tests::isolated_state();
+        let status = YuanhengConnectionStatus {
+            connected: true,
+            user_id: Some("test-user".into()),
+            ..Default::default()
+        };
+        persist_connection_for_group(
+            &state,
+            "session=test",
+            "test-user",
+            "",
+            0,
+            &status,
+            "chat-group",
+        )
+        .unwrap();
+        let session = login(&state).unwrap();
+        let app = Router::new()
+            .route("/api/user/self/groups",get(||async {Json(json!({"success":true,"data":{"chat":{},"empty":{},"image":{},"video":{},"生图和视频":{}}}))}))
+            .route("/api/user/models",get(|Query(q):Query<HashMap<String,String>>|async move {
+                Json(json!({"success":true,"data":match q["group"].as_str() {
+                    "image" => vec!["gpt-image-2.5-sunburst"],
+                    "video" => vec!["muse-video"],
+                    "empty" => vec![],
+                    _ => vec!["claude-sonnet-4"]
+                }}))
+            }));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let origin = format!("http://{}", listener.local_addr().unwrap());
+        let server = tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+        let client = reqwest::Client::builder()
+            .no_proxy()
+            .timeout(Duration::from_secs(3))
+            .build()
+            .unwrap();
+        let result = creation_groups_at(&state, &session, &client, &origin).await;
+        server.abort();
+        let _ = server.await;
+        let mut ids = result
+            .unwrap()
+            .0
+            .into_iter()
+            .map(|g| g.id)
+            .collect::<Vec<_>>();
+        ids.sort();
+        assert_eq!(ids, vec!["image", "video"]);
+    }
+    #[tokio::test]
+    #[serial_test::serial]
+    async fn creation_group_failures_are_not_empty_catalogs_and_stale_accounts_are_rejected() {
+        use axum::{
+            extract::{Query, State as AxumState},
+            routing::get,
+            Json, Router,
+        };
+        let (_home, state) = super::super::tests::isolated_state();
+        let status = YuanhengConnectionStatus {
+            connected: true,
+            user_id: Some("test-user".into()),
+            ..Default::default()
+        };
+        persist_connection_for_group(
+            &state,
+            "session=test",
+            "test-user",
+            "",
+            0,
+            &status,
+            "chat-group",
+        )
+        .unwrap();
+        let session = login(&state).unwrap();
+        let all_fail = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let app = Router::new()
+            .route(
+                "/api/user/self/groups",
+                get(|| async { Json(json!({"success":true,"data":{"good":{},"failed":{}}})) }),
+            )
+            .route(
+                "/api/user/models",
+                get(
+                    |AxumState(all): AxumState<Arc<std::sync::atomic::AtomicBool>>,
+                     Query(q): Query<HashMap<String, String>>| async move {
+                        if all.load(std::sync::atomic::Ordering::SeqCst) || q["group"] == "failed" {
+                            Json(json!({"success":false,"data":["muse-video"]}))
+                        } else {
+                            Json(json!({"success":true,"data":["muse-video"]}))
+                        }
+                    },
+                ),
+            )
+            .with_state(all_fail.clone());
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let origin = format!("http://{}", listener.local_addr().unwrap());
+        let server = tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+        let client = reqwest::Client::builder()
+            .no_proxy()
+            .timeout(Duration::from_secs(3))
+            .build()
+            .unwrap();
+        let partial = creation_groups_at(&state, &session, &client, &origin).await;
+        all_fail.store(true, std::sync::atomic::Ordering::SeqCst);
+        let failed = creation_groups_at(&state, &session, &client, &origin).await;
+        let stale = Login {
+            cookie: "stale".into(),
+            user: session.user.clone(),
+            owner: session.owner.clone(),
+        };
+        let stale_result = creation_groups_at(&state, &stale, &client, &origin).await;
+        server.abort();
+        let _ = server.await;
+        let (groups, count) = partial.unwrap();
+        assert_eq!(groups.len(), 1);
+        assert_eq!(groups[0].id, "good");
+        assert_eq!(count, 1);
+        assert!(failed.is_err());
+        assert!(stale_result.is_err());
+        assert_eq!(selected_group(Some("failed".into()), &groups), None);
     }
     #[tokio::test]
     #[serial_test::serial]

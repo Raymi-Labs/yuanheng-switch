@@ -192,9 +192,7 @@ describe("media group selection boundaries", () => {
   it("does not fetch models or enable creation for an empty authorized group list", async () => {
     mocks.groups.mockResolvedValue({ groups: [], selectedGroup: null });
     mount();
-    expect(
-      await screen.findByText("当前账号没有可用分组，请检查权限。"),
-    ).toBeVisible();
+    expect(await screen.findByText("暂无可用的生图或视频分组。")).toBeVisible();
     expect(mocks.models).not.toHaveBeenCalled();
     expect(screen.getByRole("button", { name: "生成" })).toBeDisabled();
   });
@@ -221,6 +219,55 @@ describe("media group selection boundaries", () => {
     await waitFor(() =>
       expect(screen.getByRole("button", { name: "生成" })).toBeEnabled(),
     );
+  });
+  it("shows only returned eligible groups without redundant descriptions", async () => {
+    mocks.groups.mockResolvedValue({
+      groups: [{ id: "生图和视频", description: "生图和视频", ratio: 1 }],
+      selectedGroup: "生图和视频",
+    });
+    mount();
+    await ready();
+    expect(
+      screen.getByRole("option", { name: "生图和视频" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("option", { name: "生图和视频 · 生图和视频" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("option", { name: "伙伴创作" }),
+    ).not.toBeInTheDocument();
+  });
+  it("distinguishes unverified catalogs from an empty media catalog", async () => {
+    mocks.groups.mockResolvedValue({
+      groups: [],
+      selectedGroup: null,
+      unverifiedGroupCount: 1,
+    });
+    mount();
+    expect(
+      await screen.findByText("部分分组目录读取失败，请刷新重试。"),
+    ).toBeVisible();
+    expect(
+      screen.queryByText("暂无可用的生图或视频分组。"),
+    ).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "刷新分组" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "生成" })).toBeDisabled();
+  });
+  it("removes a saved group that no longer has media without silently switching", async () => {
+    mount();
+    await ready();
+    choosePartner();
+    await waitFor(() => expect(groupSelect()).toHaveValue("伙伴创作"));
+    mocks.groups.mockResolvedValue({
+      groups: [{ id: "生图和视频", description: "", ratio: 1 }],
+      selectedGroup: null,
+    });
+    fireEvent.click(screen.getByRole("button", { name: "刷新分组" }));
+    await waitFor(() => expect(groupSelect()).toHaveValue(""));
+    expect(
+      screen.queryByRole("option", { name: /伙伴创作/ }),
+    ).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "生成" })).toBeDisabled();
   });
   it("restores the account preference and does not create a credential on mount", async () => {
     mocks.groups.mockResolvedValue({
