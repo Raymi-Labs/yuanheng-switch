@@ -30,4 +30,6 @@ Impeccable沿用已有视觉系统，机械检测无命中。PR说明使用pr技
 
 ## Consequences
 
+发布产物来自Mobile Build 42561127173、提交fb186282be3a7501f4bcde7cde8867152e7fa1ab。Android作业完成正式签名/包身份/zipalign检查；下载APK17238481字节，SHA256=f58b419ee8fa4a8c726da1a00fcbdfd773148cd2b3e62a03bac42ef038913660，与构建校验文件和GitHub草稿资产摘要一致。签名块证书与正式e1de31b9…一致。仅上传APK和SHA256，iOS开发archive不作用户安装包。补充元数据提交不改变程序源码；Release公开与R2分发须另核成功结果。
+
 服务端未部署或渠道1657停用时只有标准，不开放UI付费能力；真实扣费不在本轮自动调用。移动发布沿用原正式签名和Android流程，不代表iOS商店上架。
