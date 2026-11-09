@@ -7,6 +7,10 @@ on:
         description: "已发布且具有校验元数据的手机版本，例如 0.1.0-alpha.1"
         required: true
         type: string
+      withdraw_alpha5:
+        description: '仅撤回误发布的alpha.5，须保留GitHub草稿'
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -43,4 +47,8 @@ jobs:
           python3 -m venv "$RUNNER_TEMP/mobile-delivery"
           "$RUNNER_TEMP/mobile-delivery/bin/pip" install -r scripts/r2-requirements.txt
       - name: Verify signed Android release and publish immutable downloads
+        if: ${{ !inputs.withdraw_alpha5 }}
         run: '"$RUNNER_TEMP/mobile-delivery/bin/python" scripts/sync-mobile-r2.py "$MOBILE_VERSION"'
+      - name: Withdraw mistaken alpha.5 only
+        if: ${{ inputs.withdraw_alpha5 && inputs.version == '0.1.0-alpha.5' }}
+        run: '"$RUNNER_TEMP/mobile-delivery/bin/python" scripts/withdraw-mobile-alpha5.py'

@@ -6,14 +6,6 @@ beforeEach(() =>
   invoke.mockReset().mockResolvedValue({ success: true, data: {} }),
 );
 describe("account-bound native commands", () => {
-  it("binds the capability query to its initiating user", async () => {
-    await api.serviceTiers("m", "a", 7);
-    expect(invoke).toHaveBeenLastCalledWith("mobile_api", {
-      operation: "service_tiers",
-      body: { model: "m", group: "a" },
-      expectedUserId: 7,
-    });
-  });
   it("includes the initiating user on all gallery operations", async () => {
     await api.galleryList(7);
     expect(invoke).toHaveBeenLastCalledWith("mobile_gallery_list", {

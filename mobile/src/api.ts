@@ -1,11 +1,5 @@
 import { Channel, invoke } from "@tauri-apps/api/core";
 import { StreamReader } from "./stream";
-import {
-  buildChatBody,
-  ChatSnapshot,
-  ServiceTier,
-  TierCapability,
-} from "./serviceTiers";
 
 export type Account = {
   id: number;
@@ -85,7 +79,6 @@ export type Message = {
   content: string;
   reasoning?: string;
   error?: string;
-  request?: ChatSnapshot;
 };
 export type Conversation = {
   id: string;
@@ -93,7 +86,6 @@ export type Conversation = {
   model: string;
   group: string;
   updatedAt: number;
-  serviceTier?: ServiceTier;
   messages: Message[];
 };
 export type ImageResult = { data: string; mime: string };
@@ -197,12 +189,6 @@ const unwrap =
   };
 
 export const api = {
-  serviceTiers: (model: string, group: string, userId: number) =>
-    invoke<Envelope<TierCapability>>("mobile_api", {
-      operation: "service_tiers",
-      body: { model, group },
-      expectedUserId: userId,
-    }).then(unwrap("无法查询速度档位")),
   capabilities: () =>
     invoke<{ purchases: boolean; version: string }>("mobile_capabilities"),
   aiConsent: (accepted: boolean, userId: number) =>
@@ -323,8 +309,6 @@ export const api = {
     group: string,
     messages: Message[],
     update: (text: string, reasoning: string) => void,
-    snapshot?: ChatSnapshot,
-    userId?: number,
   ) {
     const reader = new StreamReader(update);
     const channel = new Channel<number[]>();
@@ -341,17 +325,12 @@ export const api = {
     try {
       await invoke("mobile_chat", {
         id,
-        body: buildChatBody(
-          snapshot ?? {
-            model,
-            group,
-            serviceTier: "default",
-            multiplier: 1,
-            messages,
-          },
-        ),
-        expectedUserId: userId,
-        expectedMultiplier: snapshot?.multiplier ?? 1,
+        body: {
+          model,
+          group,
+          stream: true,
+          messages: messages.map(({ role, content }) => ({ role, content })),
+        },
         onChunk: channel,
       });
     } catch (error) {

@@ -1,7 +1,5 @@
 # YuanHeng Desktop: capability map
 
-移动聊天速度档位：[Chat](../mobile/src/Chat.tsx) / [能力状态](../mobile/src/useServiceTiers.ts) → [统一请求快照](../mobile/src/serviceTiers.ts) → mobile_api(service_tiers) / mobile_chat → `/api/user/service-tiers` 与 `/pg/chat/completions`。本人/模型/组能力查询，原生发送前复核；按账号对话保存，失败重试固定快照，不静默升降档。标准不传字段，Fast=priority，UltraFast=ultrafast。后端未部署或渠道停用时不开付费档；不修改桌面Agent全局配置。见[指南](guides/mobile-service-tiers.md)与[决定](../.agents/notes/implemented/feature/2026-11-08-mobile-service-tiers.md)。
-
 移动音频播放使用[打包CSP](../mobile/src-tauri/tauri.conf.json)的media-src self/data/blob，保持脚本和外部连接约束；[浏览器回归](../mobile/scripts/test-media-browser.cjs)对生产dist验证旧策略拒绝、新策略播放、遮罩真实alpha与320/390六入口布局，全部合成IPC，无原生/收费验收推断。声音/遮罩纳入[AI同意说明](../mobile/src/App.tsx)，声音页去除标语。
 
 移动媒体交互边界：[声音页](../mobile/src/Voice.tsx)替换样本立即撤销旧输入和授权，读取失败不回退旧音频；[遮罩](../mobile/src/MaskEditor.tsx)要求图片解码就绪，支持轻点画笔并隔离次要触点，捕获丢失停止绘制。合成回归不替代Android实际触摸与像素验证，见[外部改版审查](reviews/2026-11-07-mobile-external-review.md)。

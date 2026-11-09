@@ -286,7 +286,6 @@ export function App() {
               {aiConsent ? (
                 <Chat
                   userId={account.id}
-                  active={tab === "chat"}
                   defaultGroup={account.group}
                   refresh={refresh}
                   preset={preset}

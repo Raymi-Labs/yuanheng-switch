@@ -9,7 +9,6 @@ import {
   Square,
   Trash2,
   X,
-  Info,
 } from "lucide-react";
 import {
   api,
@@ -24,13 +23,6 @@ import {
 } from "./api";
 import { Notice } from "./App";
 import { ChoiceSheet } from "./ChoiceSheet";
-import {
-  ChatSnapshot,
-  ServiceTier,
-  tierName,
-  validateCapability,
-} from "./serviceTiers";
-import { useServiceTiers } from "./useServiceTiers";
 
 const nonChat =
   /image|dall-e|flux|imagen|seedream|embedding|rerank|tts|whisper|voice|audio|video|sora|veo/i;
@@ -53,42 +45,26 @@ export function Chat({
   refresh,
   preset,
   onPresetUsed,
-  active = true,
 }: {
   userId: number;
   defaultGroup: string;
   refresh: () => Promise<void>;
   preset?: { model: string; group: string } | null;
   onPresetUsed?: () => void;
-  active?: boolean;
 }) {
   const [conversations, setConversations] = useState<Conversation[]>(() =>
     readConversations(userId),
   );
-  const [selected, setSelected] = useState<string | null>(() => {
-    try {
-      const id = localStorage.getItem(`yuanheng-chat-active:${userId}`);
-      return conversations.some((c) => c.id === id) ? id : null;
-    } catch {
-      return null;
-    }
-  });
-  const initial = conversations.find((c) => c.id === selected);
-  const [serviceTier, setServiceTier] = useState<ServiceTier>(
-    initial?.serviceTier ?? "default",
-  );
-  const [tierInfo, setTierInfo] = useState(false);
+  const [selected, setSelected] = useState<string | null>(null);
   const [catalog, setCatalog] = useState<PricingModel[]>([]);
   const [groups, setGroups] = useState<Record<string, Group>>({});
-  const [model, setModel] = useState(initial?.model ?? "");
-  const [group, setGroup] = useState(initial?.group ?? defaultGroup);
+  const [model, setModel] = useState("");
+  const [group, setGroup] = useState(defaultGroup);
   const [loading, setLoading] = useState(false);
   const [text, setText] = useState("");
   const [error, setError] = useState("");
   const [history, setHistory] = useState(false);
-  const [picker, setPicker] = useState<"model" | "group" | "speed" | null>(
-    null,
-  );
+  const [picker, setPicker] = useState<"model" | "group" | null>(null);
   const [busy, setBusy] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
   const currentTask = useRef<string | null>(null);
@@ -97,44 +73,6 @@ export function Chat({
   const listRef = useRef<HTMLDivElement>(null);
   const conversation = conversations.find((c) => c.id === selected);
   const messages = conversation?.messages || [];
-  const capability = useServiceTiers(userId, model, group, active, selected);
-  const tierOption = capability.data?.tiers.find((t) => t.id === serviceTier);
-  const tierBlocked = serviceTier !== "default" && !tierOption;
-  const selectConfig = (next: {
-    model?: string;
-    group?: string;
-    serviceTier?: ServiceTier;
-  }) => {
-    if (next.model !== undefined) setModel(next.model);
-    if (next.group !== undefined) setGroup(next.group);
-    if (next.serviceTier !== undefined) setServiceTier(next.serviceTier);
-    const id = selected ?? randomId();
-    if (!selected) setSelected(id);
-    setConversations((old) =>
-      old.some((c) => c.id === id)
-        ? old.map((c) => (c.id === id ? { ...c, ...next } : c))
-        : [
-            {
-              id,
-              title: "新对话",
-              model,
-              group,
-              serviceTier,
-              messages: [],
-              updatedAt: Date.now(),
-              ...next,
-            },
-            ...old,
-          ],
-    );
-  };
-  useEffect(() => {
-    try {
-      if (selected)
-        localStorage.setItem(`yuanheng-chat-active:${userId}`, selected);
-      else localStorage.removeItem(`yuanheng-chat-active:${userId}`);
-    } catch {}
-  }, [selected, userId]);
   useEffect(() => {
     alive.current = true;
     return () => {
@@ -181,14 +119,12 @@ export function Chat({
       setCatalog(list);
       setGroups(nextGroups);
       setModel((old) =>
-        serviceTier !== "default" && old
+        list.some((m) => m.model_name === old)
           ? old
-          : list.some((m) => m.model_name === old)
-            ? old
-            : list.find((m) => m.enable_groups?.includes(defaultGroup))
-                ?.model_name ||
-              list[0]?.model_name ||
-              "",
+          : list.find((m) => m.enable_groups?.includes(defaultGroup))
+              ?.model_name ||
+            list[0]?.model_name ||
+            "",
       );
       setError("");
     } catch (e) {
@@ -198,7 +134,7 @@ export function Chat({
       if (alive.current && catalogVersion.current === version)
         setLoading(false);
     }
-  }, [defaultGroup, serviceTier]);
+  }, [defaultGroup]);
   useEffect(() => {
     void load();
     return () => {
@@ -213,13 +149,12 @@ export function Chat({
   useEffect(() => {
     if (!current) return;
     if (groupChoices.includes(group)) return;
-    if (serviceTier !== "default") return;
     setGroup(
       groupChoices.includes(defaultGroup)
         ? defaultGroup
         : groupChoices[0] || group,
     );
-  }, [current, group, defaultGroup, groupChoices, serviceTier]);
+  }, [current, group, defaultGroup, groupChoices]);
   useEffect(() => {
     if (!preset) return;
     const entry = catalog.find((m) => m.model_name === preset.model);
@@ -245,53 +180,27 @@ export function Chat({
   const newChat = () => {
     if (busy) return;
     setSelected(null);
-    setServiceTier("default");
     setText("");
     setError("");
     setHistory(false);
   };
-  const submit = async (retry?: ChatSnapshot) => {
-    if (
-      currentTask.current ||
-      busy ||
-      (!retry && (!text.trim() || !model || loading || tierBlocked))
-    )
-      return;
-    const snapshot: ChatSnapshot = retry ?? {
-      model,
-      group,
-      serviceTier,
-      multiplier: tierOption?.multiplier ?? 1,
-      messages: [
-        ...messages
-          .filter((m) => !m.error && m.content)
-          .map(({ role, content }) => ({ role, content })),
-        { role: "user", content: text.trim() },
-      ],
-    };
+  const send = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!text.trim() || busy || !model || loading) return;
     const id = selected || randomId();
     const task = randomId();
     const answerId = randomId();
-    const request: Message[] = retry
-      ? snapshot.messages.map((m) => ({ ...m, id: randomId() }))
-      : [
-          ...messages.filter((m) => !m.error && m.content),
-          { id: randomId(), role: "user", content: text.trim() },
-        ];
+    const request: Message[] = [
+      ...messages.filter((m) => !m.error && m.content),
+      { id: randomId(), role: "user", content: text.trim() },
+    ];
     const next: Conversation = {
       id,
-      title:
-        conversation?.title && conversation.title !== "新对话"
-          ? conversation.title
-          : snapshot.messages.at(-1)?.content.slice(0, 30) || "新对话",
+      title: conversation?.title || text.trim().slice(0, 30),
       model,
       group,
-      serviceTier,
       updatedAt: Date.now(),
-      messages: [
-        ...request,
-        { id: answerId, role: "assistant", content: "", request: snapshot },
-      ],
+      messages: [...request, { id: answerId, role: "assistant", content: "" }],
     };
     setConversations((old) =>
       [next, ...old.filter((c) => c.id !== id)].slice(0, 30),
@@ -317,31 +226,8 @@ export function Chat({
       );
     };
     try {
-      if (snapshot.serviceTier !== "default") {
-        const caps = await api.serviceTiers(
-          snapshot.model,
-          snapshot.group,
-          userId,
-        );
-        const match = validateCapability(
-          caps,
-          snapshot.model,
-          snapshot.group,
-        ).tiers.find((t) => t.id === snapshot.serviceTier);
-        if (!match || match.multiplier !== snapshot.multiplier)
-          throw Error(
-            `当前模型或分组不支持 ${tierName(snapshot.serviceTier)}，或倍率已变化，请重新选择`,
-          );
-      }
-      if (!alive.current || currentTask.current !== task) return;
-      await api.chat(
-        task,
-        snapshot.model,
-        snapshot.group,
-        request,
-        (content, reasoning) => update({ content, reasoning }),
-        snapshot,
-        userId,
+      await api.chat(task, model, group, request, (content, reasoning) =>
+        update({ content, reasoning }),
       );
     } catch (e) {
       update({ error: errorText(e) });
@@ -353,31 +239,10 @@ export function Chat({
       }
     }
   };
-  const send = (e: React.FormEvent) => {
-    e.preventDefault();
-    void submit();
-  };
   const stop = async () => {
     if (currentTask.current)
       try {
-        const task = currentTask.current;
-        setConversations((old) =>
-          old.map((c) =>
-            c.id === selected
-              ? {
-                  ...c,
-                  messages: c.messages.map((m, i) =>
-                    i === c.messages.length - 1 && m.role === "assistant"
-                      ? { ...m, error: "已停止等待；费用以服务端记录为准" }
-                      : m,
-                  ),
-                }
-              : c,
-          ),
-        );
-        currentTask.current = null;
-        setBusy(false);
-        await api.cancel(task);
+        await api.cancel(currentTask.current);
       } catch (e) {
         setError(errorText(e));
       }
@@ -395,6 +260,7 @@ export function Chat({
     <section className="chat-page">
       <div className="chat-heading">
         <div>
+          <span className="eyebrow">A LITTLE INSPIRATION</span>
           <h1>聊聊你的想法</h1>
         </div>
         <div className="row">
@@ -440,60 +306,6 @@ export function Chat({
           <ChevronDown size={14} />
         </button>
       </div>
-      <div className="speed-controls">
-        {capability.error && serviceTier === "default" && (
-          <button
-            type="button"
-            className="text-button"
-            onClick={capability.reload}
-          >
-            重试速度查询
-          </button>
-        )}
-        <button
-          type="button"
-          className="picker-button"
-          aria-label="选择速度"
-          disabled={busy || !model || !group}
-          onClick={() => setPicker("speed")}
-        >
-          速度：{tierName(serviceTier)}
-          {tierOption && serviceTier !== "default"
-            ? ` ×${tierOption.multiplier}`
-            : ""}
-          <ChevronDown size={14} />
-        </button>
-        <span className="speed-help">
-          <button
-            type="button"
-            className="icon-button"
-            aria-label="速度计费说明"
-            aria-expanded={tierInfo}
-            aria-describedby={tierInfo ? "speed-help-text" : undefined}
-            onClick={() => setTierInfo((v) => !v)}
-            onBlur={() => setTierInfo(false)}
-          >
-            <Info size={16} />
-          </button>
-          {tierInfo && (
-            <span role="tooltip" id="speed-help-text">
-              倍率相对当前模型与分组标准档计费，不是速度保证。缓存和长上下文按服务端结算；停止或超时不保证免扣费。
-            </span>
-          )}
-        </span>
-      </div>
-      {tierBlocked && (
-        <div className="inline-notice" role="alert">
-          {capability.data
-            ? `当前模型或分组不支持 ${tierName(serviceTier)}，请重新选择`
-            : capability.error || "正在确认速度档位，暂不可发送"}
-          {capability.error && (
-            <button type="button" onClick={capability.reload}>
-              重试查询
-            </button>
-          )}
-        </div>
-      )}
       {error && (
         <div className="inline-notice">
           <Notice text={error} />
@@ -541,22 +353,6 @@ export function Chat({
                 {m.content || (!m.error && busy ? "正在思考…" : "")}
               </div>
               {m.error && <p className="message-error">{m.error}</p>}
-              {m.request && m.request.serviceTier !== "default" && (
-                <small>
-                  本次选择 {tierName(m.request.serviceTier)} ×
-                  {m.request.multiplier}
-                </small>
-              )}
-              {m.error && m.request && (
-                <button
-                  type="button"
-                  className="copy-button"
-                  disabled={busy}
-                  onClick={() => void submit(m.request)}
-                >
-                  按原参数重试
-                </button>
-              )}
               {m.role === "assistant" && m.content && (
                 <button
                   className="copy-button"
@@ -594,30 +390,13 @@ export function Chat({
             <button
               className="send"
               aria-label="发送消息"
-              disabled={!text.trim() || !model || loading || tierBlocked}
+              disabled={!text.trim() || !model || loading}
             >
               <ArrowUp size={21} />
             </button>
           )}
         </div>
       </form>
-      {picker === "speed" && (
-        <>
-          <ChoiceSheet
-            title="选择速度"
-            close={() => setPicker(null)}
-            onSelect={(id) => selectConfig({ serviceTier: id as ServiceTier })}
-            choices={(
-              capability.data?.tiers ?? [{ id: "default", multiplier: 1 }]
-            ).map((t) => ({
-              id: t.id,
-              label: tierName(t.id),
-              meta: t.id === "default" ? undefined : `×${t.multiplier}`,
-              active: t.id === serviceTier,
-            }))}
-          />
-        </>
-      )}
       {picker === "model" && (
         <ChoiceSheet
           title="选择模型"
@@ -626,7 +405,7 @@ export function Chat({
           searchPlaceholder="搜索模型名称"
           emptyText="没有匹配的模型"
           close={() => setPicker(null)}
-          onSelect={(model) => selectConfig({ model })}
+          onSelect={setModel}
           choices={catalog.map((m) => ({
             id: m.model_name,
             label: m.display_name || m.model_name,
@@ -645,7 +424,7 @@ export function Chat({
           subtitle={`${model} 可用的分组，倍率越低越便宜`}
           emptyText="该模型暂无可用的分组"
           close={() => setPicker(null)}
-          onSelect={(group) => selectConfig({ group })}
+          onSelect={setGroup}
           choices={groupChoices.map((id) => ({
             id,
             label: id,
@@ -690,7 +469,6 @@ export function Chat({
                     setSelected(c.id);
                     setModel(c.model);
                     setGroup(c.group);
-                    setServiceTier(c.serviceTier ?? "default");
                     setHistory(false);
                   }}
                 >
@@ -703,10 +481,7 @@ export function Chat({
                   disabled={busy}
                   onClick={() => {
                     setConversations((old) => old.filter((v) => v.id !== c.id));
-                    if (selected === c.id) {
-                      setSelected(null);
-                      setServiceTier("default");
-                    }
+                    if (selected === c.id) setSelected(null);
                   }}
                 >
                   <Trash2 size={17} />
