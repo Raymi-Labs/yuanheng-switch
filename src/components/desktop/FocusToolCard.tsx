@@ -1,7 +1,6 @@
 import { ClaudeDesktopModeSwitch } from "./ClaudeDesktopModeSwitch";
 import { toolReasoningLevels } from "@/lib/agentReasoning";
 import { ToolInstallProgress } from "./ToolInstallProgress";
-import { CodexHistoryHint } from "./CodexHistoryHint";
 import { useEffect, useState, type ReactNode } from "react";
 import { withAssistedTools } from "@/config/desktopTools";
 import { TraeSetupGuide } from "./TraeSetupGuide";
@@ -457,50 +456,91 @@ export function FocusToolCard({
         </div>
       )}
 
-      <div className="relative mt-4 flex flex-wrap items-baseline gap-x-3 gap-y-1">
-        <span className="text-[11px] text-white/55">{dt("当前模型")}</span>
-        <span className="font-display text-2xl font-semibold tabular-nums tracking-tight">
-          {usesOfficialAccount
-            ? dt(
-                usesOfficialClaudeAccount
-                  ? "Claude 官方账号"
-                  : "OpenAI 官方账号",
-              )
-            : (current ?? dt("未选择"))}
-        </span>
-        {!usesOfficialAccount && currentGroup && (
-          <span className="rounded-full bg-white/10 px-2 py-0.5 text-[10px] text-white/75">
-            {currentGroup} {dt("分组")}
+      <div className="relative mt-4 flex items-center gap-3">
+        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-3 gap-y-1">
+          <span className="shrink-0 text-[11px] text-white/55">
+            {dt("当前模型")}
           </span>
-        )}
-        {!usesOfficialAccount && currentReasoning !== "auto" && (
-          <span className="rounded-full bg-white/10 px-2 py-0.5 text-[10px] text-white/75">
-            {currentReasoning} {dt("推理")}
-          </span>
-        )}
-        {isYuanhengCliTool(app) && (
-          <button
-            type="button"
-            disabled={pending || launchDirectoryPending}
-            aria-label={dt("选择 {{tool}} 工作目录", {
-              tool: toolLabel(app),
-            })}
-            title={launchDirectory ?? dt("用户主目录")}
-            onClick={() => void chooseLaunchDirectory(app)}
-            className="inline-flex min-w-0 items-center gap-1.5 text-[10px] text-white/60 transition-colors hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+          <span
+            className="min-w-0 truncate font-display text-2xl font-semibold tabular-nums tracking-tight"
+            title={usesOfficialAccount ? undefined : current}
           >
-            {launchDirectoryPending ? (
-              <Loader2 className="h-3 w-3 shrink-0 animate-spin" />
-            ) : (
-              <FolderOpen className="h-3 w-3 shrink-0" />
-            )}
-            <span>{dt("工作目录")}</span>
-            <span className="max-w-[180px] truncate font-medium text-white/85">
-              {launchDirectoryLabel(launchDirectory)}
+            {usesOfficialAccount
+              ? dt(
+                  usesOfficialClaudeAccount
+                    ? "Claude 官方账号"
+                    : "OpenAI 官方账号",
+                )
+              : (current ?? dt("未选择"))}
+          </span>
+          {!usesOfficialAccount && currentGroup && (
+            <span className="rounded-full bg-white/10 px-2 py-0.5 text-[10px] text-white/75">
+              {currentGroup} {dt("分组")}
             </span>
-          </button>
+          )}
+          {!usesOfficialAccount && currentReasoning !== "auto" && (
+            <span className="rounded-full bg-white/10 px-2 py-0.5 text-[10px] text-white/75">
+              {currentReasoning} {dt("推理")}
+            </span>
+          )}
+        </div>
+        {isCodexSurface && (
+          <div
+            role="group"
+            aria-label={dt("Codex 使用方式")}
+            className="ml-auto flex shrink-0 rounded-md border border-white/10 bg-black/15 p-0.5"
+          >
+            {(["yuanheng", "official"] as const).map((mode) => {
+              const active = codexAccountMode.data?.mode === mode;
+              return (
+                <button
+                  key={mode}
+                  type="button"
+                  aria-pressed={active}
+                  disabled={codexModePending || pending}
+                  onClick={() => void switchCodexMode(mode)}
+                  className={`h-6 rounded px-2 text-[10px] font-semibold transition-colors disabled:opacity-50 ${
+                    active
+                      ? "bg-[#e9b67c] text-[#163a36]"
+                      : "text-white/60 hover:bg-white/10 hover:text-white"
+                  }`}
+                >
+                  {codexModePending && !active ? (
+                    <Loader2 className="mx-auto h-3 w-3 animate-spin" />
+                  ) : mode === "yuanheng" ? (
+                    "Meta API"
+                  ) : (
+                    "OpenAI"
+                  )}
+                </button>
+              );
+            })}
+          </div>
         )}
       </div>
+
+      {isYuanhengCliTool(app) && (
+        <button
+          type="button"
+          disabled={pending || launchDirectoryPending}
+          aria-label={dt("选择 {{tool}} 工作目录", {
+            tool: toolLabel(app),
+          })}
+          title={launchDirectory ?? dt("用户主目录")}
+          onClick={() => void chooseLaunchDirectory(app)}
+          className="inline-flex min-w-0 items-center gap-1.5 text-[10px] text-white/60 transition-colors hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {launchDirectoryPending ? (
+            <Loader2 className="h-3 w-3 shrink-0 animate-spin" />
+          ) : (
+            <FolderOpen className="h-3 w-3 shrink-0" />
+          )}
+          <span>{dt("工作目录")}</span>
+          <span className="max-w-[180px] truncate font-medium text-white/85">
+            {launchDirectoryLabel(launchDirectory)}
+          </span>
+        </button>
+      )}
 
       {codexStatus && (
         <p
@@ -525,48 +565,6 @@ export function FocusToolCard({
           busy={pending}
           dark
         />
-      )}
-
-      {isCodexSurface && (
-        <div className="relative mt-3 flex items-center justify-between gap-3 rounded-xl border border-white/10 bg-white/[0.05] px-3 py-2">
-          <div>
-            <p className="text-[10px] font-semibold text-white/75">
-              {dt("使用方式")}
-            </p>
-            <p className="mt-0.5 text-[9px] text-white/45">
-              {usesOfficialCodexAccount
-                ? dt("重启 Codex 后使用 ChatGPT 官方账号登录")
-                : dt("使用元衡模型、分组与本地安全路由")}
-            </p>
-            <CodexHistoryHint status={codexAccountMode.data} />
-          </div>
-          <div className="flex shrink-0 rounded-lg border border-white/10 bg-black/15 p-0.5">
-            {(["yuanheng", "official"] as const).map((mode) => {
-              const active = codexAccountMode.data?.mode === mode;
-              return (
-                <button
-                  key={mode}
-                  type="button"
-                  disabled={codexModePending || pending}
-                  onClick={() => void switchCodexMode(mode)}
-                  className={`h-7 rounded-md px-2.5 text-[10px] font-semibold transition-colors disabled:opacity-50 ${
-                    active
-                      ? "bg-[#e9b67c] text-[#163a36]"
-                      : "text-white/60 hover:bg-white/10 hover:text-white"
-                  }`}
-                >
-                  {codexModePending && !active ? (
-                    <Loader2 className="mx-auto h-3 w-3 animate-spin" />
-                  ) : mode === "yuanheng" ? (
-                    dt("元衡中转")
-                  ) : (
-                    dt("OpenAI 官方")
-                  )}
-                </button>
-              );
-            })}
-          </div>
-        </div>
       )}
 
       {isCodexSurface && <CodexProjectRecovery />}

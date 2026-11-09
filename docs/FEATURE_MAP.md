@@ -20,7 +20,7 @@ Verified from the local checkout on 2026-09-29. This is a scoped navigation aid,
 
 | Capability | Entry / UI | API / orchestration | Implementation / data | Review boundary |
 |---|---|---|---|---|
-| Codex 官方首次切换 | 工作台 CLI/App 共用使用方式按钮与登录步骤 | switch_codex_account_mode 复用配置事务，登录文件只作辅助检测 | 可先选官方再原生登录，不读写系统凭据库、不写删 auth.json；切回恢复元衡模型/分组 | 官方文本/图片路由拒绝 sk- API Key 并提示 ChatGPT 登录；本地回归不代表 Windows 真机登录通过，见[决定](../.agents/notes/implemented/bug-fix/2026-11-06-codex-official-first-login.md)。 |
+| Codex 官方首次切换 | 工作台 CLI/App 当前模型行的 Meta API / OpenAI 分段切换 | switch_codex_account_mode 复用配置事务，登录文件只作辅助检测 | 移除独立使用方式说明卡；可先选 OpenAI 再原生登录，不读写系统凭据库、不写删 auth.json；切回恢复 Meta API 模型/分组 | 官方文本/图片路由拒绝 sk- API Key 并提示 ChatGPT 登录；本地回归不代表 Windows 真机登录通过，见[决定](../.agents/notes/implemented/bug-fix/2026-11-06-codex-official-first-login.md)。 |
 | Codex 首次登录指引 | 工作台 / 工具管理 / 安装续接的共享配置 API → [登录弹窗](../src/components/desktop/CodexLoginGuide.tsx) | 桌面配置成功后按发起账号读取 [只读指引命令](../src-tauri/src/commands/yuanheng/codex_login_guide.rs) | 复用本次工具分组令牌，复制与 API Key 登录步骤；关闭后继续原流程 | 有登录材料时跳过；不创建额外令牌、不写 auth.json；关闭/切号清理，不入查询缓存。外部钥匙串状态和真实客户端登录待验收，见[决定](../.agents/notes/implemented/feature/2026-11-04-codex-first-login-guide.md)。 |
 | Codex 项目分组同步到 DSH | 会话页“带过来”菜单、DSH 启动前提示 | [同步 API](../src/lib/api/sessionSync.ts) → [项目适配器](../src-tauri/src/session_sync/projects/mod.rs) | 只读 Codex 项目，按目录合并 DSH 工作区；同步会话生成列表标题缓存 | 保留用户分组名称与已有归属；运行中的 DSH 拒绝工作区写入；备份、校验和原子写入。真实桌面本轮未复验，见[进展](../.agents/notes/proposed/feature/2026-11-03-local-session-sync.md)。 |
 | 登录密码可见性 | [登录与注册面板](../src/components/desktop/YuanhengConnectionPanel.tsx) | 密码和确认密码各自支持眼睛按钮切换 | 默认隐藏；切换登录/注册及认证完成后恢复隐藏 | 登录页与紧凑连接面板共用；按钮不提交表单，支持键盘操作。 |

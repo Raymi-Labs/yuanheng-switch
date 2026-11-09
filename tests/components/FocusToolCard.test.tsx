@@ -468,22 +468,19 @@ describe("FocusToolCard", () => {
         <FocusToolCard switcher={switcher} onOpenTools={vi.fn()} />,
       );
       expect(screen.getByText(/使用中转无需退出 ChatGPT 账号/)).toBeVisible();
-      const official = screen.getByRole("button", { name: "OpenAI 官方" });
+      const official = screen.getByRole("button", { name: "OpenAI" });
       expect(official).toBeEnabled();
       fireEvent.click(official);
       expect(switcher.switchCodexMode).toHaveBeenCalledWith("official");
       switcher.codexAccountMode.data!.mode = "official";
       rerender(<FocusToolCard switcher={switcher} onOpenTools={vi.fn()} />);
-      expect(
-        screen.getByText("重启 Codex 后使用 ChatGPT 官方账号登录"),
-      ).toBeVisible();
       expect(screen.getByText(/若当前使用 API Key/)).toHaveTextContent(
         "Sign in with ChatGPT",
       );
       expect(
         screen.queryByText("使用 Codex 中已登录的 OpenAI 官方账号"),
       ).not.toBeInTheDocument();
-      fireEvent.click(screen.getByRole("button", { name: "元衡中转" }));
+      fireEvent.click(screen.getByRole("button", { name: "Meta API" }));
       expect(switcher.switchCodexMode).toHaveBeenCalledWith("yuanheng");
     },
   );
@@ -515,7 +512,7 @@ describe("FocusToolCard", () => {
     repair.mockRestore();
   });
 
-  it("官方模式隐藏元衡模型控件并允许切回中转", () => {
+  it("在当前模型行显示 Meta API/OpenAI 切换并允许切回 Meta API", () => {
     const switcher = createSwitcher("ready");
     switcher.rows = ["codex"];
     switcher.runnableRows = ["codex"];
@@ -535,9 +532,20 @@ describe("FocusToolCard", () => {
     render(<FocusToolCard switcher={switcher} onOpenTools={vi.fn()} />);
 
     expect(screen.getByText("OpenAI 官方账号")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Meta API" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "OpenAI" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
     expect(screen.queryByText("1 · 模型供应商")).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Codex 推理等级")).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "元衡中转" }));
+    expect(screen.queryByText("使用方式")).not.toBeInTheDocument();
+    expect(
+      screen.queryByText(
+        "历史对话沿用当前使用方式；旧模型不可用时，请在 Codex 中重新选择模型。",
+      ),
+    ).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Meta API" }));
     expect(switcher.switchCodexMode).toHaveBeenCalledWith("yuanheng");
   });
 
