@@ -1,5 +1,9 @@
 # Codex 桌面原生速度档位
 
+同一账号切换模型或分组时，自动查询新能力；支持原档位则保留，不支持则自动标准并短暂提示。查询失败保留选择并暂时禁止付费启动，不将网络错误当成不支持。换账号回标准；不支持加速时隐藏速度入口。进入页面、重新聚焦或恢复网络会自动检测，无需手动刷新。已启动终端和在途请求不变，失败请求不自动降档重发。
+
+工作台选择Codex CLI后，推理等级旁的“速度”用于下次启动。选择标准/Fast×2/UltraFast×6后点启动，不需要手写终端命令；付费能力必须查询成功，启动前后端再次校验并应用配置。付费选择不写全局配置，成功启动后保留选择并显示该作用域的“最近启动”档位；之后修改选择不改变已经启动的终端。付费终端仅用于新对话，恢复旧会话请用标准启动。企业、鹈鹕王等分组都按能力查询，不按名称或价格猜测。UI表示选择和启动结果，不证明上游加速效果或结算金额，实际费用请核对服务端使用日志。本地已实现，发布状态以版本记录为准。
+
 此功能针对元衡配置的Codex桌面端（以及独立Codex终端profile），不在安卓聊天或桌面全局配置中开启付费档位。
 
 在元衡选择账号、分组和模型并重新应用配置后，客户端查询本人 `/api/user/service-tiers`，把实际返回的Fast×2/UltraFast×6写入Codex模型目录的`service_tiers`。重新打开支持动态serviceTiers的Codex后，使用原生模型参数里的速度选项；分组仍在元衡选择。未返回能力、未部署接口或渠道关闭时仅标准，不根据模型名或渠道1657硬编码。
@@ -9,6 +13,8 @@
 本机Core核对账号、模型、分组能力快照并检查最终出站字段；被参数覆盖/转换改档或改模型时拒绝发送。付费请求Core不自动整流重发、不切其他provider；托管Codex provider的请求及断流自动重试均设为0。用户手动重试由原生会话保留所选档位，Meta再次确认路由与计费。能力目录是配置时快照，过期支持信息可能仍显示，实际不可用不会静默降档；在元衡重新应用配置并重开Codex可更新目录。
 
 ## 验证边界
+
+v0.2.12新增官方CLI 0.166.0-alpha.5.1的真实PTY启动测试：通过元衡桥接和remote-auth-token-env认证，一条业务请求携带ultrafast；原生会话标题请求另行识别。测试在隔离配置/本机HTTP中完成，不代表真实Windows终端或生产计费验收。可运行 `YUANHENG_NATIVE_CODEX=<官方二进制绝对路径> cargo test --manifest-path src-tauri/Cargo.toml --lib native_cli_paid_launch -- --ignored --test-threads=1`。未知旧版本需支持官方远程认证参数。
 
 本机官方codex-cli 0.166.0-alpha.5.1的app-server schema支持ModelServiceTier `{id,name,description}`、turn/start的serviceTier与serviceTierForTurn。隔离CODEX_HOME/合成目录/loopback服务验证：标准省略字段、Fast=priority、UltraFast=ultrafast、单轮覆盖不改变线程原档位、新线程标准。未改官方程序、未读取个人会话、未调用付费模型。可重复脚本：`node scripts/test-codex-service-tiers.cjs <官方Codex可执行文件绝对路径>`。
 

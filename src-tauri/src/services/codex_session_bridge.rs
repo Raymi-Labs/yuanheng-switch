@@ -240,16 +240,25 @@ fn codex_profile_overrides(path: &Path) -> Result<Vec<String>, String> {
         .get("model_providers")
         .and_then(|providers| providers.get(provider_name))
         .ok_or_else(|| "Codex 终端配置缺少模型供应商".to_string())?;
-    let mut overrides = vec![format!(
-        "model_provider={}",
-        toml::Value::String(provider_name.to_string())
-    )];
+    let mut overrides = vec![
+        "service_tier=\"default\"".to_string(),
+        format!(
+            "model_provider={}",
+            toml::Value::String(provider_name.to_string())
+        ),
+    ];
     for key in ["base_url", "wire_api"] {
         if let Some(value) = provider.get(key).and_then(toml::Value::as_str) {
             overrides.push(format!(
                 "model_providers.{provider_name}.{key}={}",
                 toml::Value::String(value.to_string())
             ));
+        }
+    }
+    // Managed terminal profiles must not inherit native paid-request retries.
+    for key in ["request_max_retries", "stream_max_retries"] {
+        if provider.get(key).and_then(toml::Value::as_integer) == Some(0) {
+            overrides.push(format!("model_providers.{provider_name}.{key}=0"));
         }
     }
     if let Some(catalog) = config
@@ -391,15 +400,37 @@ impl Drop for TerminalConnection {
     }
 }
 
+// tungstenite's callback requires its unboxed HTTP ErrorResponse type.
+#[allow(clippy::result_large_err)]
 async fn handle_terminal(
     stream: TcpStream,
     state: Arc<BridgeState>,
     codex_executable: PathBuf,
     model_profile: Option<PathBuf>,
 ) -> Result<(), String> {
-    let mut socket = tokio_tungstenite::accept_async(stream)
-        .await
-        .map_err(|error| format!("Codex 终端握手失败: {error}"))?;
+    let mut launch_speed = None;
+    let mut socket = tokio_tungstenite::accept_hdr_async(
+        stream,
+        |request: &tokio_tungstenite::tungstenite::handshake::server::Request,
+         response: tokio_tungstenite::tungstenite::handshake::server::Response| {
+            let authorization = request
+                .headers()
+                .get("authorization")
+                .map(|h| h.to_str().unwrap_or("invalid"));
+            match super::codex_launch_speed::take(authorization) {
+                Ok(scope) => {
+                    launch_speed = scope;
+                    Ok(response)
+                }
+                Err(message) => Err(http::Response::builder()
+                    .status(403)
+                    .body(Some(message))
+                    .unwrap()),
+            }
+        },
+    )
+    .await
+    .map_err(|error| format!("Codex 终端握手失败: {error}"))?;
     let connection = TerminalConnection::new(state.clone());
 
     let executable_parent = codex_executable.parent().map(PathBuf::from);
@@ -412,6 +443,9 @@ async fn handle_terminal(
         for config_override in codex_profile_overrides(profile_path)? {
             command.args(["-c", &config_override]);
         }
+    }
+    if let Some((scope, _)) = &launch_speed {
+        command.args(["-c", &format!("service_tier=\"{}\"", scope.tier)]);
     }
     command.args(["app-server", "--stdio"]);
     if let Some(parent) = executable_parent {
@@ -472,6 +506,20 @@ async fn handle_terminal(
                             &text,
                             selection,
                         );
+                        let text = if let Some((scope, db)) = &launch_speed {
+                            let result = scope.check(db).and_then(|_| scope.apply(&text));
+                            match result {
+                                Ok(text) => text,
+                                Err(error) => {
+                                    let request: Value = serde_json::from_str(&text).unwrap_or(Value::Null);
+                                    if let Some(id) = request.get("id") {
+                                        socket.send(Message::Text(serde_json::json!({"id":id,"error":{"code":-32602,"message":error}}).to_string())).await
+                                            .map_err(|_| "返回速度校验错误失败")?;
+                                    }
+                                    continue;
+                                }
+                            }
+                        } else { text };
                         child_stdin.write_all(text.as_bytes()).await
                             .map_err(|error| format!("转发 Codex 请求失败: {error}"))?;
                         child_stdin.write_all(b"\n").await
@@ -757,6 +805,8 @@ model_catalog_json = "yuanheng-terminal-model-catalog.json"
 [model_providers.custom]
 base_url = "http://127.0.0.1:15721/codex/v1"
 wire_api = "responses"
+request_max_retries = 0
+stream_max_retries = 0
 experimental_bearer_token = "secret"
 "#,
         )
@@ -765,9 +815,12 @@ experimental_bearer_token = "secret"
         assert_eq!(
             overrides,
             vec![
+                "service_tier=\"default\"".to_string(),
                 r#"model_provider="custom""#.to_string(),
                 r#"model_providers.custom.base_url="http://127.0.0.1:15721/codex/v1""#.to_string(),
                 r#"model_providers.custom.wire_api="responses""#.to_string(),
+                "model_providers.custom.request_max_retries=0".to_string(),
+                "model_providers.custom.stream_max_retries=0".to_string(),
                 format!(
                     "model_catalog_json={}",
                     toml::Value::String(
@@ -780,6 +833,220 @@ experimental_bearer_token = "secret"
             ]
         );
         assert!(overrides.iter().all(|value| !value.contains("secret")));
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn launch_speed_crosses_real_websocket_and_rejects_replayed_ticket() {
+        use crate::services::codex_launch_speed::{issue, LaunchSpeed};
+        let db = Arc::new(crate::database::Database::memory().unwrap());
+        db.set_setting(
+            "yuanheng_connection_cache",
+            r#"{"userId":"7","connected":true}"#,
+        )
+        .unwrap();
+        let mut provider = crate::provider::Provider::with_id(
+            crate::commands::MANAGED_PROVIDER_ID.into(),
+            "test".into(),
+            json!({"yuanhengServiceTiers":{"owner":"7","group":"g","models":{"m":[{"id":"ultrafast"}]}}}),
+            None,
+        );
+        provider.category = Some("managed".into());
+        provider.notes = Some("group=g".into());
+        db.save_provider("codex", &provider).unwrap();
+        db.set_current_provider("codex", &provider.id).unwrap();
+        let ticket = issue(
+            LaunchSpeed {
+                tier: "ultrafast".into(),
+                model: "m".into(),
+                group: "g".into(),
+                owner: "7".into(),
+            },
+            db.clone(),
+        )
+        .unwrap();
+        let temp = tempfile::tempdir().unwrap();
+        let executable = temp.path().join("synthetic-codex");
+        std::fs::write(&executable,"#!/bin/sh\ncase \"$*\" in *ultrafast*) ;; *) exit 64;; esac\nwhile IFS= read -r line; do printf '%s\\n' \"$line\"; done\n").unwrap();
+        std::fs::set_permissions(&executable, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("ws://{}", listener.local_addr().unwrap());
+        let state = Arc::new(BridgeState::new());
+        let observed = state.clone();
+        let task = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            handle_terminal(stream, state, executable, None).await
+        });
+        use tokio_tungstenite::tungstenite::client::IntoClientRequest;
+        let mut request = url.into_client_request().unwrap();
+        request
+            .headers_mut()
+            .insert("authorization", format!("Bearer {ticket}").parse().unwrap());
+        let (mut socket, _) = tokio_tungstenite::connect_async(request).await.unwrap();
+        socket
+            .send(Message::Text(
+                r#"{"id":1,"method":"turn/start","params":{"input":[]}}"#.into(),
+            ))
+            .await
+            .unwrap();
+        let reply = tokio::time::timeout(std::time::Duration::from_secs(5), socket.next())
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap()
+            .into_text()
+            .unwrap();
+        assert_eq!(
+            serde_json::from_str::<Value>(&reply).unwrap()["params"]["serviceTierForTurn"],
+            "ultrafast"
+        );
+        assert!(
+            crate::services::codex_launch_speed::take(Some(&format!("Bearer {ticket}"))).is_err()
+        );
+        db.set_setting(
+            "yuanheng_connection_cache",
+            r#"{"userId":"8","connected":true}"#,
+        )
+        .unwrap();
+        socket
+            .send(Message::Text(
+                r#"{"id":2,"method":"turn/start","params":{"input":[]}}"#.into(),
+            ))
+            .await
+            .unwrap();
+        let reply = tokio::time::timeout(std::time::Duration::from_secs(5), socket.next())
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap()
+            .into_text()
+            .unwrap();
+        assert_eq!(
+            serde_json::from_str::<Value>(&reply).unwrap()["error"]["code"],
+            -32602
+        );
+        socket.close(None).await.unwrap();
+        tokio::time::timeout(std::time::Duration::from_secs(5), task)
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        assert_eq!(observed.connected_terminals.load(Ordering::Relaxed), 0);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    #[ignore = "requires YUANHENG_NATIVE_CODEX pointing to an installed official binary; isolated local HTTP only"]
+    async fn native_cli_paid_launch_reaches_http_without_manual_configuration() {
+        use crate::services::codex_launch_speed::{issue, LaunchSpeed};
+        use axum::{routing::post, Json, Router};
+        let binary = std::env::var("YUANHENG_NATIVE_CODEX").expect("official binary required");
+        let captured = Arc::new(std::sync::Mutex::new(Vec::<Value>::new()));
+        let capture = captured.clone();
+        let http_app=Router::new().route("/v1/responses",post(move |Json(body):Json<Value>| {
+            let capture=capture.clone();
+            async move {
+                capture.lock().unwrap().push(body);
+                let response=json!({"id":"resp_synthetic","status":"completed","output":[{"id":"msg_synthetic","type":"message","role":"assistant","status":"completed","content":[{"type":"output_text","text":"synthetic OK","annotations":[]}]}],"usage":{"input_tokens":1,"output_tokens":1,"total_tokens":2}});
+                ([("content-type","text/event-stream")],format!("event: response.created\ndata: {}\n\nevent: response.completed\ndata: {}\n\n",json!({"type":"response.created","response":{"id":"resp_synthetic","status":"in_progress","output":[]}}),json!({"type":"response.completed","response":response})))
+            }
+        }));
+        let http_listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let http_url = format!("http://{}/v1", http_listener.local_addr().unwrap());
+        let http_task =
+            tokio::spawn(async move { axum::serve(http_listener, http_app).await.unwrap() });
+        let temp = tempfile::tempdir().unwrap();
+        let mut model: Value = serde_json::from_str(include_str!(
+            "../resources/codex_native_responses_template.json"
+        ))
+        .unwrap();
+        model["slug"] = json!("synthetic-model");
+        model["display_name"] = json!("synthetic-model");
+        model["service_tiers"] =
+            json!([{"id":"ultrafast","name":"UltraFast ×6","description":"synthetic cost"}]);
+        model["default_service_tier"] = Value::Null;
+        let catalog = temp.path().join("catalog.json");
+        std::fs::write(&catalog, json!({"models":[model]}).to_string()).unwrap();
+        std::fs::write(temp.path().join("config.toml"),format!("model_provider=\"synthetic\"\nmodel=\"synthetic-model\"\nmodel_catalog_json={}\nservice_tier=\"default\"\napproval_policy=\"never\"\nsandbox_mode=\"read-only\"\n[analytics]\nenabled=false\n[model_providers.synthetic]\nname=\"synthetic\"\nbase_url={}\nwire_api=\"responses\"\nexperimental_bearer_token=\"synthetic\"\nrequest_max_retries=0\nstream_max_retries=0\n",json!(catalog.to_string_lossy()),json!(http_url))).unwrap();
+        let executable = temp.path().join("isolated-codex");
+        let quote = |v: &str| format!("'{}'", v.replace('\'', "'\\''"));
+        std::fs::write(&executable,format!("#!/bin/sh\nexec /usr/bin/env -i HOME={} CODEX_HOME={} PATH=/usr/bin:/bin:/usr/sbin:/sbin {} \"$@\"\n",quote(&temp.path().to_string_lossy()),quote(&temp.path().to_string_lossy()),quote(&binary))).unwrap();
+        std::fs::set_permissions(&executable, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let db = Arc::new(crate::database::Database::memory().unwrap());
+        db.set_setting(
+            "yuanheng_connection_cache",
+            r#"{"userId":"7","connected":true}"#,
+        )
+        .unwrap();
+        let mut provider = crate::provider::Provider::with_id(
+            crate::commands::MANAGED_PROVIDER_ID.into(),
+            "test".into(),
+            json!({"yuanhengServiceTiers":{"owner":"7","group":"g","models":{"synthetic-model":[{"id":"ultrafast"}]}}}),
+            None,
+        );
+        provider.category = Some("managed".into());
+        provider.notes = Some("group=g".into());
+        db.save_provider("codex", &provider).unwrap();
+        db.set_current_provider("codex", &provider.id).unwrap();
+        let ticket = issue(
+            LaunchSpeed {
+                tier: "ultrafast".into(),
+                model: "synthetic-model".into(),
+                group: "g".into(),
+                owner: "7".into(),
+            },
+            db,
+        )
+        .unwrap();
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let endpoint = format!("ws://{}", listener.local_addr().unwrap());
+        let mut bridge = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            handle_terminal(stream, Arc::new(BridgeState::new()), executable, None).await
+        });
+        let output = Command::new("/usr/bin/python3")
+            .arg(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../scripts/test-codex-cli-pty.py"
+            ))
+            .arg(&binary)
+            .arg(&endpoint)
+            .arg(temp.path())
+            .arg(&ticket)
+            .output()
+            .await
+            .unwrap();
+        let result = tokio::time::timeout(std::time::Duration::from_secs(8), &mut bridge).await;
+        if result.is_err() {
+            bridge.abort();
+            let _ = bridge.await;
+        }
+        http_task.abort();
+        let _ = http_task.await;
+        let requests = captured.lock().unwrap().clone();
+        assert!(
+            result.is_ok(),
+            "bridge did not stop; stdout={} stderr={}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let is_title = |request: &&Value| {
+            request["input"]
+                .as_array()
+                .and_then(|i| i.last())
+                .and_then(|v| v["content"][0]["text"].as_str())
+                .is_some_and(|s| s.starts_with("Generate a concise, single-line task title"))
+        };
+        // Native TUI creates a separate task-title request; it is not a retry.
+        assert_eq!(
+            requests.iter().filter(|r| !is_title(r)).count(),
+            1,
+            "native TUI output: {}",
+            String::from_utf8_lossy(&output.stdout)
+        );
+        assert!(requests.iter().filter(is_title).count() <= 1);
+        assert!(requests.iter().all(|r| r["service_tier"] == "ultrafast"));
+        assert!(String::from_utf8_lossy(&output.stdout).contains("UltraFast"));
     }
 
     #[cfg(unix)]

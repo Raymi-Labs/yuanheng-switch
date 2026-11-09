@@ -17,8 +17,9 @@ mod imagegen_credentials;
 mod media_studio;
 mod model_catalog;
 mod reasoning;
-mod service_tiers;
+pub(crate) mod service_tiers;
 pub use media_studio::*;
+pub use service_tiers::*;
 
 pub use desktop_feedback::*;
 

@@ -468,10 +468,19 @@ export const yuanhengApi = {
     return invoke("set_tool_launch_cwd", { tool: app, cwd });
   },
 
+  getCodexLaunchTiers(
+    model: string,
+    group: string,
+    owner: string,
+  ): Promise<Array<{ id: string; name: string; description: string }>> {
+    return invoke("get_codex_launch_tiers", { model, group, owner });
+  },
+
   async launchTool(
     app: YuanhengToolId | "dsh-web",
     restart = false,
     cwd?: string,
+    speed?: { tier: string; model: string; group: string; owner: string },
   ): Promise<boolean> {
     if (
       app === "accio-work" &&
@@ -484,9 +493,11 @@ export const yuanhengApi = {
     if (app === "claude-desktop") await ensureClaudeWorkspaceReady();
     // 重启不询问：重启只为应用新配置，不是用户开始新工作。
     if (!restart) await offerSessionSyncBeforeLaunch(app, cwd);
-    return invoke(
-      "launch_tool",
-      cwd ? { tool: app, restart, cwd } : { tool: app, restart },
-    );
+    return invoke("launch_tool", {
+      tool: app,
+      restart,
+      ...(cwd ? { cwd } : {}),
+      ...(speed ? { speed } : {}),
+    });
   },
 };
