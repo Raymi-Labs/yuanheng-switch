@@ -1635,6 +1635,7 @@ pub fn run() {
             commands::check_session_sync_before_launch,
             commands::preview_project_sync,
             commands::run_project_sync,
+            commands::repair_codex_project_map,
             commands::check_project_sync_before_launch,
             commands::mute_project_sync,
             commands::get_tool_versions,
