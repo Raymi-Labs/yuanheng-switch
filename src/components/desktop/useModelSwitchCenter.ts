@@ -785,9 +785,7 @@ export function useModelSwitchCenter() {
           : undefined;
       if (!isCurrentOperation(app, operationId) || !canContinue()) return;
       const needsApply =
-        dirty ||
-        Boolean(credentialCheck?.requiresConfiguration) ||
-        Boolean(speed);
+        dirty || Boolean(credentialCheck?.requiresConfiguration);
       if (needsApply && model) {
         const results = await configure.mutateAsync({
           apps: [app],

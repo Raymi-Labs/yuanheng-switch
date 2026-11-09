@@ -1,6 +1,33 @@
 use super::*;
 use futures::{stream, StreamExt};
 
+pub(crate) async fn prepare_launch(
+    state: &AppState,
+    scope: &crate::services::codex_launch_speed::LaunchSpeed,
+) -> Result<(), String> {
+    prepare_launch_with_query(
+        state,
+        scope,
+        query_launch_tiers(state, &scope.model, &scope.group, &scope.owner),
+    )
+    .await
+}
+
+pub(super) async fn prepare_launch_with_query<F>(
+    state: &AppState,
+    scope: &crate::services::codex_launch_speed::LaunchSpeed,
+    query: F,
+) -> Result<(), String>
+where
+    F: std::future::Future<Output = Result<Vec<Value>, String>>,
+{
+    let _guard = codex_account_mode_switch_lock().lock().await;
+    crate::services::codex_launch_speed::refresh_for_launch(&state.db, scope, query).await?;
+    // Same DB snapshot feeds the Core guard; same catalogue feeds native CLI selection.
+    write_codex_surface_config(state, CodexSurface::Terminal).await?;
+    scope.check(&state.db)
+}
+
 #[tauri::command]
 pub async fn get_codex_launch_tiers(
     state: tauri::State<'_, AppState>,

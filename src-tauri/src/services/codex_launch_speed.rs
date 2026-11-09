@@ -19,6 +19,16 @@ pub struct LaunchSpeed {
 
 impl LaunchSpeed {
     pub fn check(&self, db: &Database) -> Result<(), String> {
+        let provider = self.check_identity(db)?;
+        super::desktop_service_tiers::validate(
+            &provider,
+            &json!({"model":self.model,"service_tier":self.tier}),
+            Some(&self.owner),
+        )
+        .map_err(|e| e.to_string())
+    }
+
+    pub fn check_identity(&self, db: &Database) -> Result<crate::provider::Provider, String> {
         if !matches!(self.tier.as_str(), "priority" | "ultrafast") {
             return Err("无效的付费速度档位".into());
         }
@@ -44,12 +54,18 @@ impl LaunchSpeed {
         {
             return Err("终端供应商或分组已变化，请重新启动并选择速度".into());
         }
-        super::desktop_service_tiers::validate(
-            &provider,
-            &json!({"model":self.model,"service_tier":self.tier}),
-            Some(&self.owner),
-        )
-        .map_err(|e| e.to_string())
+        let config = provider.settings_config["config"]
+            .as_str()
+            .and_then(|text| text.parse::<toml::Value>().ok());
+        if config
+            .as_ref()
+            .and_then(|c| c.get("model"))
+            .and_then(toml::Value::as_str)
+            != Some(self.model.as_str())
+        {
+            return Err("终端模型已变化，请重新启动并选择速度".into());
+        }
+        Ok(provider)
     }
     pub fn apply(&self, message: &str) -> Result<String, String> {
         let mut v: Value = serde_json::from_str(message).map_err(|_| "无效的CLI消息")?;
@@ -85,6 +101,52 @@ impl LaunchSpeed {
         }
         Ok(v.to_string())
     }
+}
+
+pub async fn refresh_for_launch<F>(
+    db: &Database,
+    scope: &LaunchSpeed,
+    query: F,
+) -> Result<(), String>
+where
+    F: std::future::Future<Output = Result<Vec<Value>, String>>,
+{
+    let before = scope.check_identity(db)?;
+    let tiers = query.await?;
+    let mut provider = scope.check_identity(db)?;
+    if provider.settings_config != before.settings_config || provider.notes != before.notes {
+        return Err("启动期间配置已变化，请重新启动；未发送请求".into());
+    }
+    if tiers
+        .iter()
+        .any(|row| !matches!(row["id"].as_str(), Some("priority" | "ultrafast")))
+    {
+        return Err("速度能力响应无效，未启动".into());
+    }
+    let old = &provider.settings_config["yuanhengServiceTiers"];
+    let mut models = if old["owner"] == scope.owner && old["group"] == scope.group {
+        old["models"].as_object().cloned().unwrap_or_default()
+    } else {
+        serde_json::Map::new()
+    };
+    models.insert(scope.model.clone(), json!(tiers));
+    provider.settings_config["yuanhengServiceTiers"] =
+        json!({"owner":scope.owner,"group":scope.group,"models":models});
+    provider.settings_config["yuanhengServiceTiersSchema"] = json!(1);
+    let rows = provider
+        .settings_config
+        .pointer_mut("/modelCatalog/models")
+        .and_then(Value::as_array_mut)
+        .ok_or("终端模型目录缺失，请重新应用配置")?;
+    let row = rows
+        .iter_mut()
+        .find(|r| r["model"] == scope.model)
+        .ok_or("当前模型不在终端目录中，请重新应用配置")?;
+    row["serviceTiers"] = json!(tiers);
+    db.save_provider("codex", &provider)
+        .map_err(|e| e.to_string())?;
+    // An explicit negative response revokes the old row rather than retaining stale permission.
+    scope.check(db)
 }
 
 type Ticket = (Instant, LaunchSpeed, Arc<Database>);
@@ -147,6 +209,51 @@ mod tests {
             owner: "7".into(),
         }
     }
+    fn empty_database() -> Database {
+        let db = Database::memory().unwrap();
+        db.set_setting(
+            "yuanheng_connection_cache",
+            r#"{"userId":"7","connected":true}"#,
+        )
+        .unwrap();
+        let mut p = crate::provider::Provider::with_id(
+            crate::commands::MANAGED_PROVIDER_ID.into(),
+            "synthetic".into(),
+            json!({"config":"model=\"m\"","modelCatalog":{"models":[{"model":"m","serviceTiers":[]}]},"yuanhengServiceTiers":{"owner":"7","group":"g","models":{}}}),
+            None,
+        );
+        p.category = Some("managed".into());
+        p.notes = Some("group=g".into());
+        db.save_provider("codex", &p).unwrap();
+        db.set_current_provider("codex", &p.id).unwrap();
+        db
+    }
+    #[tokio::test]
+    async fn empty_snapshot_is_refreshed_before_paid_launch_and_core_validation() {
+        let db = empty_database();
+        let s = scope("ultrafast");
+        assert!(s.check(&db).is_err());
+        refresh_for_launch(&db, &s, async {
+            Ok(vec![json!({"id":"ultrafast","name":"UltraFast ×6"})])
+        })
+        .await
+        .unwrap();
+        s.check(&db).unwrap();
+        let p = db
+            .get_provider_by_id(crate::commands::MANAGED_PROVIDER_ID, "codex")
+            .unwrap()
+            .unwrap();
+        super::super::desktop_service_tiers::validate(
+            &p,
+            &json!({"model":"m","service_tier":"ultrafast"}),
+            Some("7"),
+        )
+        .unwrap();
+        assert_eq!(
+            p.settings_config["modelCatalog"]["models"][0]["serviceTiers"][0]["id"],
+            "ultrafast"
+        );
+    }
     #[test]
     fn launch_tiers_are_connection_local_and_never_silently_changed() {
         let message = r#"{"id":1,"method":"turn/start","params":{"input":[]}}"#;
@@ -170,5 +277,107 @@ mod tests {
         assert!(take(None).unwrap().is_none());
         assert!(terminal_command("ws://127.0.0.1:1234", Some("synthetic"))
             .contains("--remote-auth-token-env YUANHENG_CODEX_LAUNCH"));
+    }
+
+    #[tokio::test]
+    async fn refresh_failure_and_revocation_never_reuse_paid_permission() {
+        let db = empty_database();
+        let s = scope("priority");
+        let before = db
+            .get_provider_by_id(crate::commands::MANAGED_PROVIDER_ID, "codex")
+            .unwrap()
+            .unwrap();
+        assert!(refresh_for_launch(&db, &s, async { Err("timeout".into()) })
+            .await
+            .is_err());
+        assert_eq!(
+            db.get_provider_by_id(&before.id, "codex")
+                .unwrap()
+                .unwrap()
+                .settings_config,
+            before.settings_config
+        );
+        refresh_for_launch(&db, &s, async { Ok(vec![json!({"id":"priority"})]) })
+            .await
+            .unwrap();
+        assert!(refresh_for_launch(&db, &s, async { Ok(vec![]) })
+            .await
+            .is_err());
+        assert!(s.check(&db).is_err());
+        let after = db.get_provider_by_id(&before.id, "codex").unwrap().unwrap();
+        assert_eq!(
+            after.settings_config["yuanhengServiceTiers"]["models"]["m"],
+            json!([])
+        );
+    }
+
+    #[tokio::test]
+    async fn refresh_rejects_account_group_model_and_config_changes_during_query() {
+        for change in ["account", "group", "model", "config"] {
+            let db = empty_database();
+            let s = scope("priority");
+            let result = refresh_for_launch(&db, &s, async {
+                if change == "account" {
+                    db.set_setting(
+                        "yuanheng_connection_cache",
+                        r#"{"userId":"8","connected":true}"#,
+                    )
+                    .unwrap();
+                } else {
+                    let mut p = db
+                        .get_provider_by_id(crate::commands::MANAGED_PROVIDER_ID, "codex")
+                        .unwrap()
+                        .unwrap();
+                    match change {
+                        "group" => p.notes = Some("group=other".into()),
+                        "model" => p.settings_config["config"] = json!("model=\"other\""),
+                        _ => p.settings_config["externalChange"] = json!(true),
+                    }
+                    db.save_provider("codex", &p).unwrap();
+                }
+                Ok(vec![json!({"id":"priority"})])
+            })
+            .await;
+            assert!(result.is_err(), "{change}");
+            let p = db
+                .get_provider_by_id(crate::commands::MANAGED_PROVIDER_ID, "codex")
+                .unwrap()
+                .unwrap();
+            assert_eq!(
+                p.settings_config["yuanhengServiceTiers"]["models"],
+                json!({}),
+                "{change}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn invalid_identity_never_queries_and_unrelated_models_are_preserved() {
+        let db = empty_database();
+        let mut s = scope("priority");
+        s.group = "wrong".into();
+        assert!(
+            refresh_for_launch(&db, &s, async { panic!("must not query wrong scope") })
+                .await
+                .is_err()
+        );
+        s.group = "g".into();
+        let mut p = db
+            .get_provider_by_id(crate::commands::MANAGED_PROVIDER_ID, "codex")
+            .unwrap()
+            .unwrap();
+        p.settings_config["yuanhengServiceTiers"]["models"]["unrelated"] =
+            json!([{"id":"ultrafast"}]);
+        p.settings_config["auth"] = json!({"synthetic":"keep"});
+        db.save_provider("codex", &p).unwrap();
+        refresh_for_launch(&db, &s, async { Ok(vec![json!({"id":"priority"})]) })
+            .await
+            .unwrap();
+        let after = db.get_provider_by_id(&p.id, "codex").unwrap().unwrap();
+        assert_eq!(after.settings_config["auth"], p.settings_config["auth"]);
+        assert_eq!(
+            after.settings_config["yuanhengServiceTiers"]["models"]["unrelated"],
+            p.settings_config["yuanhengServiceTiers"]["models"]["unrelated"]
+        );
     }
 }

@@ -848,7 +848,7 @@ experimental_bearer_token = "secret"
         let mut provider = crate::provider::Provider::with_id(
             crate::commands::MANAGED_PROVIDER_ID.into(),
             "test".into(),
-            json!({"yuanhengServiceTiers":{"owner":"7","group":"g","models":{"m":[{"id":"ultrafast"}]}}}),
+            json!({"config":"model=\"m\"","yuanhengServiceTiers":{"owner":"7","group":"g","models":{"m":[{"id":"ultrafast"}]}}}),
             None,
         );
         provider.category = Some("managed".into());
@@ -951,7 +951,14 @@ experimental_bearer_token = "secret"
                 ([("content-type","text/event-stream")],format!("event: response.created\ndata: {}\n\nevent: response.completed\ndata: {}\n\n",json!({"type":"response.created","response":{"id":"resp_synthetic","status":"in_progress","output":[]}}),json!({"type":"response.completed","response":response})))
             }
         }));
+        let http_app=http_app.route("/capabilities",axum::routing::get(||async {
+            Json(json!({"success":true,"data":{"model":"synthetic-model","group":"g","managed":true,"tiers":[{"id":"default","multiplier":1},{"id":"ultrafast","multiplier":6}]}}))
+        }));
         let http_listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let cap_url = format!(
+            "http://{}/capabilities",
+            http_listener.local_addr().unwrap()
+        );
         let http_url = format!("http://{}/v1", http_listener.local_addr().unwrap());
         let http_task =
             tokio::spawn(async move { axum::serve(http_listener, http_app).await.unwrap() });
@@ -981,23 +988,46 @@ experimental_bearer_token = "secret"
         let mut provider = crate::provider::Provider::with_id(
             crate::commands::MANAGED_PROVIDER_ID.into(),
             "test".into(),
-            json!({"yuanhengServiceTiers":{"owner":"7","group":"g","models":{"synthetic-model":[{"id":"ultrafast"}]}}}),
+            json!({"config":"model=\"synthetic-model\"","modelCatalog":{"models":[{"model":"synthetic-model","serviceTiers":[]}]},"yuanhengServiceTiers":{"owner":"7","group":"g","models":{}}}),
             None,
         );
         provider.category = Some("managed".into());
         provider.notes = Some("group=g".into());
         db.save_provider("codex", &provider).unwrap();
         db.set_current_provider("codex", &provider.id).unwrap();
-        let ticket = issue(
-            LaunchSpeed {
-                tier: "ultrafast".into(),
-                model: "synthetic-model".into(),
-                group: "g".into(),
-                owner: "7".into(),
-            },
-            db,
-        )
+        let scope = LaunchSpeed {
+            tier: "ultrafast".into(),
+            model: "synthetic-model".into(),
+            group: "g".into(),
+            owner: "7".into(),
+        };
+        assert!(scope.check(&db).is_err());
+        crate::services::codex_launch_speed::refresh_for_launch(&db, &scope, async {
+            let response = reqwest::Client::builder()
+                .no_proxy()
+                .timeout(std::time::Duration::from_secs(3))
+                .build()
+                .unwrap()
+                .get(cap_url)
+                .send()
+                .await
+                .map_err(|e| e.to_string())?;
+            let value: Value = response.json().await.map_err(|e| e.to_string())?;
+            crate::services::desktop_service_tiers::parse_capability(&value, "synthetic-model", "g")
+                .ok_or_else(|| "invalid synthetic capability".into())
+        })
+        .await
         .unwrap();
+        let refreshed = db
+            .get_provider_by_id(crate::commands::MANAGED_PROVIDER_ID, "codex")
+            .unwrap()
+            .unwrap();
+        let mut native_catalog: Value =
+            serde_json::from_str(&std::fs::read_to_string(&catalog).unwrap()).unwrap();
+        native_catalog["models"][0]["service_tiers"] =
+            refreshed.settings_config["modelCatalog"]["models"][0]["serviceTiers"].clone();
+        std::fs::write(&catalog, native_catalog.to_string()).unwrap();
+        let ticket = issue(scope, db).unwrap();
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let endpoint = format!("ws://{}", listener.local_addr().unwrap());
         let mut bridge = tokio::spawn(async move {
