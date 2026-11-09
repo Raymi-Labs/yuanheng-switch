@@ -95,6 +95,19 @@ pub fn api_route(operation: &str, body: &Value) -> Result<(Method, String), Stri
         "pricing" => "/api/pricing".into(),
         "account" => "/api/user/self".into(),
         "groups" => "/api/user/self/groups".into(),
+        "service_tiers" => {
+            let mut url = url::Url::parse(&format!("{BASE}/api/user/service-tiers"))
+                .map_err(|_| "地址无效")?;
+            for field in ["model", "group"] {
+                let v = body
+                    .get(field)
+                    .and_then(Value::as_str)
+                    .filter(|v| !v.trim().is_empty() && v.len() <= 255)
+                    .ok_or("模型或分组无效")?;
+                url.query_pairs_mut().append_pair(field, v);
+            }
+            format!("{}?{}", url.path(), url.query().unwrap_or_default())
+        }
         "models" => {
             let mut url =
                 url::Url::parse(&format!("{BASE}/api/user/models")).map_err(|_| "地址无效")?;
@@ -228,6 +241,37 @@ pub fn validate_chat(body: &Value) -> Result<(), String> {
     }
     Ok(())
 }
+pub fn validate_service_tier_capability(
+    value: &Value,
+    model: &str,
+    group: &str,
+    tier: &str,
+    multiplier: Option<u32>,
+) -> Result<(), String> {
+    let expected = match tier {
+        "priority" => 2,
+        "ultrafast" => 6,
+        _ => return Err("速度档位无效".into()),
+    };
+    let data = &value["data"];
+    if multiplier != Some(expected)
+        || value["success"] != true
+        || data["model"] != model
+        || data["group"] != group
+        || data["managed"] != true
+    {
+        return Err("速度能力或倍率已变化；未发送模型请求".into());
+    }
+    let tiers = data["tiers"].as_array().ok_or("速度能力响应无效")?;
+    if tiers.iter().filter(|t| t["id"] == tier).count() != 1
+        || !tiers
+            .iter()
+            .any(|t| t["id"] == tier && t["multiplier"].as_u64() == Some(expected as u64))
+    {
+        return Err("当前模型或分组不支持所选速度档位；请重新选择".into());
+    }
+    Ok(())
+}
 pub fn image_credential(value: &Value) -> Result<String, String> {
     let raw = value
         .pointer("/data/url")
@@ -265,6 +309,39 @@ pub fn image_mime(bytes: &[u8]) -> Result<&'static str, String> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn paid_tiers_require_matching_account_capability_and_price() {
+        let v = serde_json::json!({"success":true,"data":{"model":"m","group":"g","managed":true,"tiers":[{"id":"default","multiplier":1},{"id":"priority","multiplier":2},{"id":"ultrafast","multiplier":6}]}});
+        assert!(super::validate_service_tier_capability(&v, "m", "g", "priority", Some(2)).is_ok());
+        assert!(
+            super::validate_service_tier_capability(&v, "m", "g", "ultrafast", Some(6)).is_ok()
+        );
+        for (m, g, t, n) in [
+            ("other", "g", "priority", 2),
+            ("m", "other", "priority", 2),
+            ("m", "g", "fast", 2),
+            ("m", "g", "ultrafast", 2),
+        ] {
+            assert!(super::validate_service_tier_capability(&v, m, g, t, Some(n)).is_err());
+        }
+        let mut unavailable = v.clone();
+        unavailable["data"]["tiers"] = serde_json::json!([{"id":"default","multiplier":1}]);
+        assert!(super::validate_service_tier_capability(
+            &unavailable,
+            "m",
+            "g",
+            "priority",
+            Some(2)
+        )
+        .is_err());
+        let (_, path) = super::api_route(
+            "service_tiers",
+            &serde_json::json!({"model":"m&x=1","group":"g#private"}),
+        )
+        .unwrap();
+        assert!(path.contains("m%26x%3D1"));
+        assert!(path.contains("g%23private"));
+    }
     use super::*;
     use serde_json::json;
     #[test]
