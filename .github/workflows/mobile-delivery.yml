@@ -21,6 +21,10 @@ concurrency:
 
 jobs:
   deliver:
+    # GitHub draft release reads require push-level access, even for GET.
+    # The withdrawal script never edits or deletes the retained draft.
+    permissions:
+      contents: write
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     env:
