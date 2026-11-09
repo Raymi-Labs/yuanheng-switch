@@ -1,6 +1,54 @@
 use super::*;
 use futures::{stream, StreamExt};
 
+#[tauri::command]
+pub async fn get_codex_launch_tiers(
+    state: tauri::State<'_, AppState>,
+    model: String,
+    group: String,
+    owner: String,
+) -> Result<Vec<Value>, String> {
+    query_launch_tiers(&state, &model, &group, &owner).await
+}
+
+pub(crate) async fn query_launch_tiers(
+    state: &AppState,
+    model: &str,
+    group: &str,
+    owner: &str,
+) -> Result<Vec<Value>, String> {
+    let cookie = get_yuanheng_secret(state, SESSION_COOKIE_KEY)?.ok_or("请先登录元衡")?;
+    if get_yuanheng_secret(state, USER_ID_KEY)?.as_deref() != Some(owner) {
+        return Err("账号已变化，请重新选择速度".into());
+    }
+    let mut url = reqwest::Url::parse(&format!("{BASE_URL}/api/user/service-tiers"))
+        .map_err(|_| "能力接口地址无效")?;
+    url.query_pairs_mut()
+        .append_pair("model", model)
+        .append_pair("group", group);
+    let client = yuanheng_client()?;
+    let value = tokio::time::timeout(
+        std::time::Duration::from_secs(4),
+        fetch_capability(&client, url.as_str(), &cookie, owner),
+    )
+    .await
+    .ok()
+    .flatten()
+    .ok_or("未能确认速度支持范围，请重试或明确选择标准")?;
+    if get_yuanheng_secret(state, USER_ID_KEY)?.as_deref() != Some(owner) {
+        return Err("账号已变化，请重新选择速度".into());
+    }
+    if value["success"] == true
+        && value["data"]["model"] == model
+        && value["data"]["group"] == group
+        && value["data"]["managed"] == false
+    {
+        return Ok(vec![]);
+    }
+    crate::services::desktop_service_tiers::parse_capability(&value, model, group)
+        .ok_or_else(|| "速度能力响应无效，请重试或明确选择标准".into())
+}
+
 async fn fetch_capability(
     client: &reqwest::Client,
     url: &str,

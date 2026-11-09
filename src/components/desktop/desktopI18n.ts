@@ -8,6 +8,18 @@ import { DESKTOP_ZH_TW } from "./desktopI18n.zhTW";
 type Values = Record<string, string | number | null | undefined>;
 
 export const DESKTOP_EN: Record<string, string> = {
+  "最近启动：{{tier}}": "Last launch: {{tier}}",
+  已切回标准: "Switched back to Standard",
+  速度: "Speed",
+  本次启动速度: "Speed for this launch",
+  "正在确认支持档位…": "Checking available tiers…",
+  无法确认速度支持范围: "Could not confirm available speed tiers",
+  "当前账号、模型或分组尚未确认支持所选档位，请重新选择或重试":
+    "This tier is not confirmed for the current account, model or group. Choose again or retry.",
+  "仅本次启动的新对话；×2/×6是费用倍率，不保证速度。实际结算请查看使用日志。":
+    "New conversations in this launch only. ×2/×6 are price multipliers, not speed guarantees. Check usage logs for billing.",
+  "本次新对话按{{multiplier}}倍费用请求；结算以使用日志为准。":
+    "New conversations request ×{{multiplier}} pricing. Check usage logs for final billing.",
   "项目消失可能与登录切换有关。可检查历史登录保存在本机的项目映射。":
     "Missing projects may be related to a login change. Check the local project map saved under a previous login.",
   检查本地项目: "Check local projects",

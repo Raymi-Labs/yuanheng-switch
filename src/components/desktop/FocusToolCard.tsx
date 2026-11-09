@@ -1,5 +1,6 @@
 import { ClaudeDesktopModeSwitch } from "./ClaudeDesktopModeSwitch";
 import { toolReasoningLevels } from "@/lib/agentReasoning";
+import { useCodexLaunchSpeed } from "./useCodexLaunchSpeed";
 import { ToolInstallProgress } from "./ToolInstallProgress";
 import { CodexHistoryHint } from "./CodexHistoryHint";
 import { useEffect, useState, type ReactNode } from "react";
@@ -257,6 +258,14 @@ export function FocusToolCard({
   const status = app ? statusMap.get(app) : undefined;
   const current = app ? models[app] : undefined;
   const currentGroup = app ? (groups[app] ?? status?.group) : undefined;
+  const speed = useCodexLaunchSpeed(
+    app === "codex" &&
+      Boolean(connection?.connected) &&
+      codexAccountMode.data?.mode !== "official",
+    connection?.userId,
+    current,
+    currentGroup,
+  );
   const currentReasoning = app
     ? (reasoning[app] ?? status?.reasoning ?? "auto")
     : "auto";
@@ -426,7 +435,10 @@ export function FocusToolCard({
           disabled={bootstrapRefreshing}
           aria-label={dt("重新检测")}
           title={dt("重新检测")}
-          onClick={() => void retryBootstrap()}
+          onClick={() => {
+            if (app === "codex") speed.retry();
+            void retryBootstrap();
+          }}
           className="ml-auto inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-white/60 transition-colors hover:bg-white/10 hover:text-white disabled:opacity-50"
         >
           <RefreshCw
@@ -435,13 +447,30 @@ export function FocusToolCard({
         </button>
         <button
           type="button"
-          disabled={pending || accioConfigurationBlocked(status)}
+          disabled={
+            pending ||
+            accioConfigurationBlocked(status) ||
+            (app === "codex" && !speed.valid)
+          }
           aria-label={
             restartRequired
               ? dt("重启并应用 {{v0}}", { v0: toolLabel(app) })
               : dt("启动 {{v0}}", { v0: toolLabel(app) })
           }
-          onClick={() => void launch(app)}
+          onClick={() => {
+            if (app !== "codex") {
+              void launch(app);
+              return;
+            }
+            if (app === "codex" && !speed.valid) return;
+            void launch(
+              app,
+              speed.isCurrent,
+              app === "codex" ? speed.request : undefined,
+            ).then((ok) => {
+              if (ok) speed.markLaunched();
+            });
+          }}
           className="inline-flex h-[34px] shrink-0 items-center gap-1.5 rounded-[10px] bg-[#e9b67c] px-4 text-[12px] font-semibold text-[#163a36] transition-colors hover:bg-[#f3c995] disabled:opacity-60"
         >
           {pending ? (
@@ -634,30 +663,108 @@ export function FocusToolCard({
                 }
               />
             )}
-            {showReasoning && (
-              <label className="min-w-0">
-                <span className="mb-1 block text-[9px] font-medium text-white/50">
-                  {dt("推理等级")}
-                </span>
-                <CompactSelectPicker
-                  label={dt("{{v0}} 推理等级", { v0: toolLabel(app) })}
-                  value={selectedReasoning}
-                  options={reasoningOptions.map((level) => ({
-                    value: level,
-                    label: reasoningLabel(level, defaultReasoning),
-                  }))}
-                  disabled={
-                    pending ||
-                    !supportedReasoning.length ||
-                    accioConfigurationBlocked(status)
-                  }
-                  triggerClassName="border-white/15 bg-white/[0.08] px-2.5 text-[10.5px] text-white transition-colors hover:bg-white/[0.12] focus:border-[#e9b67c]/70"
-                  onChange={(level) =>
-                    void applyReasoning(app, level as YuanhengReasoningLevel)
-                  }
-                />
-              </label>
-            )}
+            <div
+              className={`grid grid-cols-1 gap-3 ${app === "codex" && speed.visible ? "sm:grid-cols-2" : ""}`}
+            >
+              {showReasoning && (
+                <label className="min-w-0">
+                  <span className="mb-1 block text-[9px] font-medium text-white/50">
+                    {dt("推理等级")}
+                  </span>
+                  <CompactSelectPicker
+                    label={dt("{{v0}} 推理等级", { v0: toolLabel(app) })}
+                    value={selectedReasoning}
+                    options={reasoningOptions.map((level) => ({
+                      value: level,
+                      label: reasoningLabel(level, defaultReasoning),
+                    }))}
+                    disabled={
+                      pending ||
+                      !supportedReasoning.length ||
+                      accioConfigurationBlocked(status)
+                    }
+                    triggerClassName="border-white/15 bg-white/[0.08] px-2.5 text-[10.5px] text-white transition-colors hover:bg-white/[0.12] focus:border-[#e9b67c]/70"
+                    onChange={(level) =>
+                      void applyReasoning(app, level as YuanhengReasoningLevel)
+                    }
+                  />
+                </label>
+              )}
+              {app === "codex" && speed.visible && (
+                <div className="min-w-0">
+                  <label
+                    htmlFor="codex-launch-speed"
+                    className="mb-1 block text-[11px] font-medium text-white/70"
+                  >
+                    {dt("速度")}
+                  </label>
+                  <select
+                    id="codex-launch-speed"
+                    aria-label={dt("本次启动速度")}
+                    value={speed.tier}
+                    disabled={pending || speed.loading}
+                    title={dt(
+                      "仅本次启动的新对话；×2/×6是费用倍率，不保证速度。实际结算请查看使用日志。",
+                    )}
+                    className="h-9 w-full rounded-md border border-white/15 bg-[#21443d] px-2.5 text-xs text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#e9b67c]"
+                    onChange={(e) => speed.select(e.target.value)}
+                  >
+                    <option value="default">{dt("标准")}</option>
+                    {Array.from(
+                      new Set([
+                        ...speed.tiers,
+                        ...(speed.tier !== "default" ? [speed.tier] : []),
+                      ]),
+                    ).map((tier) => (
+                      <option
+                        key={tier}
+                        value={tier}
+                        disabled={!speed.tiers.includes(tier)}
+                      >
+                        {tier === "priority" ? "Fast ×2" : "UltraFast ×6"}
+                      </option>
+                    ))}
+                  </select>
+                  {speed.loading && (
+                    <span className="text-xs text-white/70" role="status">
+                      {dt("正在确认支持档位…")}
+                    </span>
+                  )}
+                  {speed.error && (
+                    <div className="mt-1 text-xs text-amber-200" role="alert">
+                      {dt(speed.error)}{" "}
+                      <button
+                        type="button"
+                        className="underline"
+                        onClick={speed.retry}
+                      >
+                        {dt("重试")}
+                      </button>
+                    </div>
+                  )}
+                  {speed.tier !== "default" && (
+                    <p className="mt-1 text-xs text-amber-200">
+                      {dt(
+                        "本次新对话按{{multiplier}}倍费用请求；结算以使用日志为准。",
+                        { multiplier: speed.tier === "priority" ? 2 : 6 },
+                      )}
+                    </p>
+                  )}
+                  {speed.lastLaunchedTier && (
+                    <p className="mt-1 text-xs text-white/70" role="status">
+                      {dt("最近启动：{{tier}}", {
+                        tier:
+                          speed.lastLaunchedTier === "default"
+                            ? dt("标准")
+                            : speed.lastLaunchedTier === "priority"
+                              ? "Fast ×2"
+                              : "UltraFast ×6",
+                      })}
+                    </p>
+                  )}
+                </div>
+              )}
+            </div>
             <p className="text-xs text-white/65">
               {dt(
                 supportedReasoning.length

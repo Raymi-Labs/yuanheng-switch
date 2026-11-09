@@ -240,16 +240,25 @@ fn codex_profile_overrides(path: &Path) -> Result<Vec<String>, String> {
         .get("model_providers")
         .and_then(|providers| providers.get(provider_name))
         .ok_or_else(|| "Codex 终端配置缺少模型供应商".to_string())?;
-    let mut overrides = vec![format!(
-        "model_provider={}",
-        toml::Value::String(provider_name.to_string())
-    )];
+    let mut overrides = vec![
+        "service_tier=\"default\"".to_string(),
+        format!(
+            "model_provider={}",
+            toml::Value::String(provider_name.to_string())
+        ),
+    ];
     for key in ["base_url", "wire_api"] {
         if let Some(value) = provider.get(key).and_then(toml::Value::as_str) {
             overrides.push(format!(
                 "model_providers.{provider_name}.{key}={}",
                 toml::Value::String(value.to_string())
             ));
+        }
+    }
+    // Managed terminal profiles must not inherit native paid-request retries.
+    for key in ["request_max_retries", "stream_max_retries"] {
+        if provider.get(key).and_then(toml::Value::as_integer) == Some(0) {
+            overrides.push(format!("model_providers.{provider_name}.{key}=0"));
         }
     }
     if let Some(catalog) = config
@@ -391,15 +400,33 @@ impl Drop for TerminalConnection {
     }
 }
 
+// tungstenite's callback requires its unboxed HTTP ErrorResponse type.
+#[allow(clippy::result_large_err)]
 async fn handle_terminal(
     stream: TcpStream,
     state: Arc<BridgeState>,
     codex_executable: PathBuf,
     model_profile: Option<PathBuf>,
 ) -> Result<(), String> {
-    let mut socket = tokio_tungstenite::accept_async(stream)
-        .await
-        .map_err(|error| format!("Codex 终端握手失败: {error}"))?;
+    let mut launch_speed = None;
+    let mut socket = tokio_tungstenite::accept_hdr_async(
+        stream,
+        |request: &tokio_tungstenite::tungstenite::handshake::server::Request,
+         response: tokio_tungstenite::tungstenite::handshake::server::Response| {
+            match super::codex_launch_speed::take(request.uri().path()) {
+                Ok(scope) => {
+                    launch_speed = scope;
+                    Ok(response)
+                }
+                Err(message) => Err(http::Response::builder()
+                    .status(403)
+                    .body(Some(message))
+                    .unwrap()),
+            }
+        },
+    )
+    .await
+    .map_err(|error| format!("Codex 终端握手失败: {error}"))?;
     let connection = TerminalConnection::new(state.clone());
 
     let executable_parent = codex_executable.parent().map(PathBuf::from);
@@ -412,6 +439,9 @@ async fn handle_terminal(
         for config_override in codex_profile_overrides(profile_path)? {
             command.args(["-c", &config_override]);
         }
+    }
+    if let Some((scope, _)) = &launch_speed {
+        command.args(["-c", &format!("service_tier=\"{}\"", scope.tier)]);
     }
     command.args(["app-server", "--stdio"]);
     if let Some(parent) = executable_parent {
@@ -472,6 +502,20 @@ async fn handle_terminal(
                             &text,
                             selection,
                         );
+                        let text = if let Some((scope, db)) = &launch_speed {
+                            let result = scope.check(db).and_then(|_| scope.apply(&text));
+                            match result {
+                                Ok(text) => text,
+                                Err(error) => {
+                                    let request: Value = serde_json::from_str(&text).unwrap_or(Value::Null);
+                                    if let Some(id) = request.get("id") {
+                                        socket.send(Message::Text(serde_json::json!({"id":id,"error":{"code":-32602,"message":error}}).to_string())).await
+                                            .map_err(|_| "返回速度校验错误失败")?;
+                                    }
+                                    continue;
+                                }
+                            }
+                        } else { text };
                         child_stdin.write_all(text.as_bytes()).await
                             .map_err(|error| format!("转发 Codex 请求失败: {error}"))?;
                         child_stdin.write_all(b"\n").await
@@ -757,6 +801,8 @@ model_catalog_json = "yuanheng-terminal-model-catalog.json"
 [model_providers.custom]
 base_url = "http://127.0.0.1:15721/codex/v1"
 wire_api = "responses"
+request_max_retries = 0
+stream_max_retries = 0
 experimental_bearer_token = "secret"
 "#,
         )
@@ -765,9 +811,12 @@ experimental_bearer_token = "secret"
         assert_eq!(
             overrides,
             vec![
+                "service_tier=\"default\"".to_string(),
                 r#"model_provider="custom""#.to_string(),
                 r#"model_providers.custom.base_url="http://127.0.0.1:15721/codex/v1""#.to_string(),
                 r#"model_providers.custom.wire_api="responses""#.to_string(),
+                "model_providers.custom.request_max_retries=0".to_string(),
+                "model_providers.custom.stream_max_retries=0".to_string(),
                 format!(
                     "model_catalog_json={}",
                     toml::Value::String(
@@ -780,6 +829,98 @@ experimental_bearer_token = "secret"
             ]
         );
         assert!(overrides.iter().all(|value| !value.contains("secret")));
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn launch_speed_crosses_real_websocket_and_rejects_replayed_ticket() {
+        use crate::services::codex_launch_speed::{issue, LaunchSpeed};
+        let db = Arc::new(crate::database::Database::memory().unwrap());
+        db.set_setting(
+            "yuanheng_connection_cache",
+            r#"{"userId":"7","connected":true}"#,
+        )
+        .unwrap();
+        let mut provider = crate::provider::Provider::with_id(
+            crate::commands::MANAGED_PROVIDER_ID.into(),
+            "test".into(),
+            json!({"yuanhengServiceTiers":{"owner":"7","group":"g","models":{"m":[{"id":"ultrafast"}]}}}),
+            None,
+        );
+        provider.category = Some("managed".into());
+        provider.notes = Some("group=g".into());
+        db.save_provider("codex", &provider).unwrap();
+        db.set_current_provider("codex", &provider.id).unwrap();
+        let ticket = issue(
+            LaunchSpeed {
+                tier: "ultrafast".into(),
+                model: "m".into(),
+                group: "g".into(),
+                owner: "7".into(),
+            },
+            db.clone(),
+        )
+        .unwrap();
+        let temp = tempfile::tempdir().unwrap();
+        let executable = temp.path().join("synthetic-codex");
+        std::fs::write(&executable,"#!/bin/sh\ncase \"$*\" in *ultrafast*) ;; *) exit 64;; esac\nwhile IFS= read -r line; do printf '%s\\n' \"$line\"; done\n").unwrap();
+        std::fs::set_permissions(&executable, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("ws://{}{}", listener.local_addr().unwrap(), ticket);
+        let state = Arc::new(BridgeState::new());
+        let observed = state.clone();
+        let task = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            handle_terminal(stream, state, executable, None).await
+        });
+        let (mut socket, _) = tokio_tungstenite::connect_async(url).await.unwrap();
+        socket
+            .send(Message::Text(
+                r#"{"id":1,"method":"turn/start","params":{"input":[]}}"#.into(),
+            ))
+            .await
+            .unwrap();
+        let reply = tokio::time::timeout(std::time::Duration::from_secs(5), socket.next())
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap()
+            .into_text()
+            .unwrap();
+        assert_eq!(
+            serde_json::from_str::<Value>(&reply).unwrap()["params"]["serviceTierForTurn"],
+            "ultrafast"
+        );
+        assert!(crate::services::codex_launch_speed::take(&ticket).is_err());
+        db.set_setting(
+            "yuanheng_connection_cache",
+            r#"{"userId":"8","connected":true}"#,
+        )
+        .unwrap();
+        socket
+            .send(Message::Text(
+                r#"{"id":2,"method":"turn/start","params":{"input":[]}}"#.into(),
+            ))
+            .await
+            .unwrap();
+        let reply = tokio::time::timeout(std::time::Duration::from_secs(5), socket.next())
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap()
+            .into_text()
+            .unwrap();
+        assert_eq!(
+            serde_json::from_str::<Value>(&reply).unwrap()["error"]["code"],
+            -32602
+        );
+        socket.close(None).await.unwrap();
+        tokio::time::timeout(std::time::Duration::from_secs(5), task)
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        assert_eq!(observed.connected_terminals.load(Ordering::Relaxed), 0);
     }
 
     #[cfg(unix)]

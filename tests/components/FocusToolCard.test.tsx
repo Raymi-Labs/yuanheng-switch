@@ -1,4 +1,10 @@
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { runToolLifecycleJob } from "@/lib/toolLifecycleState";
 import { yuanhengApi } from "@/lib/api/yuanheng";
@@ -102,6 +108,78 @@ function createSwitcher(
 }
 
 describe("FocusToolCard", () => {
+  it("switching to an unsupported group automatically returns to standard without blocking launch", async () => {
+    const query = vi
+      .spyOn(yuanhengApi, "getCodexLaunchTiers")
+      .mockImplementation(async (_model, group) =>
+        group === "supported"
+          ? [{ id: "priority", name: "Fast ×2", description: "" }]
+          : [],
+      );
+    const switcher = createSwitcher("ready");
+    switcher.runnableRows = ["codex"];
+    switcher.models = { codex: "gpt-6-astra" };
+    switcher.groups = { codex: "unsupported" };
+    switcher.installedApps = new Set(["codex"]);
+    const { rerender } = render(
+      <FocusToolCard switcher={switcher} onOpenTools={vi.fn()} />,
+    );
+    await waitFor(() => expect(query).toHaveBeenCalled());
+    expect(
+      screen.queryByRole("combobox", { name: "本次启动速度" }),
+    ).not.toBeInTheDocument();
+    switcher.groups = { codex: "supported" };
+    rerender(<FocusToolCard switcher={switcher} onOpenTools={vi.fn()} />);
+    const picker = await screen.findByRole("combobox", {
+      name: "本次启动速度",
+    });
+    expect(
+      screen.queryByRole("option", { name: "UltraFast ×6" }),
+    ).not.toBeInTheDocument();
+    fireEvent.change(picker, { target: { value: "priority" } });
+    switcher.groups = { codex: "unsupported" };
+    await act(async () => {
+      rerender(<FocusToolCard switcher={switcher} onOpenTools={vi.fn()} />);
+    });
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("combobox", { name: "本次启动速度" }),
+      ).not.toBeInTheDocument(),
+    );
+    expect(screen.getByRole("button", { name: "启动 Codex" })).toBeEnabled();
+    query.mockRestore();
+  });
+  it("starts this Codex terminal at the selected tier and preserves the visible choice", async () => {
+    const query = vi
+      .spyOn(yuanhengApi, "getCodexLaunchTiers")
+      .mockResolvedValue([
+        { id: "ultrafast", name: "UltraFast ×6", description: "" },
+      ]);
+    const switcher = createSwitcher("ready");
+    switcher.runnableRows = ["codex"];
+    switcher.models = { codex: "gpt-6-astra" };
+    switcher.groups = { codex: "g" };
+    switcher.installedApps = new Set(["codex"]);
+    switcher.connection!.models = ["gpt-6-astra"];
+    switcher.connection!.reasoningLevels = { "gpt-6-astra": ["high"] };
+    switcher.launch = vi.fn().mockResolvedValue(true);
+    render(<FocusToolCard switcher={switcher} onOpenTools={vi.fn()} />);
+    const speed = await screen.findByRole("combobox", { name: "本次启动速度" });
+    await waitFor(() => expect(speed).toBeEnabled());
+    fireEvent.change(speed, { target: { value: "ultrafast" } });
+    expect(screen.getByText(/6倍费用请求/)).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "启动 Codex" }));
+    expect(switcher.launch).toHaveBeenCalledWith(
+      "codex",
+      expect.any(Function),
+      { tier: "ultrafast", model: "gpt-6-astra", group: "g", owner: "1024" },
+    );
+    await screen.findByText("最近启动：UltraFast ×6");
+    expect(speed).toHaveValue("ultrafast");
+    fireEvent.change(speed, { target: { value: "default" } });
+    expect(screen.getByText("最近启动：UltraFast ×6")).toBeVisible();
+    query.mockRestore();
+  });
   it.each([
     "claude",
     "gemini",
