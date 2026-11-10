@@ -20,7 +20,7 @@ Codex Desktop 在新会话首条用户消息前注入 namespace=agent 的 codex_
 
 ## Testing
 
-Rust全库2744项通过、12项既有忽略。新增4项回归涵盖精确通知识别、正文与顺序、幂等历史回放、真实工具配对、未知缺失ID输出不改、官方/OAuth/其他客户端旁路，以及三协议本地HTTP出站连续发送。TypeScript检查、renderer构建与版本校验通过。前端180文件1342项测试通过；本机Node25原生webstorage与jsdom存储spy冲突，需以NODE_OPTIONS=--no-experimental-webstorage匹配CI Node20行为（首轮5项失败，兼容运行全过）。真实上游与安装验收另行记录，不将合成HTTP成功等同于原生Codex端到端完成。
+Rust全库2744项通过、12项既有忽略。新增4项回归涵盖精确通知识别、正文与顺序、幂等历史回放、真实工具配对、未知缺失ID输出不改、官方/OAuth/其他客户端旁路，以及三协议本地HTTP出站连续发送。TypeScript检查、renderer构建与版本校验通过。前端180文件1342项测试通过；本机Node25原生webstorage与jsdom存储spy冲突，需以NODE_OPTIONS=--no-experimental-webstorage匹配CI Node20行为（首轮5项失败，兼容运行全过）。release Core构建通过。使用隔离Core、现有托管配置与纯合成页面通知，经真实Meta API的gpt-6-astra连续两轮HTTP 200并收到response.completed，分别输出PAGE_CONTEXT_OK与PAGE_CONTEXT_CONTINUED（约8.2秒、5.7秒）；第二轮回放第一轮完整output。本机运行Core仍有活跃请求时，既有监督器延后切换，不强制中断。该验证不等同于原生GUI发送验收。
 
 ## Consequences
 
