@@ -1674,6 +1674,7 @@ pub fn run() {
             commands::prepare_media_video_reference,
             commands::export_media_studio,
             commands::delete_media_studio,
+            commands::forget_media_studio_prompt,
             commands::get_yuanheng_announcement,
             commands::get_yuanheng_announcements,
             commands::get_yuanheng_tool_statuses,

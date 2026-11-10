@@ -43,7 +43,6 @@ export function MediaInspirationGallery({
       <header className="inspiration-intro">
         <div>
           <h2>{dt("灵感广场")}</h2>
-          <p className="inspiration-lede">{dt("让想象，成为画面")}</p>
         </div>
         <button className="inspiration-start" type="button" onClick={onCreate}>
           <Sparkles size={16} />
