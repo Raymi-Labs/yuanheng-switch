@@ -7,7 +7,7 @@ import {
   screen,
   waitFor,
 } from "@testing-library/react";
-import { QueryClientProvider } from "@tanstack/react-query";
+import { QueryClientProvider, focusManager } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   MediaStudioPage,
@@ -479,7 +479,7 @@ describe("P1/P2 media studio", () => {
   const setup = () => {
     mocks.groups.mockResolvedValue(catalog);
     mocks.models.mockImplementation(async (g: string) =>
-      g === "images" ? [enhanced] : [video],
+      g.startsWith("images") ? [enhanced] : [video],
     );
   };
   const ready = async () => {
@@ -489,11 +489,11 @@ describe("P1/P2 media studio", () => {
       ),
     );
   };
-  it("reuses the group catalog without fetching models again and filters groups by type", async () => {
+  it("refreshes the group model catalog on entry and filters groups by type", async () => {
     setup();
     mount();
     await ready();
-    expect(mocks.models).not.toHaveBeenCalled();
+    expect(mocks.models).toHaveBeenCalledWith("images");
     expect(
       screen.queryByRole("option", { name: "videos" }),
     ).not.toBeInTheDocument();
@@ -516,7 +516,7 @@ describe("P1/P2 media studio", () => {
       screen.queryByRole("option", { name: "images" }),
     ).not.toBeInTheDocument();
     fireEvent.change(
-      screen.getByRole("spinbutton", { name: "Muse时长（秒）" }),
+      await screen.findByRole("spinbutton", { name: "Muse时长（秒）" }),
       { target: { value: "180" } },
     );
     fireEvent.click(screen.getByRole("tab", { name: "图片生成" }));
@@ -885,8 +885,7 @@ describe("reference image paste", () => {
       ),
     );
     expect(screen.getByRole("img", { name: "参考图 16" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "生成" })).toBeDisabled();
-    expect(screen.getByRole("alert")).toHaveTextContent("原图已保留");
+    expect(screen.getByRole("button", { name: "生成" })).toBeEnabled();
     fireEvent.click(screen.getByRole("tab", { name: "图片生成" }));
     await screen.findByRole("button", { name: "上传参考图（可选）" });
     fireEvent.click(screen.getAllByRole("button", { name: "前移" })[0]);
@@ -933,8 +932,8 @@ describe("reference image paste", () => {
       screen.queryByRole("img", { name: "参考图 4" }),
     ).not.toBeInTheDocument();
     const excess = clipboardImage("excess");
-    pasteImages([excess, excess]);
-    expect(screen.getByRole("status")).toHaveTextContent("最多支持 4 张");
+    pasteImages(Array(14).fill(excess));
+    expect(screen.getByRole("status")).toHaveTextContent("最多读取 16 张");
     expect(excess.arrayBuffer).not.toHaveBeenCalled();
     fireEvent.change(screen.getByRole("textbox"), {
       target: { value: "move" },
@@ -1109,7 +1108,7 @@ describe("media creation workflow", () => {
       target: { value: "a".repeat(4001) },
     });
     fireEvent.change(
-      screen.getByRole("spinbutton", { name: "Muse时长（秒）" }),
+      await screen.findByRole("spinbutton", { name: "Muse时长（秒）" }),
       { target: { value: "180" } },
     );
     expect(screen.getByRole("button", { name: "生成" })).toBeDisabled();
@@ -1122,7 +1121,7 @@ describe("media creation workflow", () => {
     );
     expect(screen.getByRole("button", { name: "生成" })).toBeDisabled();
     fireEvent.change(
-      screen.getByRole("spinbutton", { name: "Muse时长（秒）" }),
+      await screen.findByRole("spinbutton", { name: "Muse时长（秒）" }),
       { target: { value: "180" } },
     );
     fireEvent.click(screen.getByRole("button", { name: "生成" }));
@@ -1183,15 +1182,15 @@ describe("media creation workflow", () => {
     const file = new File(["x"], "image.png", { type: "image/png" });
     Object.defineProperty(file, "arrayBuffer", { value: read });
     fireEvent.change(screen.getByLabelText("选择参考图"), {
-      target: { files: Array(5).fill(file) },
+      target: { files: Array(17).fill(file) },
     });
-    expect(screen.getByRole("status")).toHaveTextContent("最多支持 4 张");
+    expect(screen.getByRole("status")).toHaveTextContent("最多读取 16 张");
     expect(read).not.toHaveBeenCalled();
     Object.defineProperty(file, "size", { value: 9 * 1024 * 1024 });
     fireEvent.change(screen.getByLabelText("选择参考图"), {
-      target: { files: Array(3).fill(file) },
+      target: { files: Array(8).fill(file) },
     });
-    expect(screen.getByRole("status")).toHaveTextContent("总计最多24MB");
+    expect(screen.getByRole("status")).toHaveTextContent("合计64MB");
     expect(read).not.toHaveBeenCalled();
   });
   it("prepares an image-to-video draft without a paid submission", async () => {
@@ -1331,6 +1330,72 @@ describe("media creation workflow", () => {
     ).toBeInTheDocument();
     expect(mocks.preview.mock.calls).toEqual([[item().id], [item().id]]);
     expect(mocks.submit).not.toHaveBeenCalled();
+  });
+  it("refreshes the authorized catalog on focus without submitting", async () => {
+    mount();
+    await screen.findByRole("option", { name: "gpt-image-2.5-sunburst" });
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "刷新模型" })).toBeEnabled(),
+    );
+    const count = mocks.groups.mock.calls.length;
+    await act(async () => {
+      focusManager.setFocused(false);
+      focusManager.setFocused(true);
+    });
+    await waitFor(() =>
+      expect(mocks.groups.mock.calls.length).toBeGreaterThan(count),
+    );
+    expect(mocks.submit).not.toHaveBeenCalled();
+    focusManager.setFocused(undefined);
+  });
+  it("refreshes a new Seedance model and sends user parameters without replacing the existing draft", async () => {
+    mount();
+    await screen.findByRole("option", { name: "gpt-image-2.5-sunburst" });
+    fireEvent.click(screen.getByRole("tab", { name: "视频生成" }));
+    await screen.findByRole("spinbutton", { name: "Muse时长（秒）" });
+    fireEvent.change(screen.getByRole("textbox", { name: "画面描述" }), {
+      target: { value: "paper boat" },
+    });
+    const seedance = {
+      id: "doubao-seedance-2-5-260628",
+      kind: "video",
+      reference: "optional",
+      sizes: ["16:9", "9:16"],
+      durations: [4],
+      resolutions: ["720p", "1080p"],
+      customSize: true,
+    };
+    mocks.models.mockResolvedValue([...profiles, seedance]);
+    fireEvent.click(screen.getByRole("button", { name: "刷新模型" }));
+    await screen.findByRole("option", { name: seedance.id });
+    expect(screen.getByRole("combobox", { name: "生成模型" })).toHaveValue(
+      "muse-video",
+    );
+    expect(screen.getByRole("textbox", { name: "画面描述" })).toHaveValue(
+      "paper boat",
+    );
+    fireEvent.change(screen.getByRole("combobox", { name: "生成模型" }), {
+      target: { value: seedance.id },
+    });
+    fireEvent.change(screen.getByRole("combobox", { name: "尺寸或比例" }), {
+      target: { value: "21:9" },
+    });
+    fireEvent.change(screen.getByRole("combobox", { name: "分辨率" }), {
+      target: { value: "1080p" },
+    });
+    fireEvent.change(
+      screen.getByRole("spinbutton", { name: "请求时长（秒）" }),
+      { target: { value: "30" } },
+    );
+    fireEvent.click(screen.getByRole("button", { name: "生成" }));
+    await waitFor(() => expect(mocks.submit).toHaveBeenCalledTimes(1));
+    expect(mocks.submit.mock.calls[0][0]).toMatchObject({
+      model: seedance.id,
+      size: "21:9",
+      resolution: "1080p",
+      duration: 30,
+      prompt: "paper boat",
+    });
   });
   it("never replaces an explicit model when a refreshed catalog removes it", async () => {
     mount();

@@ -11,7 +11,6 @@ const MAX_MEDIA: usize = 64 * 1024 * 1024;
 const MAX_REFERENCE: usize = 10 * 1024 * 1024;
 const MAX_GPT_REFERENCE: usize = 50 * 1024 * 1024;
 const MAX_GPT_REFERENCES: usize = 16;
-const MAX_MUSE_REFERENCES: usize = 24 * 1024 * 1024;
 const MAX_VIDEO: u64 = 256 * 1024 * 1024;
 const VIDEO_SUBMIT_TIMEOUT: Duration = Duration::from_secs(600);
 const MUSE_SUBMIT_TIMEOUT: Duration = Duration::from_secs(1800);
@@ -35,7 +34,32 @@ pub struct MediaModel {
     custom_size: bool,
 }
 
+fn video_family(id: &str) -> bool {
+    id.split(['-', '_'])
+        .any(|part| matches!(part, "video" | "seedance"))
+        || [
+            "sora-",
+            "kling-",
+            "vidu",
+            "MiniMax-Hailuo-",
+            "MiniMax-H3",
+            "wan2.",
+        ]
+        .iter()
+        .any(|prefix| id.starts_with(prefix))
+}
+fn valid_media_model_id(id: &str) -> bool {
+    !id.is_empty()
+        && id.len() <= 200
+        && id
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b"-_.".contains(&b))
+}
 fn profile(id: &str) -> Option<MediaModel> {
+    if !valid_media_model_id(id) || id == "flow-video-veo-3.1-lite" {
+        return None;
+    }
+
     let (kind, reference, sizes, durations): (&str, &str, &[&str], Vec<u32>) = match id {
         "gpt-image-1"
         | "gpt-image-1.5"
@@ -71,6 +95,16 @@ fn profile(id: &str) -> Option<MediaModel> {
         }
         // Veo is intentionally excluded from this client at the user's request.
         // Omni720p was explicitly re-enabled after the user's confirmation.
+        _ if video_family(id) => ("video", "optional", &["16:9", "9:16", "1:1"], vec![4]),
+        _ if id.starts_with("gpt-image-") => (
+            "image",
+            "optional",
+            &["1024x1024", "1536x1024", "1024x1536"],
+            vec![],
+        ),
+        _ if id.starts_with("gemini-") && id.split('-').any(|p| p == "image") => {
+            ("image", "optional", &["1:1", "16:9", "9:16"], vec![])
+        }
         _ => return None,
     };
     let gpt = id.starts_with("gpt-image-");
@@ -90,7 +124,7 @@ fn profile(id: &str) -> Option<MediaModel> {
     if gpt {
         sizes.push("auto".into());
     }
-    if id.starts_with("gemini-") {
+    if kind == "image" && id.starts_with("gemini-") {
         sizes = values(&[
             "1:1", "16:9", "9:16", "2:3", "3:2", "3:4", "4:3", "4:5", "5:4", "21:9",
         ]);
@@ -107,12 +141,17 @@ fn profile(id: &str) -> Option<MediaModel> {
         "gemini-2.5-flash-image" => values(&["1K"]),
         "grok-imagine-video" => values(&["480p", "720p"]),
         "grok-imagine-video-1.5" => values(&["480p", "720p", "1080p"]),
+        _ if kind == "video" => values(&["720p", "1080p", "480p"]),
         _ => vec![],
     };
     Some(MediaModel {
         id: id.into(),
         kind: kind.into(),
-        reference: reference.into(),
+        reference: if kind == "video" {
+            "optional".into()
+        } else {
+            reference.into()
+        },
         sizes,
         durations,
         qualities: if custom_size {
@@ -133,7 +172,7 @@ fn profile(id: &str) -> Option<MediaModel> {
         } else {
             vec![]
         },
-        custom_size,
+        custom_size: custom_size || kind == "video",
     })
 }
 
@@ -240,9 +279,19 @@ fn valid_custom_size(size: &str) -> bool {
         && (655_360..=8_294_400).contains(&(w * h))
 }
 fn validate_options(r: &MediaRequest, p: &MediaModel) -> Result<(), String> {
+    if p.kind == "video" && r.resolution.as_ref().is_some_and(|v| !valid_resolution(v)) {
+        return Err("该模型不支持所选生成参数".into());
+    }
     for (value, allowed) in [
         (&r.quality, &p.qualities),
-        (&r.resolution, &p.resolutions),
+        (
+            if p.kind == "video" {
+                &None
+            } else {
+                &r.resolution
+            },
+            &p.resolutions,
+        ),
         (&r.output_format, &p.output_formats),
         (&r.background, &p.backgrounds),
     ] {
@@ -450,7 +499,7 @@ fn request_reference(model: &str, raw: &str) -> Result<(&'static str, Vec<u8>), 
     if model.starts_with("gpt-image-") {
         reference_with_limit(raw, true, MAX_GPT_REFERENCE - 1)
     } else {
-        reference_with_webp(raw, model == "muse-video")
+        reference_with_webp(raw, video_family(model))
     }
 }
 fn reference_with_limit(
@@ -527,6 +576,25 @@ fn video_reference(bytes: &[u8]) -> Result<MediaPreview, String> {
         mime: "image/png".into(),
     })
 }
+fn valid_video_size(size: &str) -> bool {
+    size.split_once('x')
+        .or_else(|| size.split_once(':'))
+        .is_some_and(|(w, h)| {
+            [w, h].iter().all(|s| {
+                !s.starts_with('0')
+                    && s.bytes().all(|b| b.is_ascii_digit())
+                    && s.parse::<u32>().is_ok_and(|v| v > 0)
+            })
+        })
+}
+fn valid_resolution(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 32
+        && value.as_bytes()[0].is_ascii_alphanumeric()
+        && value
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b"._-".contains(&b))
+}
 fn validate(request: &MediaRequest) -> Result<MediaModel, String> {
     if !valid_id(&request.operation_id) {
         return Err("生成操作编号无效".into());
@@ -541,8 +609,13 @@ fn validate(request: &MediaRequest) -> Result<MediaModel, String> {
         return Err(format!("请填写 1–{prompt_limit} 字的画面描述"));
     }
     validate_options(request, &p)?;
-    if !(p.sizes.contains(&request.size) || (p.custom_size && valid_custom_size(&request.size)))
-        || (p.kind == "video" && !p.durations.contains(&request.duration.unwrap_or(0)))
+    let size_valid = if p.kind == "video" {
+        valid_video_size(&request.size)
+    } else {
+        p.sizes.contains(&request.size) || (p.custom_size && valid_custom_size(&request.size))
+    };
+    if !size_valid
+        || (p.kind == "video" && request.duration.unwrap_or(0) == 0)
         || (p.kind == "image" && request.duration.is_some())
     {
         return Err("该模型不支持所选尺寸或时长".into());
@@ -550,8 +623,9 @@ fn validate(request: &MediaRequest) -> Result<MediaModel, String> {
     if !request.images.is_empty() {
         let max_count = if request.model.starts_with("gpt-image-") {
             MAX_GPT_REFERENCES
-        } else if request.model == "muse-video" {
-            4
+        } else if p.kind == "video" {
+            // Local request resource protection, not a provider capability limit.
+            16
         } else {
             return Err("当前模型不支持多图参考".into());
         };
@@ -563,8 +637,8 @@ fn validate(request: &MediaRequest) -> Result<MediaModel, String> {
         let mut total = 0;
         for raw in &request.images {
             total += request_reference(&request.model, raw)?.1.len();
-            if request.model == "muse-video" && total > MAX_MUSE_REFERENCES {
-                return Err("Muse参考图总大小不能超过24MB".into());
+            if p.kind == "video" && total > MAX_MEDIA {
+                return Err("参考图总大小超过客户端资源限制".into());
             }
         }
     }
@@ -876,7 +950,7 @@ async fn media_catalog_at(
 }
 
 fn json_payload(request: &MediaRequest, p: &MediaModel) -> Value {
-    if request.model.starts_with("gemini-") {
+    if p.kind == "image" && request.model.starts_with("gemini-") {
         let mut parts = vec![json!({"text":request.prompt.trim()})];
         if let Some(raw) = &request.reference {
             // Validated before constructing a wire payload.
@@ -904,16 +978,48 @@ fn json_payload(request: &MediaRequest, p: &MediaModel) -> Value {
         }
         return v;
     }
-    if request.model.starts_with("grok-imagine-video") {
-        return json!({"model":request.model,"prompt":request.prompt.trim(),"duration":request.duration,"resolution":request.resolution.as_deref().unwrap_or("480p"),"aspect_ratio":request.size});
-    }
-    let mut v = json!({"model":request.model,"prompt":request.prompt.trim(),"seconds":request.duration.unwrap_or(4).to_string(),"size":request.size});
-    if let Some(raw) = &request.reference {
-        v["input_reference"] = json!(raw);
-    } else if request.images.len() == 1 {
-        v["input_reference"] = json!(request.images[0]);
-    } else if !request.images.is_empty() {
-        v["images"] = json!(request.images);
+    let mut v = if request.model.starts_with("grok-imagine-video") {
+        json!({"model":request.model,"prompt":request.prompt.trim(),"duration":request.duration,"resolution":request.resolution.as_deref().unwrap_or("480p"),"aspect_ratio":request.size})
+    } else if request.model.split('-').any(|part| part == "seedance") {
+        let ratio = request
+            .size
+            .split_once('x')
+            .map(|(w, h)| {
+                let (w, h) = (w.parse::<u32>().unwrap(), h.parse::<u32>().unwrap());
+                let (mut a, mut b) = (w, h);
+                while b != 0 {
+                    (a, b) = (b, a % b);
+                }
+                format!("{}:{}", w / a, h / a)
+            })
+            .unwrap_or_else(|| request.size.clone());
+        json!({"model":request.model,"prompt":request.prompt.trim(),"seconds":request.duration.unwrap_or(4).to_string(),"resolution":request.resolution.as_deref().unwrap_or("720p"),"metadata":{"ratio":ratio,"generate_audio":true,"watermark":false}})
+    } else {
+        let mut v = json!({"model":request.model,"prompt":request.prompt.trim(),"seconds":request.duration.unwrap_or(4).to_string()});
+        let field = if request.size.contains(':') {
+            "aspect_ratio"
+        } else {
+            "size"
+        };
+        v[field] = json!(request.size);
+        if let Some(value) = &request.resolution {
+            v["resolution"] = json!(value);
+        }
+        v
+    };
+    let refs = request
+        .reference
+        .iter()
+        .chain(request.images.iter())
+        .collect::<Vec<_>>();
+    if !refs.is_empty() {
+        if request.model.split('-').any(|part| part == "seedance") || refs.len() > 1 {
+            v["images"] = json!(refs);
+        } else if request.model.starts_with("grok-imagine-video") {
+            v["image"] = json!({"url":refs[0]});
+        } else {
+            v["input_reference"] = json!(refs[0]);
+        }
     }
     v
 }
@@ -1768,7 +1874,7 @@ mod tests {
         let p = validate(&video).unwrap();
         assert_eq!(json_payload(&video, &p)["resolution"], "1080p");
         video.model = "grok-imagine-video".into();
-        assert!(validate(&video).is_err());
+        assert!(validate(&video).is_ok());
         video.resolution = Some("720p".into());
         video.quality = Some("high".into());
         assert!(validate(&video).is_err());
@@ -2047,7 +2153,7 @@ mod tests {
             .route("/api/user/models", get(|AxumState(seen):AxumState<Arc<std::sync::Mutex<Vec<String>>>>, Query(query):Query<HashMap<String,String>>| async move {
                 let group = query.get("group").cloned().unwrap_or_default();
                 seen.lock().unwrap().push(group.clone());
-                Json(json!({"success":true,"data":if group == "partner-video" { vec!["muse-video"] } else { vec!["gpt-image-2.5-sunburst"] }}))
+                Json(json!({"success":true,"data":if group == "partner-video" { vec!["muse-video", "doubao-seedance-2-5-260628", "gpt-6-astra", "flow-video-veo-3.1-lite"] } else { vec!["gpt-image-2.5-sunburst"] }}))
             })).with_state(seen.clone());
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let origin = format!("http://{}", listener.local_addr().unwrap());
@@ -2062,8 +2168,11 @@ mod tests {
         let result = catalog_at(&state, &session, &client, &origin, "partner-video")
             .await
             .unwrap();
-        assert_eq!(result.len(), 1);
-        assert_eq!(result[0].id, "muse-video");
+        assert_eq!(result.len(), 2);
+        assert_eq!(
+            result.iter().map(|m| m.id.as_str()).collect::<Vec<_>>(),
+            vec!["doubao-seedance-2-5-260628", "muse-video"]
+        );
         assert!(
             catalog_at(&state, &session, &client, &origin, "unauthorized")
                 .await
@@ -2331,7 +2440,7 @@ mod tests {
     #[test]
     fn muse_document_duration_prompt_and_multi_image_contract() {
         let mut r = request("muse-video");
-        for seconds in [4, 30, 31, 60, 120, 180] {
+        for seconds in [3, 4, 30, 31, 60, 120, 180, 181] {
             r.duration = Some(seconds);
             assert!(validate(&r).is_ok());
             assert_eq!(
@@ -2339,7 +2448,7 @@ mod tests {
                 seconds.to_string()
             );
         }
-        for seconds in [0, 3, 181] {
+        for seconds in [0] {
             r.duration = Some(seconds);
             assert!(validate(&r).is_err());
         }
@@ -2364,7 +2473,7 @@ mod tests {
         assert_eq!(v["images"], json!(r.images));
         assert!(v.get("input_reference").is_none());
         r.images.push(first.clone());
-        assert!(validate(&r).is_err());
+        assert!(validate(&r).is_ok());
         r.images.pop();
         r.reference = Some(first.clone());
         assert!(validate(&r).is_err());
@@ -2387,8 +2496,8 @@ mod tests {
         let mut r = request("muse-video");
         r.images = vec![data.clone(), data.clone()];
         assert!(validate(&r).is_ok());
-        r.images.push(data);
-        assert!(validate(&r).err().unwrap().contains("24MB"));
+        r.images = vec![data; 8];
+        assert!(validate(&r).err().unwrap().contains("资源限制"));
         bytes.resize(MAX_REFERENCE + 1, 0);
         r.images = vec![format!("data:image/png;base64,{}", B64.encode(&bytes))];
         assert!(validate(&r).is_err());
@@ -2469,6 +2578,59 @@ mod tests {
     }
 
     #[test]
+    fn refreshed_catalog_includes_new_video_families_and_preserves_parameters() {
+        for id in [
+            "doubao-seedance-2-5-260628",
+            "sora-3",
+            "flow-video-next",
+            "grok-imagine-video-2",
+        ] {
+            let p = profile(id).expect("server-authorized video must not be hidden by exact IDs");
+            assert_eq!(p.kind, "video");
+            let mut r = request(id);
+            r.size = "21:9".into();
+            r.duration = Some(30);
+            r.resolution = Some("2160p".into());
+            assert!(validate(&r).is_ok());
+            let body = json_payload(&r, &p);
+            assert_eq!(body["model"], id);
+            assert_eq!(body["resolution"], "2160p");
+            assert_eq!(submission_endpoint(&r, &p), "/v1/videos");
+        }
+        assert!(profile("gpt-6-astra").is_none());
+        assert!(profile("flow-video-veo-3.1-lite").is_none());
+    }
+
+    #[test]
+    fn seedance_and_grok_requests_preserve_reference_resolution_and_ratio() {
+        let mut r = request("doubao-seedance-2-5-260628");
+        r.duration = Some(8);
+        r.resolution = Some("1080p".into());
+        r.size = "1920x1080".into();
+        r.reference = Some(png());
+        let p = validate(&r).unwrap();
+        let value = json_payload(&r, &p);
+        assert_eq!(value["seconds"], "8");
+        assert_eq!(value["resolution"], "1080p");
+        assert_eq!(value["metadata"]["ratio"], "16:9");
+        assert_eq!(value["images"][0], r.reference.as_ref().unwrap().as_str());
+        r.model = "grok-imagine-video-2".into();
+        r.size = "21:9".into();
+        let p = validate(&r).unwrap();
+        let value = json_payload(&r, &p);
+        assert_eq!(
+            value["image"]["url"],
+            r.reference.as_ref().unwrap().as_str()
+        );
+        assert_eq!(value["duration"], 8);
+        assert_eq!(value["resolution"], "1080p");
+        for size in ["0:9", "01:9", "-1:9", "16:9:1", "4294967296:9"] {
+            r.size = size.into();
+            assert!(validate(&r).is_err());
+        }
+    }
+
+    #[test]
     fn profiles_reject_unknown_models_and_preserve_explicit_ids() {
         for id in [
             "gpt-6-astra",
@@ -2494,10 +2656,10 @@ mod tests {
         let mut r = request("muse-video");
         assert!(validate(&r).is_ok());
         r.duration = Some(181);
-        assert!(validate(&r).is_err());
+        assert!(validate(&r).is_ok());
         r.duration = Some(4);
         r.size = "1920x1080".into();
-        assert!(validate(&r).is_err());
+        assert!(validate(&r).is_ok());
         r.size = "1280x720".into();
         r.prompt = " ".into();
         assert!(validate(&r).is_err());
@@ -2518,7 +2680,7 @@ mod tests {
         assert!(validate(&r).is_ok());
         let mut r = request("grok-imagine-video");
         r.reference = Some(png());
-        assert!(validate(&r).is_err());
+        assert!(validate(&r).is_ok());
         assert!(reference("data:image/png;base64,PHN2Zz4=").is_err());
         assert!(reference(&png().replace("image/png", "image/jpeg")).is_err());
         assert!(reference("https://example.test/image.png").is_err());
@@ -2579,13 +2741,13 @@ mod tests {
             );
         }
         r.duration = Some(8);
-        assert!(validate(&r).is_err());
+        assert!(validate(&r).is_ok());
         r.duration = Some(4);
         r.size = "1920x1080".into();
-        assert!(validate(&r).is_err());
+        assert!(validate(&r).is_ok());
         r.size = "1280x720".into();
         r.reference = Some(png());
-        assert!(validate(&r).is_err());
+        assert!(validate(&r).is_ok());
     }
     #[test]
     fn download_urls_restrict_origins_and_never_echo_signed_values() {

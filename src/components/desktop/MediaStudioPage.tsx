@@ -98,8 +98,9 @@ export function MediaStudioContent({ scope }: { scope: string }) {
     queryKey: groupsKey,
     queryFn: mediaStudioApi.groups,
     retry: false,
-    refetchOnWindowFocus: false,
-    staleTime: 60_000,
+    refetchOnWindowFocus: true,
+    refetchOnMount: "always",
+    staleTime: 0,
   });
   const [chosenGroups, setChosenGroups] = useState<
     Partial<Record<"image" | "video", string>>
@@ -131,10 +132,11 @@ export function MediaStudioContent({ scope }: { scope: string }) {
     queryFn: () => mediaStudioApi.models(group),
     enabled: groupReady,
     retry: false,
-    staleTime: 60_000,
+    staleTime: 0,
+    refetchOnMount: "always",
     initialData: () => groups.data?.modelsByGroup?.[group],
     initialDataUpdatedAt: groups.dataUpdatedAt,
-    refetchOnWindowFocus: false,
+    refetchOnWindowFocus: true,
   });
   const appliedCatalogAt = useRef(0);
   useEffect(() => {
@@ -411,9 +413,14 @@ export function MediaStudioContent({ scope }: { scope: string }) {
     const existing = referencePolicy.maxCount > 1 ? referenceList : [];
     if (files.length + existing.length > referencePolicy.maxCount) {
       setMessage(
-        dt("当前模型最多支持 {{count}} 张参考图。", {
-          count: referencePolicy.maxCount,
-        }),
+        dt(
+          kind === "video"
+            ? "客户端单次最多读取 {{count}} 张参考图。"
+            : "当前模型最多支持 {{count}} 张参考图。",
+          {
+            count: referencePolicy.maxCount,
+          },
+        ),
       );
       return;
     }
@@ -431,8 +438,8 @@ export function MediaStudioContent({ scope }: { scope: string }) {
         dt(
           isGptImage
             ? "GPT Image最多16张PNG、JPEG或WebP参考图，每张须小于50MB。"
-            : isMuse
-              ? "Muse支持PNG、JPEG、WebP，单张最多10MB，总计最多24MB。"
+            : kind === "video"
+              ? "客户端参考图资源限制：单张10MB、合计64MB，支持PNG、JPEG、WebP。"
               : "请选择不超过 10 MB 的 PNG 或 JPEG 参考图",
         ),
       );
@@ -443,10 +450,12 @@ export function MediaStudioContent({ scope }: { scope: string }) {
       0,
     );
     if (
-      isMuse &&
-      existingSize + files.reduce((n, f) => n + f.size, 0) > 24 * 1024 * 1024
+      existingSize + files.reduce((n, f) => n + f.size, 0) >
+      referencePolicy.maxTotalBytes
     ) {
-      setMessage(dt("Muse支持PNG、JPEG、WebP，单张最多10MB，总计最多24MB。"));
+      setMessage(
+        dt("客户端参考图资源限制：单张10MB、合计64MB，支持PNG、JPEG、WebP。"),
+      );
       return;
     }
     readLock.current = true;
@@ -517,7 +526,6 @@ export function MediaStudioContent({ scope }: { scope: string }) {
       (needsReference && referenceList.length === 0) ||
       !prompt.trim() ||
       Array.from(prompt).length > promptLimit ||
-      (kind === "video" && !selected.durations.includes(duration ?? 0)) ||
       !referencesValid ||
       readLock.current ||
       reading ||
@@ -1166,8 +1174,8 @@ export function MediaStudioContent({ scope }: { scope: string }) {
                     text={dt(
                       isGptImage
                         ? "GPT Image最多16张PNG、JPEG或WebP参考图，每张须小于50MB。"
-                        : isMuse
-                          ? "最多4张：第一张是首帧，其余为人物、场景或画风参考，最后一张不是尾帧。"
+                        : kind === "video"
+                          ? "客户端参考图资源限制：单张10MB、合计64MB，支持PNG、JPEG、WebP。"
                           : "也可在此表单按 ⌘V / Ctrl+V 粘贴复制的图片或截图，点击生成后才会上传。",
                     )}
                   />
@@ -1314,8 +1322,6 @@ export function MediaStudioContent({ scope }: { scope: string }) {
                 !selected ||
                 !prompt.trim() ||
                 Array.from(prompt).length > promptLimit ||
-                (kind === "video" &&
-                  !selected?.durations.includes(duration ?? 0)) ||
                 models.isError ||
                 !mediaParametersValid(selected, parameters) ||
                 (needsReference && !referenceList.length) ||
