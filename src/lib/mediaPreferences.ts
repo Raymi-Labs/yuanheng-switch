@@ -66,6 +66,15 @@ export function defaultMediaParameters(model: MediaModel): MediaParameters {
   };
 }
 export function mediaSizeValid(model: MediaModel, size: string) {
+  if (model.kind === "video") {
+    const parts = size.split(/[x:]/);
+    return (
+      /^[1-9]\d*(?:x|:)[1-9]\d*$/.test(size) &&
+      parts.every(
+        (v) => Number.isSafeInteger(Number(v)) && Number(v) <= 0xffffffff,
+      )
+    );
+  }
   if (model.sizes.includes(size)) return true;
   if (!model.customSize || !/^\d+x\d+$/.test(size)) return false;
   const [w, h] = size.split("x").map(Number);
@@ -87,15 +96,22 @@ export function mediaParametersValid(m: MediaModel, p: MediaParameters) {
     mediaSizeValid(m, p.size) &&
     (m.kind === "image"
       ? p.duration == null
-      : m.durations.includes(p.duration ?? 0)) &&
+      : Number.isInteger(p.duration) &&
+        (p.duration ?? 0) > 0 &&
+        (p.duration ?? 0) <= 0xffffffff) &&
     [
       [p.quality, m.qualities],
       [p.resolution, m.resolutions],
       [p.outputFormat, m.outputFormats],
       [p.background, m.backgrounds],
     ].every(
-      ([v, allowed]) =>
-        v == null || (Array.isArray(allowed) && allowed.includes(v as string)),
+      ([v, allowed], index) =>
+        v == null ||
+        (Array.isArray(allowed) && allowed.includes(v as string)) ||
+        (m.kind === "video" &&
+          index === 1 &&
+          typeof v === "string" &&
+          /^[A-Za-z0-9][A-Za-z0-9._-]{0,31}$/.test(v)),
     ) &&
     !(p.background === "transparent" && p.outputFormat === "jpeg") &&
     (p.outputCompression == null ||

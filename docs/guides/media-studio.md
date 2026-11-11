@@ -44,3 +44,11 @@ Muse首次提交最长等待1800秒（30分钟），其他视频仍600秒（10�
 GPT Image 2.5开放auto/low/medium/high/xhigh/max质量、PNG/JPEG/WebP格式、透明/不透明/自动背景与JPEG/WebP压缩质量。尺寸支持常用横竖4K及自定义，按官方像素/比例约束校验；透明背景不可配JPEG。Gemini 3.1 Flash开放512/1K/2K/4K，3 Pro为1K/2K/4K，2.5 Flash保持1K并扩展比例。Muse保持4–180秒；其他既有视频型号按原适配规则。来源及各型号差异见[参数核对](../reviews/2026-11-10-media-generation-parameters.md)。
 
 高分辨率/质量可能增加费用和耗时；供应商拒绝参数时显示错误，不自动降规格或重新生成。选择目录组不锁定计费路由，实际由账号统一令牌的服务端规则决定，客户端不擅自修改该规则。
+
+## Dynamic video catalog
+
+The client refreshes authorized group models on entry, group selection, window focus and manual refresh. New Seedance, Grok, Sora and other recognizable compatible media-family versions no longer require exact-ID entries. Text models and retired Veo remain excluded; arbitrary opaque aliases and new protocols cannot be inferred from a string-only catalog.
+
+Video presets are suggestions: enter a positive integer duration, resolution and ratio or pixel size. The native request preserves these values and references; unsupported settings are reported by the endpoint without automatic downgrade or paid retry. Local video reference resource limits are 16 files, 10 MiB each and 64 MiB total. Image settings keep their existing behavior.
+
+Refreshing does not replace the selected model or erase the draft. Revoked models remain visibly selected but cannot be submitted. A rebuilt client must be installed once to obtain this behavior; source edits do not update the running application.

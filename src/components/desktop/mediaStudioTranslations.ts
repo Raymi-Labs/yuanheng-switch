@@ -1,6 +1,20 @@
 // Chinese source, English, Japanese, Korean and Traditional Chinese.
 const rows = [
   [
+    "客户端单次最多读取 {{count}} 张参考图。",
+    "The client reads up to {{count}} references per request.",
+    "クライアントは1回に最大{{count}}枚を読み込みます。",
+    "클라이언트는 요청당 최대 {{count}}장의 참조 이미지를 읽습니다.",
+    "客戶端單次最多讀取 {{count}} 張參考圖。",
+  ],
+  [
+    "客户端参考图资源限制：单张10MB、合计64MB，支持PNG、JPEG、WebP。",
+    "Client resource limits: 10 MB per image, 64 MB total; PNG, JPEG or WebP.",
+    "クライアントの上限：1枚10MB、合計64MB。PNG・JPEG・WebP。",
+    "클라이언트 리소스 제한: 이미지당 10MB, 총 64MB. PNG, JPEG, WebP.",
+    "客戶端參考圖資源限制：單張10MB、合計64MB，支援PNG、JPEG、WebP。",
+  ],
+  [
     "改为纯文字创作",
     "Create from text only",
     "テキストのみで制作",

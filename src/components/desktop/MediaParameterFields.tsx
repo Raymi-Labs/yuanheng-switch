@@ -72,7 +72,7 @@ export function MediaParameterFields({
       <div className="grid grid-cols-2 gap-3">
         <label className="space-y-1 text-xs">
           <span>{dt("尺寸或比例")}</span>
-          {model.customSize ? (
+          {model.customSize || model.kind === "video" ? (
             <>
               <input
                 aria-label={dt("尺寸或比例")}
@@ -105,7 +105,25 @@ export function MediaParameterFields({
             </select>
           )}
         </label>
-        {select("分辨率", "resolution", model.resolutions)}
+        {model.kind === "video" ? (
+          <label className="space-y-1 text-xs">
+            <span>{dt("分辨率")}</span>
+            <input
+              aria-label={dt("分辨率")}
+              list={`media-resolutions-${model.id}`}
+              className="block w-full rounded-md border bg-background p-2 text-sm"
+              value={value.resolution ?? ""}
+              onChange={(e) => set({ resolution: e.target.value || undefined })}
+            />
+            <datalist id={`media-resolutions-${model.id}`}>
+              {model.resolutions?.map((r) => (
+                <option key={r} value={r} />
+              ))}
+            </datalist>
+          </label>
+        ) : (
+          select("分辨率", "resolution", model.resolutions)
+        )}
         {select("画质", "quality", model.qualities)}
         {select("输出格式", "outputFormat", model.outputFormats)}
         {select("背景", "background", model.backgrounds)}
@@ -138,8 +156,8 @@ export function MediaParameterFields({
                 model.id === "muse-video" ? "Muse时长（秒）" : "请求时长（秒）",
               )}
               type="number"
-              min={Math.min(...model.durations)}
-              max={Math.max(...model.durations)}
+              min={1}
+              max={0xffffffff}
               step={1}
               className="block w-full rounded-md border bg-background p-2 text-sm"
               value={value.duration ?? ""}
@@ -158,7 +176,7 @@ export function MediaParameterFields({
           {dt("参数不兼容，请检查尺寸、格式和时长。")}
         </p>
       )}
-      {model.customSize && (
+      {model.customSize && model.kind === "image" && (
         <details className="text-xs text-muted-foreground">
           <summary>{dt("自定义尺寸规则")}</summary>
           <p className="mt-2">

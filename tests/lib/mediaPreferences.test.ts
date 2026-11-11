@@ -83,3 +83,38 @@ describe("media preference privacy and parameter invariants", () => {
     expect(loadMediaPreference("bad")).toBeNull();
   });
 });
+
+describe("server-authorized video parameters", () => {
+  it("keeps explicit resolution, ratio and duration beyond preset suggestions", () => {
+    const video: MediaModel = {
+      id: "doubao-seedance-2-5-260628",
+      kind: "video",
+      reference: "optional",
+      sizes: ["16:9"],
+      durations: [4],
+      resolutions: ["720p", "1080p"],
+      customSize: true,
+    };
+    expect(
+      mediaParametersValid(video, {
+        size: "21:9",
+        duration: 30,
+        resolution: "2160p",
+      }),
+    ).toBe(true);
+    expect(
+      mediaParametersValid(video, {
+        size: "1920x1080",
+        duration: 8,
+        resolution: "1080p",
+      }),
+    ).toBe(true);
+    expect(
+      mediaParametersValid(video, {
+        size: "16:9",
+        duration: 0,
+        resolution: "720p",
+      }),
+    ).toBe(false);
+  });
+});
