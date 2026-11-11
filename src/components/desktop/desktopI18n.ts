@@ -1,3 +1,4 @@
+import { PLUGIN_EN } from "./nativePluginTranslations";
 import i18n from "@/i18n";
 import { BROWSER_LOGIN_EN } from "./browserLoginTranslations";
 import { MEDIA_EN } from "./mediaStudioTranslations";
@@ -127,6 +128,7 @@ export const DESKTOP_EN: Record<string, string> = {
   "官方版本查询失败，不影响配置和启动。请稍后重试。":
     "Official version lookup failed. Configuration and launch are unaffected. Try again later.",
   ...MEDIA_EN,
+  ...PLUGIN_EN,
   等待状态检查: "Waiting for a status check",
   尚无检查结果: "No check results yet",
   "刷新状态后再判断配置是否生效。":

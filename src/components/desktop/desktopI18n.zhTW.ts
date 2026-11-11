@@ -1,3 +1,4 @@
+import { PLUGIN_ZH_TW } from "./nativePluginTranslations";
 // Generated from the desktop Simplified Chinese source strings, then normalized for Taiwan terminology.
 import { MEDIA_ZH_TW } from "./mediaStudioTranslations";
 import { BROWSER_LOGIN_ZH_TW } from "./browserLoginTranslations";
@@ -117,6 +118,7 @@ export const DESKTOP_ZH_TW: Record<string, string> = {
   "官方版本查询失败，不影响配置和启动。请稍后重试。":
     "官方版本查詢失敗，不影響設定和啟動。請稍後重試。",
   ...MEDIA_ZH_TW,
+  ...PLUGIN_ZH_TW,
   等待状态检查: "等待狀態檢查",
   尚无检查结果: "尚無檢查結果",
   "刷新状态后再判断配置是否生效。": "重新整理狀態後再判斷設定是否生效。",
