@@ -299,3 +299,5 @@ Meta API 切换与工具配置在写入前复用本人账号查询校验会话�
 Codex 切换模式保留稳定 custom 提供商 ID（外部占用时使用专用 ID），官方识别依据实际托管路由；代理清理仍保留 ID，避免当前引擎按 ID 严格检查导致同名 OpenAI 不匹配。旧混合 ID 历史不自动迁移，见[兼容边界](../.agents/notes/implemented/bug-fix/2026-11-10-codex-stable-provider-bucket.md)。
 
 Codex 页面上下文兼容：[HTTP转发入口](../src-tauri/src/proxy/forwarder.rs)在第三方协议转换前调用[页面通知适配](../src-tauri/src/proxy/codex_page_context.rs)，将无调用ID的当前/选中页面通知保留为user参考数据，修复新会话hello即报400；真实工具配对、未知输出及官方/OAuth路径保留。Responses/Chat/Anthropic本地出站回归见[决定](../.agents/notes/implemented/bug-fix/2026-11-10-codex-page-context-http.md)。
+
+Codex 升级身份保留：[配置投影](../src-tauri/src/codex_history_routes.rs)优先沿用 previous 的托管活跃 ID，避免升级强制转入 custom/专用桶。四种历史身份的刷新、模式切换与清理保持一致；既有混合历史不自动迁移，见[升级决定](../.agents/notes/implemented/bug-fix/2026-11-11-codex-upgrade-provider-identity.md)。

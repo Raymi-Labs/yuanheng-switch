@@ -176,9 +176,10 @@ pub(crate) fn prepare(previous: &str, next: &str) -> Result<String, AppError> {
     }
     let route = match route {
         Some(route) => route,
-        None if ALIASES
-            .iter()
-            .any(|id| old_tables.get(id).is_some_and(owned)) =>
+        None if active_route(&old_doc, &old_tables).is_some()
+            || ALIASES
+                .iter()
+                .any(|id| old_tables.get(id).is_some_and(owned)) =>
         {
             native_route()
         }
@@ -243,8 +244,18 @@ pub(crate) fn prepare(previous: &str, next: &str) -> Result<String, AppError> {
     }
     // Recent Codex versions require exact provider identity on resume, even
     // when aliases have identical definitions. Both account modes use the
-    // historical relay bucket; never activate a user-owned custom provider.
-    let stable_id = if tables.get("custom").is_some_and(owned) {
+    // existing owned identity, including pre-stable-ID official installations.
+    // Choosing custom again on upgrade would strand those existing threads.
+    let previous_id = old_doc.get("model_provider").and_then(Item::as_str);
+    let stable_id = if active_route(&old_doc, &old_tables).is_some() {
+        let id = previous_id.expect("owned active route has an id");
+        if tables.get(id).is_some_and(|item| !owned(item)) {
+            return Err(AppError::Message(
+                "Codex 原有会话供应商包含自定义配置，未覆盖或切换身份".into(),
+            ));
+        }
+        id
+    } else if tables.get("custom").is_some_and(owned) {
         "custom"
     } else {
         if tables
@@ -391,6 +402,27 @@ experimental_bearer_token = "PROXY_MANAGED"
         for config in [&relay, &official, &returned, &native] {
             assert_eq!(value(config)["model_provider"].as_str(), Some("custom"));
             assert_eq!(prepare(config, config).unwrap(), *config);
+        }
+    }
+
+    #[test]
+    fn upgrade_preserves_every_existing_owned_identity_across_modes() {
+        for id in ALIASES.into_iter().chain([MANAGED_PROVIDER]) {
+            let mut previous = parse(&prepare("", &managed()).unwrap()).unwrap();
+            let route = previous["model_providers"]["custom"].clone();
+            previous["model_providers"][id] = route;
+            previous["model_provider"] = toml_edit::value(id);
+            let previous = previous.to_string();
+            let refreshed = refresh(&previous, Some(15722)).unwrap();
+            let official = prepare(&refreshed, &official()).unwrap();
+            let cleaned = release_official(&official).unwrap();
+            let returned = prepare(&cleaned, &managed()).unwrap();
+            for config in [&refreshed, &official, &cleaned, &returned] {
+                assert_eq!(value(config)["model_provider"].as_str(), Some(id));
+                assert_eq!(prepare(config, config).unwrap(), *config);
+            }
+            assert!(is_official(&official));
+            assert!(!is_official(&returned));
         }
     }
 
