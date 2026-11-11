@@ -27,6 +27,7 @@ pub struct PackageInfo {
 pub(super) struct Package {
     pub info: PackageInfo,
     pub files: Vec<(PathBuf, Vec<u8>)>,
+    #[cfg(unix)]
     pub executable_paths: Vec<PathBuf>,
 }
 pub(super) fn identifier(s: &str) -> bool {
@@ -356,6 +357,7 @@ pub(super) fn inspect(root: &Path) -> Result<Package, String> {
     Ok(Package {
         info,
         files,
+        #[cfg(unix)]
         executable_paths,
     })
 }

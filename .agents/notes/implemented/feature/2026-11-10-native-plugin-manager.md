@@ -55,3 +55,5 @@ Status: implemented
 最终原生常规回归增至13项通过、1项显式原生验收默认忽略；桌面/CLI的显式验收已分别运行通过。补充npm脚本入口的原生二进制解析，避免GUI缺Node/PATH；不执行shell探测或用户传入命令。最终lib Clippy -D warnings、Rust格式、前端格式、122篇笔记门禁和diff检查通过。首次笔记缺少Consequences节已补齐，不以结构门禁替代行为验收。
 
 浏览器预览页与文档页关闭，视口恢复；预览服务SIGTERM退出，esbuild子进程退出，4321无监听。测试引擎和合成MCP进程均结束，最终本轮遗留工作进程为零。伙伴main复核仍为602c4c78，没有漏合新增提交。本轮仅本地实现与中文提交，不推送、不发布，不改真实Codex插件或认证配置。
+
+推送PR后的Windows CI发现Package.executable_paths只用于Unix权限恢复，在Windows构建下成为未使用字段并被-D warnings拒绝。字段及结构初始化改为cfg(unix)，各平台仍计算可执行内容风险与摘要，不改变包扫描或安装语义。Linux/macOS及前端首轮CI通过；修复后以新提交重新执行跨平台检查，不跳过Windows门禁。
