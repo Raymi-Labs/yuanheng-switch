@@ -1,3 +1,4 @@
+import { PLUGIN_KO } from "./nativePluginTranslations";
 // ko translations for the desktop Simplified Chinese source strings.
 import { MEDIA_KO } from "./mediaStudioTranslations";
 import { BROWSER_LOGIN_KO } from "./browserLoginTranslations";
@@ -120,6 +121,7 @@ export const DESKTOP_KO: Record<string, string> = {
   "官方版本查询失败，不影响配置和启动。请稍后重试。":
     "공식 버전 조회에 실패했습니다. 설정과 실행에는 영향이 없습니다. 나중에 다시 시도하세요.",
   ...MEDIA_KO,
+  ...PLUGIN_KO,
   等待状态检查: "상태 확인 대기 중",
   尚无检查结果: "아직 점검 결과가 없습니다",
   "刷新状态后再判断配置是否生效。":

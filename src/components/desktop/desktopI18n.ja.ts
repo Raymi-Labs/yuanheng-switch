@@ -1,3 +1,4 @@
+import { PLUGIN_JA } from "./nativePluginTranslations";
 // Japanese translations for the desktop Simplified Chinese source strings.
 import { MEDIA_JA } from "./mediaStudioTranslations";
 import { BROWSER_LOGIN_JA } from "./browserLoginTranslations";
@@ -121,6 +122,7 @@ export const DESKTOP_JA: Record<string, string> = {
   "官方版本查询失败，不影响配置和启动。请稍后重试。":
     "公式バージョンの確認に失敗しました。設定と起動には影響しません。後で再試行してください。",
   ...MEDIA_JA,
+  ...PLUGIN_JA,
   等待状态检查: "状態確認待ち",
   尚无检查结果: "確認結果はまだありません",
   "刷新状态后再判断配置是否生效。":
