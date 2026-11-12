@@ -1,6 +1,27 @@
 // Chinese source, English, Japanese, Korean and Traditional Chinese.
 const rows = [
   [
+    "像素尺寸与分辨率冲突，请使用一致参数",
+    "Pixel size and resolution conflict; use consistent values.",
+    "ピクセルサイズと解像度が一致しません。",
+    "픽셀 크기와 해상도가 일치하지 않습니다.",
+    "像素尺寸與解析度衝突，請使用一致參數",
+  ],
+  [
+    "任务编号格式错误，提交结果未知；请勿重复生成",
+    "Invalid task ID; submission is uncertain. Do not regenerate.",
+    "タスクIDが不正です。再生成しないでください。",
+    "작업 ID가 잘못되었습니다. 다시 생성하지 마세요.",
+    "任務編號格式錯誤，提交結果未知；請勿重複生成",
+  ],
+  [
+    "任务编号冲突，提交结果未知；请勿重复生成",
+    "Conflicting task IDs; submission is uncertain. Do not regenerate.",
+    "タスクIDが競合しています。再生成しないでください。",
+    "작업 ID가 충돌합니다. 다시 생성하지 마세요.",
+    "任務編號衝突，提交結果未知；請勿重複生成",
+  ],
+  [
     "客户端单次最多读取 {{count}} 张参考图。",
     "The client reads up to {{count}} references per request.",
     "クライアントは1回に最大{{count}}枚を読み込みます。",

@@ -1,6 +1,7 @@
 import type { MediaModel } from "@/lib/api/media-studio";
 import {
   mediaParametersValid,
+  updateVideoDimensions,
   type MediaParameters,
 } from "@/lib/mediaPreferences";
 import { dt } from "./desktopI18n";
@@ -31,7 +32,11 @@ export function MediaParameterFields({
       webp: "WebP",
     })[value] ?? value;
   const set = (patch: Partial<MediaParameters>) =>
-    onChange({ ...value, ...patch });
+    onChange(
+      model.kind === "video"
+        ? updateVideoDimensions(value, patch)
+        : { ...value, ...patch },
+    );
   const select = (
     label: string,
     field: "quality" | "resolution" | "outputFormat" | "background",

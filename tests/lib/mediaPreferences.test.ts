@@ -5,6 +5,7 @@ import {
   mediaPreferenceKey,
   mediaParametersValid,
   defaultMediaParameters,
+  updateVideoDimensions,
 } from "@/lib/mediaPreferences";
 import type { MediaModel } from "@/lib/api/media-studio";
 const model: MediaModel = {
@@ -116,5 +117,40 @@ describe("server-authorized video parameters", () => {
         resolution: "720p",
       }),
     ).toBe(false);
+  });
+});
+
+describe("video dimension edits", () => {
+  it("keeps resolution and pixels consistent without guessing unknown formats", () => {
+    const p = { size: "1280x720", duration: 4, resolution: "720p" };
+    expect(updateVideoDimensions(p, { resolution: "1080p" })).toMatchObject({
+      size: "1920x1080",
+      resolution: "1080p",
+    });
+    expect(updateVideoDimensions(p, { size: "1080x1920" })).toMatchObject({
+      size: "1080x1920",
+      resolution: "1080p",
+    });
+    expect(updateVideoDimensions(p, { resolution: "cinema" })).toMatchObject({
+      size: "1280:720",
+      resolution: "cinema",
+    });
+    const model: MediaModel = {
+      id: "muse-video",
+      kind: "video",
+      reference: "optional",
+      sizes: ["1280x720"],
+      durations: [4],
+      resolutions: ["720p"],
+    };
+    expect(mediaParametersValid(model, { ...p, resolution: "1080p" })).toBe(
+      false,
+    );
+    expect(
+      mediaParametersValid(
+        model,
+        updateVideoDimensions(p, { resolution: "1080p" }),
+      ),
+    ).toBe(true);
   });
 });

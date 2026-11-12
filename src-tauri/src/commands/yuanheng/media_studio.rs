@@ -141,6 +141,7 @@ fn profile(id: &str) -> Option<MediaModel> {
         "gemini-2.5-flash-image" => values(&["1K"]),
         "grok-imagine-video" => values(&["480p", "720p"]),
         "grok-imagine-video-1.5" => values(&["480p", "720p", "1080p"]),
+        "flow-video-gemini-omni-flash-1.1-1080p" => values(&["1080p", "720p", "480p"]),
         _ if kind == "video" => values(&["720p", "1080p", "480p"]),
         _ => vec![],
     };
@@ -595,6 +596,42 @@ fn valid_resolution(value: &str) -> bool {
             .bytes()
             .all(|b| b.is_ascii_alphanumeric() || b"._-".contains(&b))
 }
+fn video_pixel_size(size: &str, resolution: Option<&str>) -> Option<String> {
+    if size.contains('x') {
+        return Some(size.into());
+    }
+    let (a, b) = size.split_once(':')?;
+    let (a, b) = (a.parse::<u64>().ok()?, b.parse::<u64>().ok()?);
+    let pixels = resolution?.strip_suffix('p')?.parse::<u32>().ok()? as u64;
+    let short = a.min(b);
+    if short == 0 || pixels == 0 || pixels * a % short != 0 || pixels * b % short != 0 {
+        return None;
+    }
+    let (w, h) = (pixels * a / short, pixels * b / short);
+    if w > u32::MAX as u64 || h > u32::MAX as u64 {
+        return None;
+    }
+    Some(format!("{w}x{h}"))
+}
+fn compatible_task_id(value: &Value) -> Result<String, String> {
+    let read = |name: &str| -> Result<Option<&str>, String> {
+        match value.get(name) {
+            None | Some(Value::Null) => Ok(None),
+            Some(Value::String(v)) if v.is_empty() => Ok(None),
+            Some(Value::String(v)) => Ok(Some(v.as_str())),
+            _ => Err("任务编号格式错误，提交结果未知；请勿重复生成".into()),
+        }
+    };
+    let (id, alias) = (read("id")?, read("task_id")?);
+    if id.is_some() && alias.is_some() && id != alias {
+        return Err("任务编号冲突，提交结果未知；请勿重复生成".into());
+    }
+    let id = id
+        .or(alias)
+        .ok_or("未返回任务编号，提交结果未知；请勿重复生成")?;
+    task_path(id)?;
+    Ok(id.into())
+}
 fn validate(request: &MediaRequest) -> Result<MediaModel, String> {
     if !valid_id(&request.operation_id) {
         return Err("生成操作编号无效".into());
@@ -619,6 +656,20 @@ fn validate(request: &MediaRequest) -> Result<MediaModel, String> {
         || (p.kind == "image" && request.duration.is_some())
     {
         return Err("该模型不支持所选尺寸或时长".into());
+    }
+    if p.kind == "video" {
+        if let (Some((w, h)), Some(pixels)) = (
+            request.size.split_once('x'),
+            request
+                .resolution
+                .as_deref()
+                .and_then(|v| v.strip_suffix('p'))
+                .and_then(|v| v.parse::<u32>().ok()),
+        ) {
+            if w.parse::<u32>().unwrap().min(h.parse::<u32>().unwrap()) != pixels {
+                return Err("像素尺寸与分辨率冲突，请使用一致参数".into());
+            }
+        }
     }
     if !request.images.is_empty() {
         let max_count = if request.model.starts_with("gpt-image-") {
@@ -996,12 +1047,12 @@ fn json_payload(request: &MediaRequest, p: &MediaModel) -> Value {
         json!({"model":request.model,"prompt":request.prompt.trim(),"seconds":request.duration.unwrap_or(4).to_string(),"resolution":request.resolution.as_deref().unwrap_or("720p"),"metadata":{"ratio":ratio,"generate_audio":true,"watermark":false}})
     } else {
         let mut v = json!({"model":request.model,"prompt":request.prompt.trim(),"seconds":request.duration.unwrap_or(4).to_string()});
-        let field = if request.size.contains(':') {
-            "aspect_ratio"
-        } else {
-            "size"
-        };
-        v[field] = json!(request.size);
+        if let Some(size) = video_pixel_size(&request.size, request.resolution.as_deref()) {
+            v["size"] = json!(size);
+        }
+        if request.size.contains(':') {
+            v["aspect_ratio"] = json!(request.size);
+        }
         if let Some(value) = &request.resolution {
             v["resolution"] = json!(value);
         }
@@ -1446,12 +1497,7 @@ pub async fn submit_media_studio(
             }
             record.status = "completed".into();
         } else {
-            let id = value
-                .get("id")
-                .and_then(Value::as_str)
-                .ok_or("未返回任务编号，提交结果未知；请勿重复生成")?;
-            task_path(id)?;
-            record.task_id = Some(id.into());
+            record.task_id = Some(compatible_task_id(&value)?);
             record.status = "queued".into();
             record.message = "任务已提交，查询原任务不会重新生成".into();
         }
@@ -2627,6 +2673,55 @@ mod tests {
         for size in ["0:9", "01:9", "-1:9", "16:9:1", "4294967296:9"] {
             r.size = size.into();
             assert!(validate(&r).is_err());
+        }
+    }
+
+    #[test]
+    fn video_default_dimensions_match_named_1080p_model() {
+        let p = profile("flow-video-gemini-omni-flash-1.1-1080p").unwrap();
+        assert_eq!(p.resolutions[0], "1080p");
+        let mut r = request(&p.id);
+        r.resolution = Some(p.resolutions[0].clone());
+        let body = json_payload(&r, &validate(&r).unwrap());
+        assert_eq!(body["size"], "1920x1080");
+    }
+
+    #[test]
+    fn compatible_video_dimensions_and_task_id_aliases() {
+        assert_eq!(
+            video_pixel_size("21:9", Some("1080p")).as_deref(),
+            Some("2520x1080")
+        );
+        assert_eq!(
+            video_pixel_size("9:16", Some("1080p")).as_deref(),
+            Some("1080x1920")
+        );
+        assert_eq!(video_pixel_size("21:9", Some("cinema")), None);
+        let mut r = request("muse-video");
+        r.size = "21:9".into();
+        r.resolution = Some("1080p".into());
+        assert_eq!(
+            json_payload(&r, &validate(&r).unwrap())["size"],
+            "2520x1080"
+        );
+        r.size = "1920x1080".into();
+        r.resolution = Some("720p".into());
+        assert!(validate(&r).is_err());
+        for body in [
+            json!({"id":"task_ok"}),
+            json!({"task_id":"task_ok"}),
+            json!({"id":"", "task_id":"task_ok"}),
+            json!({"id":"task_ok","task_id":"task_ok"}),
+        ] {
+            assert_eq!(compatible_task_id(&body).unwrap(), "task_ok");
+        }
+        for body in [
+            json!({}),
+            json!({"task_id":"../bad"}),
+            json!({"id":"task_a","task_id":"task_b"}),
+            json!({"id":12,"task_id":"task_ok"}),
+        ] {
+            assert!(compatible_task_id(&body).is_err());
         }
     }
 
