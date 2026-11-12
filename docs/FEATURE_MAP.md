@@ -303,3 +303,5 @@ Codex 页面上下文兼容：[HTTP转发入口](../src-tauri/src/proxy/forwarde
 
 Codex 升级身份保留：[配置投影](../src-tauri/src/codex_history_routes.rs)优先沿用 previous 的托管活跃 ID，避免升级强制转入 custom/专用桶。四种历史身份的刷新、模式切换与清理保持一致；既有混合历史不自动迁移，见[升级决定](../.agents/notes/implemented/bug-fix/2026-11-11-codex-upgrade-provider-identity.md)。
 | Dynamic media catalog and video parameters | [Native catalog](../src-tauri/src/commands/yuanheng/media_studio.rs), [UI](../src/components/desktop/MediaStudioPage.tsx) | Authorized group models use media-family recognition; entry, group switch, focus and manual refresh preserve user drafts | Seedance metadata/resolution/images and compatible/xAI reference fields; text and retired Veo excluded; no paid verification. [Decision](../.agents/notes/implemented/bug-fix/2026-11-11-media-dynamic-catalog.md) |
+
+| 视频参数与任务号一致性 | [参数联动](../src/lib/mediaPreferences.ts)、[原生请求](../src-tauri/src/commands/yuanheng/media_studio.rs) | Omni1080p默认对应像素；尺寸/分辨率联动，未知规格保留比例，矛盾IPC拒绝；id/task_id兼容且冲突停止 | 不重新生成，不改报价与原记录归属。见[决定](../.agents/notes/implemented/bug-fix/2026-11-11-video-dimension-task-contract.md) |

@@ -91,9 +91,46 @@ export function mediaSizeValid(model: MediaModel, size: string) {
     w * h <= 8294400
   );
 }
+export function updateVideoDimensions(
+  p: MediaParameters,
+  patch: Partial<MediaParameters>,
+): MediaParameters {
+  const next = { ...p, ...patch };
+  if (patch.size !== undefined && /^[1-9]\d*x[1-9]\d*$/.test(patch.size)) {
+    const [w, h] = patch.size.split("x").map(Number);
+    next.resolution = `${Math.min(w, h)}p`;
+  } else if (patch.resolution !== undefined && p.size.includes("x")) {
+    const [w, h] = p.size.split("x").map(Number);
+    const pixels = /^([1-9]\d*)p$/.exec(patch.resolution);
+    const scale = pixels ? Number(pixels[1]) / Math.min(w, h) : NaN;
+    if (
+      Number.isSafeInteger(w * scale) &&
+      Number.isSafeInteger(h * scale) &&
+      Math.max(w * scale, h * scale) <= 0xffffffff
+    ) {
+      next.size = `${w * scale}x${h * scale}`;
+    } else {
+      next.size = `${w}:${h}`; // retain ratio; unknown resolution is not a pixel size
+    }
+  }
+  return next;
+}
+export function videoDimensionsConsistent(p: MediaParameters) {
+  if (
+    !p.size.includes("x") ||
+    !p.resolution ||
+    !/^[1-9]\d*p$/.test(p.resolution)
+  )
+    return true;
+  return (
+    Math.min(...p.size.split("x").map(Number)) ===
+    Number(p.resolution.slice(0, -1))
+  );
+}
 export function mediaParametersValid(m: MediaModel, p: MediaParameters) {
   return (
     mediaSizeValid(m, p.size) &&
+    (m.kind !== "video" || videoDimensionsConsistent(p)) &&
     (m.kind === "image"
       ? p.duration == null
       : Number.isInteger(p.duration) &&

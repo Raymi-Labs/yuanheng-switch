@@ -1348,6 +1348,28 @@ describe("media creation workflow", () => {
     expect(mocks.submit).not.toHaveBeenCalled();
     focusManager.setFocused(undefined);
   });
+  it("updates pixels with video resolution and sends consistent dimensions once", async () => {
+    mount();
+    await screen.findByRole("option", { name: "gpt-image-2.5-sunburst" });
+    fireEvent.click(screen.getByRole("tab", { name: "视频生成" }));
+    await screen.findByRole("spinbutton", { name: "Muse时长（秒）" });
+    fireEvent.change(screen.getByRole("textbox", { name: "画面描述" }), {
+      target: { value: "scene" },
+    });
+    fireEvent.change(screen.getByRole("combobox", { name: "分辨率" }), {
+      target: { value: "1080p" },
+    });
+    expect(screen.getByRole("combobox", { name: "尺寸或比例" })).toHaveValue(
+      "1920x1080",
+    );
+    fireEvent.click(screen.getByRole("button", { name: "生成" }));
+    await waitFor(() => expect(mocks.submit).toHaveBeenCalledTimes(1));
+    expect(mocks.submit.mock.calls[0][0]).toMatchObject({
+      model: "muse-video",
+      size: "1920x1080",
+      resolution: "1080p",
+    });
+  });
   it("refreshes a new Seedance model and sends user parameters without replacing the existing draft", async () => {
     mount();
     await screen.findByRole("option", { name: "gpt-image-2.5-sunburst" });
