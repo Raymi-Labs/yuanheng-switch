@@ -2,6 +2,8 @@ Codex 配置与 MCP 同步自动移除服务顶层无效 `type` 字段；HTTP �
 
 # YuanHeng Desktop: capability map
 
+移动大型模型目录：[Models](../mobile/src/Models.tsx)在全量搜索/筛选/排序后按24项显示；[mobile_api](../mobile/src-tauri/src/lib.rs)仅pricing操作调用[有界流式读取](../mobile/src-tauri/src/pricing.rs)，跳过无用元数据但不丢弃尾部模型，保留账号epoch检查及其他API限制。64MiB网络、8MiB保留数据预算与节点/深度保护；合成浏览器与原生测试不代表APK真机验收，见[决定](../.agents/notes/implemented/bug-fix/2026-11-12-mobile-pricing-stream.md)。
+
 CLI付费启动的空快照修复：[身份检查与单模型刷新](../src-tauri/src/services/codex_launch_speed.rs) → [配置切换锁内写入共享DB与CLI目录](../src-tauri/src/commands/yuanheng/service_tiers.rs) → 票据/桥接/Core原有校验。不会在实时查询前被旧空记录拦截；超时及并发账号/组/模型变化拒发，已配置工具不为付费启动重配全目录。见[失败场景与验证](../.agents/notes/implemented/bug-fix/2026-11-09-cli-empty-tier-snapshot.md)。
 
 Codex CLI本次启动速度：[工作台](../src/components/desktop/FocusToolCard.tsx) → [自动能力查询与偏好](../src/components/desktop/useCodexLaunchSpeed.ts) → launch_tool再次核对 → [一次性连接票据](../src-tauri/src/services/codex_launch_speed.rs) → [终端桥接](../src-tauri/src/services/codex_session_bridge.rs)。首次标准、换账号标准，付费不落盘；模型/分组切换确认支持后保留，不支持自动标准；进入/聚焦/联网自动刷新，无后台轮询。成功启动保留选择并独立显示最近启动档位。既有连接与在途请求不改档，配置不匹配或恢复旧线程拒发。最终扣费看服务端日志，不伪称结算确认。见[启动决定](../.agents/notes/implemented/feature/2026-11-09-cli-launch-speed-picker.md)与[偏好决定](../.agents/notes/implemented/feature/2026-11-09-cli-speed-capability-retention.md)。
