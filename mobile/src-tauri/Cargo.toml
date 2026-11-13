@@ -1,6 +1,6 @@
 [package]
 name = "yuanheng-mobile"
-version = "0.1.0-alpha.4"
+version = "0.1.0-alpha.6"
 description = "元衡移动客户端"
 edition = "2021"
 rust-version = "1.95"

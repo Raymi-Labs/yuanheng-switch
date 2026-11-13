@@ -265,6 +265,10 @@ export function Models({
     if (sort === "latest") list.sort((a, b) => releasedAt(b) - releasedAt(a));
     return list;
   }, [scopedModels, hasGroupData, group, sort, ratios]);
+  const [visibleCount, setVisibleCount] = useState(24);
+  useEffect(() => {
+    setVisibleCount(24);
+  }, [query, vendor, group, sort, data]);
   const vendorName = (id?: number) =>
     vendors.find((v) => v.id === id)?.name || "其他";
   const priceText = (value: number) => money(value, unit, price);
@@ -380,7 +384,7 @@ export function Models({
       )}
       <div className="model-list">
         {!loading &&
-          models.map((model) => {
+          models.slice(0, visibleCount).map((model) => {
             const p = prices(model, ratioOf(model, ratios, group));
             const items = tags(model.tags);
             const caps = Object.entries(model.capabilities || {})
@@ -457,6 +461,14 @@ export function Models({
             );
           })}
       </div>
+      {!loading && !error && visibleCount < models.length && (
+        <button
+          className="secondary full"
+          onClick={() => setVisibleCount((count) => count + 24)}
+        >
+          加载更多（{visibleCount} / {models.length}）
+        </button>
+      )}
       {!loading && models.length > 0 && (
         <p className="footnote">
           价格与官网模型广场一致，单位随余额切换（{unit === "cny" ? "¥" : "⚡"}
