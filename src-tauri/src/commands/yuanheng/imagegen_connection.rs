@@ -7,6 +7,9 @@ use std::sync::Mutex;
 const PREFIX: &str = "yuanheng_imagegen_connection_";
 const EPOCH: &str = "yuanheng_imagegen_account_epoch";
 const CHANGED: &str = "图像连接的账号已变化，请重新选择图像分组";
+const RECONNECT: &str = "图片连接需要更新，请确认图片分组后更新连接；未使用聊天令牌";
+const DEFAULT_GROUP: &str = "生图和视频";
+const WELFARE_GROUP: &str = "福利";
 static MUTATION: Mutex<()> = Mutex::new(());
 static CONFIGURE: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
@@ -20,6 +23,10 @@ struct Binding {
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 struct Connection {
+    #[serde(default)]
+    group_scoped: bool,
+    #[serde(default, skip_serializing_if = "is_false")]
+    welfare_fallback: bool,
     surface: String,
     group: String,
     binding: Binding,
@@ -31,6 +38,12 @@ struct Connection {
 struct StoredSecret {
     connection: Connection,
     token: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    welfare_token: Option<String>,
+}
+
+fn is_false(value: &bool) -> bool {
+    !value
 }
 
 fn record_reference(record: &Connection) -> String {
@@ -82,7 +95,10 @@ fn connection(db: &Database, surface: &str) -> Result<Option<Connection>, String
         .map_err(|_| "无法读取图像连接".to_string())?
         .map(|raw| {
             let value: Connection = serde_json::from_str(&raw).map_err(|_| "图像连接格式无效")?;
-            if value.surface != surface || value.group.trim().is_empty() || value.group.len() > 256
+            if value.surface != surface
+                || value.group.trim().is_empty()
+                || value.group.len() > 256
+                || (value.welfare_fallback && value.group != DEFAULT_GROUP)
             {
                 return Err("图像连接与当前工具不匹配".into());
             }
@@ -96,24 +112,43 @@ pub(super) fn group(db: &Database, surface: &str) -> Result<Option<String>, Stri
     Ok(connection(db, surface)?.map(|record| record.group))
 }
 
+pub(super) fn fallback_group(db: &Database, surface: &str) -> Result<Option<String>, String> {
+    Ok(connection(db, surface)?
+        .filter(|r| r.group_scoped && r.welfare_fallback)
+        .map(|_| WELFARE_GROUP.into()))
+}
+
 pub(crate) fn has_connection(db: &Database, surface: &str) -> Result<bool, String> {
     Ok(connection(db, surface)?.is_some())
 }
 
-pub(super) fn active_reference(db: &Database, surface: &str) -> Result<Option<String>, String> {
+pub(crate) fn active_reference(db: &Database, surface: &str) -> Result<Option<String>, String> {
     let Some(record) = connection(db, surface)? else {
         return Ok(None);
     };
+    if !record.group_scoped {
+        return Err(RECONNECT.into());
+    }
     if record.binding != account_binding(db)? {
         return Err(CHANGED.into());
     }
     Ok(Some(record_reference(&record)))
 }
 
-pub(crate) fn explicit_provider(db: &Database, surface: &str) -> Result<Option<Provider>, String> {
+#[cfg(test)]
+fn explicit_provider(db: &Database, surface: &str) -> Result<Option<Provider>, String> {
+    stored_secret(db, surface)?
+        .map(|stored| super::imagegen_credentials::provider_from_key(stored.token))
+        .transpose()
+}
+
+fn stored_secret(db: &Database, surface: &str) -> Result<Option<StoredSecret>, String> {
     let Some(record) = connection(db, surface)? else {
         return Ok(None);
     };
+    if !record.group_scoped {
+        return Err(RECONNECT.into());
+    }
     if account_binding(db)? != record.binding {
         return Err(CHANGED.into());
     }
@@ -122,12 +157,13 @@ pub(crate) fn explicit_provider(db: &Database, surface: &str) -> Result<Option<P
         .ok_or("图像连接凭据已失效，请重新连接图像分组")?;
     let stored: StoredSecret = serde_json::from_str(&raw).map_err(|_| "图像连接凭据格式无效")?;
     if stored.connection != record
+        || stored.welfare_token.is_some() != record.welfare_fallback
         || connection(db, surface)?.as_ref() != Some(&record)
         || account_binding(db)? != record.binding
     {
         return Err(CHANGED.into());
     }
-    super::imagegen_credentials::provider_from_key(stored.token).map(Some)
+    Ok(Some(stored))
 }
 
 fn skill_enabled(db: &Database, surface: &str) -> Result<bool, String> {
@@ -152,7 +188,7 @@ pub(crate) fn credential_refs(
             continue;
         }
         if let Ok(Some(record)) = connection(db, surface) {
-            if record.binding == binding {
+            if record.binding == binding && record.group_scoped {
                 refs.insert(surface.into(), record_reference(&record));
             }
         }
@@ -168,16 +204,19 @@ pub(crate) fn credential_snapshot(
     let refs = credential_refs(db)?;
     let mut entries = Vec::new();
     for (surface, reference) in &refs {
-        let provider = explicit_provider(db, surface)?.ok_or(CHANGED)?;
-        let token = provider.settings_config["auth"]["OPENAI_API_KEY"]
-            .as_str()
-            .ok_or(CHANGED)?
-            .to_owned();
-        validate_core_entry(db, surface, reference, &token)?;
+        let stored = stored_secret(db, surface)?.ok_or(CHANGED)?;
+        validate_core_entry(
+            db,
+            surface,
+            reference,
+            &stored.token,
+            stored.welfare_token.as_deref(),
+        )?;
         entries.push(crate::imagegen_core::CredentialEntry {
             surface: surface.clone(),
             connection_ref: reference.clone(),
-            api_token: token,
+            api_token: stored.token,
+            welfare_api_token: stored.welfare_token,
         });
     }
     if credential_refs(db)? != refs {
@@ -191,12 +230,16 @@ pub(crate) fn validate_core_entry(
     surface: &str,
     reference: &str,
     token: &str,
+    welfare_token: Option<&str>,
 ) -> Result<(), String> {
     let record = connection(db, surface)?.ok_or(CHANGED)?;
     if record_reference(&record) != reference
+        || !record.group_scoped
         || record.binding != account_binding(db)?
         || !skill_enabled(db, surface)?
         || !super::imagegen_credentials::valid_platform_key(token)
+        || record.welfare_fallback != welfare_token.is_some()
+        || welfare_token.is_some_and(|key| !super::imagegen_credentials::valid_platform_key(key))
     {
         return Err(CHANGED.into());
     }
@@ -204,14 +247,27 @@ pub(crate) fn validate_core_entry(
 }
 
 pub(crate) fn core_provider(db: &Database, surface: &str) -> Result<Option<Provider>, String> {
+    core_providers(db, surface).map(|providers| providers.map(|p| p.0))
+}
+
+pub(crate) fn core_providers(
+    db: &Database,
+    surface: &str,
+) -> Result<Option<(Provider, Option<Provider>)>, String> {
     let Some(record) = connection(db, surface)? else {
         return Ok(None);
     };
     let reference = record_reference(&record);
     let token = crate::imagegen_core::credential(surface, &reference)
         .ok_or("Core 的图像凭据尚未同步，请打开元衡客户端后重试")?;
-    validate_core_entry(db, surface, &reference, &token)?;
-    super::imagegen_credentials::provider_from_key(token).map(Some)
+    let welfare_token = crate::imagegen_core::welfare_credential(surface, &reference);
+    validate_core_entry(db, surface, &reference, &token, welfare_token.as_deref())?;
+    Ok(Some((
+        super::imagegen_credentials::provider_from_key(token)?,
+        welfare_token
+            .map(super::imagegen_credentials::provider_from_key)
+            .transpose()?,
+    )))
 }
 
 fn cleanup(record: &Connection) {
@@ -336,7 +392,7 @@ async fn groups_for(
     let groups = parse_user_groups(&value).map_err(|_| "账号分组响应格式异常")?;
     Ok(groups
         .into_iter()
-        .filter(|g| !g.id.trim().is_empty() && g.id.len() <= 256)
+        .filter(|g| !g.id.trim().is_empty() && g.id.len() <= 256 && g.id != "auto")
         .collect())
 }
 
@@ -399,12 +455,18 @@ fn save(
     group: &str,
     binding: &Binding,
     token: String,
+    welfare_token: Option<String>,
 ) -> Result<(), String> {
     let _guard = MUTATION.lock().map_err(|_| "图像连接锁不可用")?;
     if account_binding(db)? != *binding {
         return Err(CHANGED.into());
     }
+    if welfare_token.is_some() && group != DEFAULT_GROUP {
+        return Err("仅默认图片组支持福利模型补充".into());
+    }
     let record = Connection {
+        group_scoped: true,
+        welfare_fallback: welfare_token.is_some(),
         surface: surface.into(),
         group: group.into(),
         binding: binding.clone(),
@@ -415,6 +477,7 @@ fn save(
     let value = serde_json::to_string(&StoredSecret {
         connection: record.clone(),
         token,
+        welfare_token,
     })
     .map_err(|_| "无法保存图像连接")?;
     crate::secure_storage::set_secret(&secret, &value)
@@ -480,16 +543,53 @@ fn account_revision(db: &Database) -> Result<AccountRevision, String> {
     })
 }
 
+fn setup_group(saved: Option<String>) -> String {
+    saved.unwrap_or_else(|| DEFAULT_GROUP.into())
+}
+
+enum GroupSelection {
+    Explicit(Option<String>),
+    PreserveOrDefault,
+}
+
+impl GroupSelection {
+    async fn lock(
+        self,
+        db: &Database,
+        surface: &str,
+    ) -> Result<(tokio::sync::MutexGuard<'static, ()>, Option<String>), String> {
+        let guard = CONFIGURE.lock().await;
+        let group = match self {
+            Self::Explicit(group) => group,
+            Self::PreserveOrDefault => Some(setup_group(group(db, surface)?)),
+        };
+        Ok((guard, group))
+    }
+}
+
+pub(crate) async fn ensure_default(state: &AppState, surface: &str) -> Result<(), String> {
+    configure_selection(state, surface, GroupSelection::PreserveOrDefault).await?;
+    Ok(())
+}
+
 pub(crate) async fn configure(
     state: &AppState,
     surface: &str,
     group: Option<String>,
 ) -> Result<ImagegenToolStatus, String> {
+    configure_selection(state, surface, GroupSelection::Explicit(group)).await
+}
+
+async fn configure_selection(
+    state: &AppState,
+    surface: &str,
+    selection: GroupSelection,
+) -> Result<ImagegenToolStatus, String> {
     validate_surface(surface)?;
     // Capture identity before queueing: a request submitted by account A must
     // never acquire account B's credentials after waiting for another setup.
     let revision = account_revision(&state.db)?;
-    let authenticated = if group.is_some() {
+    let authenticated = if !matches!(selection, GroupSelection::Explicit(None)) {
         Some(login(state)?)
     } else {
         None
@@ -499,12 +599,12 @@ pub(crate) async fn configure(
     } else {
         revision
     };
-    let _guard = CONFIGURE.lock().await;
+    let (_guard, group) = selection.lock(&state.db, surface).await?;
     if account_revision(&state.db)? != revision {
         return Err(CHANGED.into());
     }
     if let Some(group) = group {
-        if group.trim().is_empty() || group.len() > 256 {
+        if group.trim().is_empty() || group.len() > 256 || group == "auto" {
             return Err("请选择有效的图像分组".into());
         }
         let (binding, cookie) = authenticated.ok_or(CHANGED)?;
@@ -519,39 +619,40 @@ pub(crate) async fn configure(
         if account_binding(&state.db)? != binding {
             return Err(CHANGED.into());
         }
-        // Avoid creating an unused device token when the account's own group
-        // catalog already proves that this group has no versioned GPT Image.
-        // A failed advisory read does not replace the authoritative token check.
-        if let Ok(value) = account_json(
-            &client,
-            &format!("{BASE_URL}/api/user/models"),
-            &binding,
-            &cookie,
-            Some(&group),
-        )
-        .await
-        {
-            if let Ok(models) = parse_user_models(&value) {
-                if select_model(&models).is_none() {
-                    return Err("所选分组未授权带版本号的 GPT Image 模型，请选择支持图像生成的分组；聊天配置未改变".into());
-                }
-            }
-        }
+        let use_welfare = group == DEFAULT_GROUP && groups.iter().any(|g| g.id == WELFARE_GROUP);
         if account_binding(&state.db)? != binding {
             return Err(CHANGED.into());
         }
-        let (token, _) = ensure_shared_api_token(state, &client, &cookie, &binding.account, &group)
-            .await
-            .map_err(|_| "读取或创建账号统一令牌失败，请检查登录和分组权限")?;
+        let token =
+            imagegen_token::ensure_at(state, &client, BASE_URL, &cookie, &binding.account, &group)
+                .await?;
         let provider = super::imagegen_credentials::provider_from_key(token.clone())?;
-        let models = crate::proxy::images::image_model_ids(&provider).await?;
+        let mut models = crate::proxy::images::image_model_ids(&provider).await?;
+        // Setup may create both group-scoped credentials, but a paid request
+        // chooses only one after reading the primary model directory.
+        let welfare_token = if use_welfare {
+            let key = imagegen_token::ensure_at(
+                state,
+                &client,
+                BASE_URL,
+                &cookie,
+                &binding.account,
+                WELFARE_GROUP,
+            )
+            .await?;
+            let provider = super::imagegen_credentials::provider_from_key(key.clone())?;
+            models.extend(crate::proxy::images::image_model_ids(&provider).await?);
+            Some(key)
+        } else {
+            None
+        };
         if select_model(&models).is_none() {
             return Err(
                 "所选分组未授权带版本号的 GPT Image 模型，请选择支持图像生成的分组；聊天配置未改变"
                     .into(),
             );
         }
-        save(&state.db, surface, &group, &binding, token)?;
+        save(&state.db, surface, &group, &binding, token, welfare_token)?;
     } else {
         clear(&state.db, surface, &revision)?;
     }
@@ -639,6 +740,18 @@ pub(crate) mod test_support {
             group,
             &account_binding(db).unwrap(),
             token.into(),
+            None,
+        )
+        .unwrap();
+    }
+    pub fn install_welfare(db: &Database, surface: &str, token: &str, welfare_token: &str) {
+        save(
+            db,
+            surface,
+            DEFAULT_GROUP,
+            &account_binding(db).unwrap(),
+            token.into(),
+            Some(welfare_token.into()),
         )
         .unwrap();
     }
@@ -670,6 +783,111 @@ mod tests {
             .as_str()
             .unwrap()
             .into()
+    }
+
+    #[test]
+    fn image_default_only_applies_when_no_group_was_selected() {
+        assert_eq!(setup_group(None), "生图和视频");
+        assert_eq!(setup_group(Some("user-images".into())), "user-images");
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn queued_skill_update_preserves_group_saved_while_waiting() {
+        let db = db();
+        let configuring = CONFIGURE.lock().await;
+        let update = GroupSelection::PreserveOrDefault.lock(&db, "dsh");
+        tokio::pin!(update);
+        assert!(futures::poll!(&mut update).is_pending());
+        test_support::install(&db, "dsh", "user-selected-images", "sk-user-images");
+        drop(configuring);
+        let (_guard, group) = update.await.unwrap();
+        assert_eq!(group.as_deref(), Some("user-selected-images"));
+        secure_storage::clear_for_tests();
+    }
+
+    #[test]
+    #[serial]
+    fn welfare_credentials_follow_connection_lifecycle_and_never_enter_sqlite() {
+        let db = db();
+        crate::commands::imagegen_test_support::enable(&db, "dsh", true);
+        test_support::install_welfare(&db, "dsh", "sk-primary-synthetic", "sk-welfare-synthetic");
+        assert_eq!(fallback_group(&db, "dsh").unwrap().as_deref(), Some("福利"));
+        let snapshot = credential_snapshot(&db).unwrap();
+        assert_eq!(
+            snapshot[0].welfare_api_token.as_deref(),
+            Some("sk-welfare-synthetic")
+        );
+        crate::imagegen_core::replace(&db, &snapshot).unwrap();
+        let providers = core_providers(&db, "dsh").unwrap().unwrap();
+        assert_eq!(
+            providers.0.settings_config["auth"]["OPENAI_API_KEY"],
+            "sk-primary-synthetic"
+        );
+        assert_eq!(
+            providers.1.unwrap().settings_config["auth"]["OPENAI_API_KEY"],
+            "sk-welfare-synthetic"
+        );
+        let raw = db.get_setting(&key("dsh").unwrap()).unwrap().unwrap();
+        assert!(!raw.contains("sk-primary") && !raw.contains("sk-welfare"));
+        let mut incomplete = snapshot.clone();
+        incomplete[0].welfare_api_token = None;
+        assert!(crate::imagegen_core::replace(&db, &incomplete).is_err());
+        let old = connection(&db, "dsh").unwrap().unwrap();
+        test_support::install(&db, "dsh", "custom-images", "sk-user-selected");
+        assert_eq!(fallback_group(&db, "dsh").unwrap(), None);
+        assert!(crate::imagegen_core::replace(&db, &snapshot).is_err());
+        assert!(
+            crate::secure_storage::get_secret(&secret_key(&old.secret).unwrap())
+                .unwrap()
+                .is_none()
+        );
+        let current = credential_snapshot(&db).unwrap();
+        crate::imagegen_core::replace(&db, &current).unwrap();
+        assert!(core_providers(&db, "dsh").unwrap().unwrap().1.is_none());
+        assert!(save(
+            &db,
+            "dsh",
+            "custom-images",
+            &account_binding(&db).unwrap(),
+            "sk-test".into(),
+            Some("sk-welfare".into())
+        )
+        .is_err());
+        test_support::install_welfare(&db, "dsh", "sk-primary-synthetic", "sk-welfare-synthetic");
+        let snapshot = credential_snapshot(&db).unwrap();
+        crate::imagegen_core::replace(&db, &snapshot).unwrap();
+        invalidate(&db).unwrap();
+        assert!(core_providers(&db, "dsh").unwrap().is_none());
+        assert!(crate::imagegen_core::replace(&db, &snapshot).is_err());
+        crate::imagegen_core::replace(&db, &[]).unwrap();
+        secure_storage::clear_for_tests();
+    }
+
+    #[test]
+    #[serial]
+    fn unverified_legacy_connection_is_not_synced_or_used_as_chat_fallback() {
+        let db = db();
+        crate::commands::imagegen_test_support::enable(&db, "dsh", true);
+        crate::commands::imagegen_test_support::enable(&db, "workbuddy", true);
+        test_support::install(&db, "dsh", "images", "sk-fixture");
+        test_support::install(&db, "workbuddy", "images", "sk-good");
+        // Simulate a pre-migration record with no proof of group-scoped credentials.
+        let mut value: Value =
+            serde_json::from_str(&db.get_setting(&key("dsh").unwrap()).unwrap().unwrap()).unwrap();
+        value.as_object_mut().unwrap().remove("group_scoped");
+        db.set_setting(&key("dsh").unwrap(), &value.to_string())
+            .unwrap();
+        assert_eq!(group(&db, "dsh").unwrap().as_deref(), Some("images"));
+        assert!(active_reference(&db, "dsh").is_err());
+        assert!(explicit_provider(&db, "dsh").is_err());
+        let snapshot = credential_snapshot(&db).unwrap();
+        assert_eq!(snapshot.len(), 1);
+        assert_eq!(snapshot[0].surface, "workbuddy");
+        crate::imagegen_core::replace(&db, &snapshot).unwrap();
+        assert!(core_provider(&db, "dsh").is_err());
+        assert!(core_provider(&db, "workbuddy").unwrap().is_some());
+        secure_storage::clear_for_tests();
     }
 
     #[test]
@@ -710,7 +928,8 @@ mod tests {
             "dsh",
             "new",
             &account_binding(&db).unwrap(),
-            "sk-synthetic-new".into()
+            "sk-synthetic-new".into(),
+            None,
         )
         .is_err());
         assert_eq!(token(&db, "dsh"), "sk-synthetic-old");
@@ -738,7 +957,7 @@ mod tests {
             .contains("仅会话登录"));
         test_support::account(&db, "account-B", false);
         assert!(explicit_provider(&db, "dsh").is_err());
-        assert!(save(&db, "dsh", "stale", &stale_binding, "sk-stale".into()).is_err());
+        assert!(save(&db, "dsh", "stale", &stale_binding, "sk-stale".into(), None).is_err());
         invalidate(&db).unwrap();
         assert!(explicit_provider(&db, "dsh").unwrap().is_none());
         test_support::account(&db, "account-A", false);

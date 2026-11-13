@@ -1,6 +1,48 @@
 // Chinese source, English, Japanese, Korean and Traditional Chinese.
 const rows = [
   [
+    "图片分组规则",
+    "Image group routing",
+    "画像グループのルール",
+    "이미지 그룹 규칙",
+    "圖片分組規則",
+  ],
+  [
+    "所选组没有该模型时使用「{{group}}」，按实际使用的分组计费；请求失败不自动换组重发。",
+    "If this group does not list the model, use {{group}}. Billing follows the group used. Failed requests are not resent to another group.",
+    "選択したグループにモデルがない場合は「{{group}}」を使用し、実際のグループで課金します。失敗時に別のグループへ再送しません。",
+    "선택한 그룹에 모델이 없으면 {{group}}을 사용하며 실제 사용한 그룹 기준으로 과금됩니다. 실패한 요청은 다른 그룹으로 재전송하지 않습니다.",
+    "所選組沒有該模型時使用「{{group}}」，按實際使用的分組計費；請求失敗不自動換組重發。",
+  ],
+  [
+    "连接生图和视频",
+    "Connect image/video group",
+    "生图和视频グループに接続",
+    "生图和视频 그룹 연결",
+    "連線生圖和視頻",
+  ],
+  [
+    "请选择图片分组",
+    "Choose an image group",
+    "画像グループを選択",
+    "이미지 그룹 선택",
+    "請選擇圖片分組",
+  ],
+  [
+    "更新图片连接",
+    "Update image connection",
+    "画像接続を更新",
+    "이미지 연결 업데이트",
+    "更新圖片連線",
+  ],
+  [
+    "仅图片 Skill 使用此分组；聊天配置不变。",
+    "Only the image skill uses this group. Chat settings stay unchanged.",
+    "このグループは画像スキル専用です。チャット設定は変わりません。",
+    "이미지 스킬만 이 그룹을 사용합니다. 채팅 설정은 유지됩니다.",
+    "僅圖片 Skill 使用此分組；聊天設定不變。",
+  ],
+  [
     "像素尺寸与分辨率冲突，请使用一致参数",
     "Pixel size and resolution conflict; use consistent values.",
     "ピクセルサイズと解像度が一致しません。",

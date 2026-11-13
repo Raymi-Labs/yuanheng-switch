@@ -128,6 +128,10 @@ async function explicitRuntimeConnection(args) {
       "Image routing is unavailable for the requested tool surface",
     );
   const baseUrl = runtime.routes[surface];
+  if (!baseUrl.endsWith(`/imagegen/${surface}/v1`))
+    throw new Error(
+      "Configure this tool's image group in YuanHeng and update the skill; chat credentials are not used for image generation",
+    );
   return {
     baseUrl,
     headers: {},

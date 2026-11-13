@@ -1,6 +1,9 @@
 //! Opaque, single-attempt Images API transport. In particular, Codex image edits
 //! contain JSON image references; treating them as chat or requiring multipart
-//! would destroy the request. Never map models, sanitize media or fail over here.
+//! would destroy the request. Group selection happens before a single submission;
+//! never rewrite models, sanitize media, or replay a failed generation here.
+
+mod group_routing;
 
 use super::{
     forwarder::{validate_codex_official_authorization, ActiveConnectionGuard},
@@ -81,7 +84,7 @@ async fn handle_images(
         status.last_request_at = Some(chrono::Utc::now().to_rfc3339());
     }
     let mut response = match body {
-        Ok(body) => match selected_provider(&state, &uri) {
+        Ok(body) => match group_routing::provider(&state, &uri, &headers, &body).await {
             Ok(provider) => match prepare_request(&provider, &uri, &headers) {
                 Ok((url, outgoing)) => match http_client::image_client() {
                     Ok(client) => {
@@ -176,6 +179,11 @@ fn selected_provider(state: &ProxyState, uri: &Uri) -> Result<Provider, ProxyErr
     // first entry could differ from the user's selected account/provider.
     let namespace = provider_namespace(uri)?;
     let explicit = uri.path().starts_with("/imagegen/");
+    if !explicit && !matches!(namespace, "codex" | "chatgpt-desktop") {
+        return Err(ProxyError::ConfigError(
+            "请在元衡选择图片分组并更新技能；未使用聊天令牌生成".into(),
+        ));
+    }
     if explicit || !matches!(namespace, "codex" | "chatgpt-desktop") {
         let target = crate::services::skill::ImagegenTarget::parse(namespace)
             .map_err(|_| ProxyError::InvalidRequest("未知图片应用路由".into()))?;
@@ -227,23 +235,30 @@ async fn handle_image_models(
 ) -> Response {
     let _guard = ActiveConnectionGuard::acquire(state.status.clone()).await;
     let request_id = uuid::Uuid::new_v4().to_string();
-    let mut response = match selected_provider(&state, &uri)
-        .and_then(|provider| prepare_model_catalog_request(&provider))
-    {
-        Ok((url, headers)) => match http_client::image_client() {
-            Ok(client) => {
-                fetch_image_models(
-                    &client,
-                    &url,
-                    headers,
-                    MODEL_CATALOG_TIMEOUT,
-                    MODEL_CATALOG_LIMIT,
-                )
-                .await
-            }
-            Err(_) => local_error(ProxyError::ConfigError("无法创建图片模型目录连接".into())),
-        },
-        Err(error) => local_error(error),
+    let mut response = if uri.path().starts_with("/imagegen/") {
+        match group_routing::catalog(&state, &uri).await {
+            Ok(models) => Json(json!({"object":"list", "data":models.into_iter().map(|id| json!({"id":id})).collect::<Vec<_>>() })).into_response(),
+            Err(error) => local_error(error),
+        }
+    } else {
+        match selected_provider(&state, &uri)
+            .and_then(|provider| prepare_model_catalog_request(&provider))
+        {
+            Ok((url, headers)) => match http_client::image_client() {
+                Ok(client) => {
+                    fetch_image_models(
+                        &client,
+                        &url,
+                        headers,
+                        MODEL_CATALOG_TIMEOUT,
+                        MODEL_CATALOG_LIMIT,
+                    )
+                    .await
+                }
+                Err(_) => local_error(ProxyError::ConfigError("无法创建图片模型目录连接".into())),
+            },
+            Err(error) => local_error(error),
+        }
     };
     response.headers_mut().insert(
         "x-yuanheng-request-id",
@@ -651,7 +666,7 @@ mod tests {
         provider
     }
 
-    fn state(db: Arc<Database>) -> ProxyState {
+    pub(super) fn state(db: Arc<Database>) -> ProxyState {
         ProxyState {
             db: db.clone(),
             config: Arc::new(RwLock::new(ProxyConfig::default())),
@@ -770,11 +785,29 @@ mod tests {
         {
             let key = format!("sk-fixture-{target}");
             install(&db, target, &key);
+            crate::commands::imagegen_connection_test_support::account(
+                &db,
+                "synthetic-account",
+                false,
+            );
+            crate::commands::imagegen_connection_test_support::install(
+                &db,
+                target,
+                "生图和视频",
+                &key,
+            );
             let uri = format!("/{target}/v1/images/models").parse().unwrap();
             assert!(selected_provider(&state, &uri).is_err());
             enable(&db, target, true);
+            crate::imagegen_core::replace(
+                &db,
+                &crate::commands::imagegen_credential_snapshot(&db).unwrap(),
+            )
+            .unwrap();
             for operation in ["models", "generations", "edits"] {
-                let uri = format!("/{target}/v1/images/{operation}").parse().unwrap();
+                let uri = format!("/imagegen/{target}/v1/images/{operation}")
+                    .parse()
+                    .unwrap();
                 let provider = selected_provider(&state, &uri).unwrap();
                 let (prepared_url, headers) = if operation == "models" {
                     prepare_model_catalog_request(&provider).unwrap()
@@ -995,11 +1028,9 @@ mod tests {
             &"/imagegen/dsh/v1/images/generations".parse().unwrap()
         )
         .is_err());
-        let provider =
-            selected_provider(&state, &"/dsh/v1/images/models".parse().unwrap()).unwrap();
-        assert_eq!(
-            provider.settings_config["auth"]["OPENAI_API_KEY"],
-            "sk-chat-dsh"
+        assert!(
+            selected_provider(&state, &"/dsh/v1/images/models".parse().unwrap()).is_err(),
+            "revoked image connection must not borrow chat credentials"
         );
         assert!(rx.try_recv().is_err());
         task.abort();

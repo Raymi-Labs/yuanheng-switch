@@ -217,7 +217,9 @@ Claude diagnostic persistence uses a bounded background writer, not disk I/O on 
 
 [无密钥运行时描述](../src-tauri/src/commands/yuanheng/imagegen.rs) 连接现有 Core；[图片模型目录和图片路由](../src-tauri/src/proxy/images.rs) 按工具读取[当前托管凭据](../src-tauri/src/commands/yuanheng/imagegen_credentials.rs)，并支持[独立图片分组](../src-tauri/src/commands/yuanheng/imagegen_connection.rs)：用户从当前账号可选分组中明确选择，真实令牌目录验证通过后保存图像连接，不修改聊天配置。独立凭据由客户端存入系统凭据库，再经既有管理认证的本机通道同步至 Core 内存；SQLite、runtime 和技能绑定只含非密钥元数据。Core 重启由客户端维护循环补齐，切号、退出和关闭立即使旧引用失效。专用技能图片路由与 Codex 原生图片路由分离，独立图片分组禁止回退到聊天连接。helper 每次读取该连接授权目录，选择最新数字版本、同版本质量优先；支持命名空间并保留完整模型 ID，显式型号优先，目录失败不猜测。Codex 保留终端/桌面原生图片连接，未选择独立分组时兼容旧描述；任一 Codex 独立分组会关闭含糊的 v1 技能描述。非 Codex 在选择独立分组后拒绝旧技能路由，提示刷新技能；其余目标只走 Images API。
 
-[图像卡片](../src/components/desktop/ImagegenCapabilityCard.tsx) 使用实际 activeTool 与[专用状态/启停/导出 API](../src-tauri/src/commands/skill_imagegen.rs)，其余能力保持 core AppId。图片分组可独立选择或恢复使用聊天连接，真实目录检查通过才展示就绪和自动选择的型号；未授权 GPT Image 时明确引导选组。DSH 使用当前 DSH_HOME/skills；WorkBuddy 开发模式读取 ~/.codebuddy/skills（同目录也供 CodeBuddy Code 发现），办公模式导出本机 ZIP 再由用户导入。导入包绑定本机稳定 runtime 路径，随 Core 端口同步，不包含密钥。
+[图像卡片](../src/components/desktop/ImagegenCapabilityCard.tsx) 使用实际 activeTool 与[专用状态/启停/导出 API](../src-tauri/src/commands/skill_imagegen.rs)，其余能力保持 core AppId。图片分组独立选择；尚无选择时默认“生图和视频”，可在卡片内连接或更新，旧绑定需要验证专用凭据。真实目录检查通过才展示就绪和自动选择的型号；未授权 GPT Image 时明确引导选组。DSH 使用当前 DSH_HOME/skills；WorkBuddy 开发模式读取 ~/.codebuddy/skills（同目录也供 CodeBuddy Code 发现），办公模式导出本机 ZIP 再由用户导入。导入包绑定本机稳定 runtime 路径，随 Core 端口同步，不包含密钥。
+
+默认图片连接可附带有权限的“福利”[单组凭据](../src-tauri/src/commands/yuanheng/imagegen_token.rs)。[提交前模型选组](../src-tauri/src/proxy/images/group_routing.rs)在主组目录明确缺少请求模型时才使用福利，同名模型主组优先；目录/鉴权/额度/生成失败不引发跨组重发，原始JSON及multipart保留。用户另选图片组保持单组；聊天统一令牌和平台通用自动路由不变。福利规则由现有分组旁的tooltip展示。见[调用分组说明](guides/image-skill-group.md)。
 
 [Skill](../src-tauri/src/resources/builtin_skills/meta-api-imagegen/SKILL.md) 允许隐式调用，按宿主支持的图片/结果预览展示后继续任务；实际选择由宿主 Agent 决定。纯文本模型不强制视觉检查。OpenCode 发现其他应用同名副本时，宿主标记检查会拒绝使用该绑定，需选择自己的安装路径。Codex 仅在接口明确不支持时最多一次兼容回退，网络/业务/保存失败不重复生成，最终图片与 partial 区分。Node 模拟 HTTP、Rust 安装/路由和界面回归不代表原生 WorkBuddy 办公导入或真实付费生成验收。原始取舍见[自动图像技能](../.agents/notes/implemented/feature/2026-10-23-automatic-image-skill.md)，多应用扩展见[决策笔记](../.agents/notes/implemented/feature/2026-10-23-multi-app-image-skill.md)，独立图片分组及实际权限检查见[修复笔记](../.agents/notes/implemented/bug-fix/2026-10-23-independent-image-group.md)。
 
@@ -281,7 +283,9 @@ QA人工启动入口按2026-10-21用户授权启用剪贴板共享，并在guest
 
 ## 桌面端统一令牌（2026-11-08）
 
-工具配置、Agent 图像连接、图片视频生成和通用凭据修复共用 [device_credentials](../src-tauri/src/commands/yuanheng/device_credentials.rs) 的账号统一令牌。首次配置以所选真实分组优先，其他授权真实组按名称排序，auto 不作为 routing_config 成员；后续保留平台分组顺序、模型规则、额度和限制。目录分组只筛选模型，实际路由及收费由平台决定。新 Provider 标记 routing=token，本地用量显示自动路由并不猜测分组报价。既有配置在重新应用前保持旧凭据；旧视频仍按记录 token_id 查询，升级不自动删除令牌。详见[决定与边界](../.agents/notes/implemented/architecture/2026-11-08-account-shared-token.md)。
+工具聊天配置、图片视频创作页和通用凭据修复共用 [device_credentials](../src-tauri/src/commands/yuanheng/device_credentials.rs) 的账号统一令牌。首次配置以所选真实分组优先，其他授权真实组按名称排序，auto 不作为 routing_config 成员；后续保留平台分组顺序、模型规则、额度和限制。以上入口的目录分组只筛选模型，实际路由及收费由平台决定。新 Provider 标记 routing=token，本地用量显示自动路由并不猜测分组报价。既有配置在重新应用前保持旧凭据；旧视频仍按记录 token_id 查询，升级不自动删除令牌。详见[决定与边界](../.agents/notes/implemented/architecture/2026-11-08-account-shared-token.md)。
+
+内置图片Skill为独立例外：[图片令牌](../src-tauri/src/commands/yuanheng/imagegen_token.rs)按账号/图片组复用专用单组凭据，[连接](../src-tauri/src/commands/yuanheng/imagegen_connection.rs)与[脚本](../src-tauri/src/resources/builtin_skills/meta-api-imagegen/scripts/meta_api_imagegen.mjs)只使用该工具独立图片路由。首次显式连接默认“生图和视频”，可在既有选择器换组，旧连接须更新；不修改聊天自动路由或客户端创作页。范围与验收见[指南](guides/image-skill-group.md)及[决定](../.agents/notes/implemented/bug-fix/2026-11-13-image-skill-group.md)。
 
 ## ChatGPT 登录与中转配置（2026-11-09）
 

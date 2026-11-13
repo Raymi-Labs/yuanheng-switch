@@ -6,7 +6,7 @@ use std::collections::{BTreeMap, HashSet};
 #[cfg(not(test))]
 use std::sync::{Mutex, OnceLock};
 
-pub(crate) const MAX_BODY: usize = 64 * 1024;
+pub(crate) const MAX_BODY: usize = 128 * 1024;
 
 // Deliberately no Debug: this type carries an API credential in memory only.
 #[derive(Clone, Serialize, Deserialize)]
@@ -15,6 +15,8 @@ pub(crate) struct CredentialEntry {
     pub surface: String,
     pub connection_ref: String,
     pub api_token: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub welfare_api_token: Option<String>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -70,6 +72,17 @@ pub(crate) fn credential(surface: &str, connection_ref: &str) -> Option<String> 
     .flatten()
 }
 
+pub(crate) fn welfare_credential(surface: &str, connection_ref: &str) -> Option<String> {
+    with_cache(|entries| {
+        entries
+            .get(surface)
+            .filter(|entry| entry.connection_ref == connection_ref)
+            .and_then(|entry| entry.welfare_api_token.clone())
+    })
+    .ok()
+    .flatten()
+}
+
 pub(crate) fn replace(db: &Database, entries: &[CredentialEntry]) -> Result<(), String> {
     if entries.len() > 9 {
         return Err("图像凭据同步数量无效".into());
@@ -81,6 +94,10 @@ pub(crate) fn replace(db: &Database, entries: &[CredentialEntry]) -> Result<(), 
             || entry.connection_ref.len() > 256
             || entry.connection_ref.is_empty()
             || entry.api_token.len() > 4096
+            || entry
+                .welfare_api_token
+                .as_ref()
+                .is_some_and(|key| key.len() > 4096)
             || !surfaces.insert(entry.surface.as_str())
         {
             return Err("图像凭据同步格式无效".into());
@@ -90,6 +107,7 @@ pub(crate) fn replace(db: &Database, entries: &[CredentialEntry]) -> Result<(), 
             &entry.surface,
             &entry.connection_ref,
             &entry.api_token,
+            entry.welfare_api_token.as_deref(),
         )?;
         next.insert(entry.surface.clone(), entry.clone());
     }
@@ -109,6 +127,7 @@ pub(crate) fn replace(db: &Database, entries: &[CredentialEntry]) -> Result<(), 
                 &entry.surface,
                 &entry.connection_ref,
                 &entry.api_token,
+                entry.welfare_api_token.as_deref(),
             )?;
         }
         *current = next;
@@ -235,6 +254,7 @@ mod tests {
                     surface: surface.into(),
                     connection_ref: reference.into(),
                     api_token: token.into(),
+                    welfare_api_token: None,
                 }]
             )
             .is_err());

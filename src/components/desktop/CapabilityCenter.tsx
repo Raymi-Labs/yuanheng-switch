@@ -207,11 +207,7 @@ export function CapabilityCenter({
           <NativePluginsPanel key={`plugins-${activeTool}`} tool={activeTool} />
         )}
 
-        <ImagegenCapabilityCard
-          key={activeTool}
-          tool={activeTool}
-          onOpenTools={() => onOpen("tools")}
-        />
+        <ImagegenCapabilityCard key={activeTool} tool={activeTool} />
 
         <section className="mt-4 overflow-hidden rounded-lg border border-orange-500/20 bg-card">
           <div className="flex flex-wrap items-center gap-4 px-5 py-4">
