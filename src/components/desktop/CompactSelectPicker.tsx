@@ -12,6 +12,7 @@ export interface CompactSelectOption {
   label: string;
   icon?: string;
   iconName?: string;
+  disabled?: boolean;
 }
 
 export interface CompactSelectPickerProps {
@@ -99,6 +100,7 @@ export function CompactSelectPicker({
           <SelectItem
             key={encodeValue(option.value)}
             value={encodeValue(option.value)}
+            disabled={option.disabled}
             className={cn("text-[10.5px]", itemClassName)}
           >
             <span className="flex min-w-0 items-center gap-2">

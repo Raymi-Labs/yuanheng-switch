@@ -218,6 +218,36 @@ describe("useModelSwitchCenter", () => {
     );
   });
 
+  it("paid launch of an already configured Codex delegates a single-model refresh instead of reconfiguring the catalogue", async () => {
+    connection.groups = [{ id: "enterprise", description: "", ratio: 1 }];
+    connection.modelGroups = { "model-a": ["enterprise"] };
+    statuses = statuses.map((s) => ({ ...s, group: "enterprise" }));
+    const { wrapper } = createWrapper();
+    const { result } = renderHook(() => useModelSwitchCenter(), { wrapper });
+    await waitFor(() => expect(result.current.models.codex).toBe("model-a"));
+    await act(async () => {
+      await result.current.launch("codex", () => true, {
+        tier: "priority",
+        owner: "1024",
+        model: "model-a",
+        group: "enterprise",
+      });
+    });
+    expect(configureResolvers.size).toBe(0);
+    expect(invokeMock).toHaveBeenCalledWith(
+      "launch_tool",
+      expect.objectContaining({
+        tool: "codex",
+        speed: {
+          tier: "priority",
+          owner: "1024",
+          model: "model-a",
+          group: "enterprise",
+        },
+      }),
+    );
+  });
+
   it.each([true, false])(
     "applies the DSH model/group pair together and preserves both on failure: %s",
     async (success) => {
@@ -459,7 +489,7 @@ describe("useModelSwitchCenter", () => {
       false,
     );
 
-    let launch!: Promise<void>;
+    let launch!: Promise<boolean | undefined>;
     act(() => {
       launch = result.current.launch("dsh");
     });

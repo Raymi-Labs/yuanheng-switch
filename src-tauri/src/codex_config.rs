@@ -102,18 +102,28 @@ pub(crate) fn codex_model_is_gpt(model: &str) -> bool {
         .starts_with("gpt-")
 }
 
-/// Codex ignores this obsolete top-level option. Clean it at preparation AND
+/// Codex ignores obsolete storage and MCP transport options. Clean at preparation AND
 /// final writes, because shared snippets can otherwise merge it back in.
 /// This is not a replacement for the Responses API's request-level `store`.
 pub(crate) fn remove_obsolete_codex_settings(config_text: &str) -> Result<String, AppError> {
     let mut doc = config_text
         .parse::<DocumentMut>()
         .map_err(|e| AppError::Message(format!("Invalid Codex config.toml: {e}")))?;
-    if doc
+    let mut changed = doc
         .as_table_mut()
         .remove("disable_response_storage")
-        .is_some()
+        .is_some();
+    if let Some(servers) = doc
+        .get_mut("mcp_servers")
+        .and_then(toml_edit::Item::as_table_like_mut)
     {
+        for (_, server) in servers.iter_mut() {
+            if let Some(table) = server.as_table_like_mut() {
+                changed |= table.remove("type").is_some();
+            }
+        }
+    }
+    if changed {
         Ok(doc.to_string())
     } else {
         Ok(config_text.to_string())
@@ -2002,19 +2012,7 @@ pub fn apply_codex_official_proxy_route(
 
 /// Whether a live Codex config is the official route projected by YuanHeng Switch.
 pub fn codex_config_has_official_proxy_route(config_text: &str) -> bool {
-    if !config_text.contains(CC_SWITCH_CODEX_OFFICIAL_PROXY_PROVIDER_ID) {
-        return false;
-    }
-    config_text
-        .parse::<DocumentMut>()
-        .ok()
-        .and_then(|doc| {
-            doc.get("model_provider")
-                .and_then(|item| item.as_str())
-                .map(str::to_string)
-        })
-        .as_deref()
-        == Some(CC_SWITCH_CODEX_OFFICIAL_PROXY_PROVIDER_ID)
+    crate::codex_history_routes::is_official(config_text)
 }
 
 /// Remove only the official takeover route owned by YuanHeng Switch. This is a
@@ -2448,6 +2446,23 @@ mod tests {
     use serde_json::json;
 
     #[test]
+    fn obsolete_mcp_type_cleanup_preserves_server_settings() {
+        for input in [
+            "# keep\n[mcp_servers.computer-use]\ntype = \"stdio\"\ncommand = \"client\"\nenabled = false\n[mcp_servers.computer-use.env]\ntype = \"keep\"\n[mcp_servers.node_repl]\ntype = \"stdio\"\ncommand = \"node\"\n",
+            "mcp_servers = { remote = { type = \"http\", url = \"https://example.com/mcp\", http_headers = { type = \"keep\" } } }\n",
+        ] {
+            let mut expected: toml::Value = input.parse().unwrap();
+            for (_, server) in expected["mcp_servers"].as_table_mut().unwrap().iter_mut() {
+                server.as_table_mut().unwrap().remove("type");
+            }
+            let cleaned = remove_obsolete_codex_settings(input).unwrap();
+            assert_eq!(cleaned.parse::<toml::Value>().unwrap(), expected);
+            assert_eq!(remove_obsolete_codex_settings(&cleaned).unwrap(), cleaned);
+            if input.starts_with('#') { assert!(cleaned.starts_with("# keep")); }
+        }
+    }
+
+    #[test]
     fn obsolete_storage_option_cleanup_is_narrow_and_idempotent() {
         let input = "# keep comment\nmodel = \"gpt-test\"\ndisable_response_storage = true\nmodel_context_window = 272000\n[custom]\ndisable_response_storage = false\n";
         let cleaned = remove_obsolete_codex_settings(input).unwrap();
@@ -2557,7 +2572,7 @@ command = "example"
 
         assert_eq!(
             doc.get("model_provider").and_then(toml::Value::as_str),
-            Some(CC_SWITCH_CODEX_OFFICIAL_PROXY_PROVIDER_ID)
+            Some(CC_SWITCH_CODEX_MODEL_PROVIDER_ID)
         );
         assert!(doc.get("experimental_bearer_token").is_none());
         assert!(
@@ -2592,7 +2607,7 @@ command = "example"
                 .expect("project");
         let cleaned = remove_codex_official_proxy_route(&projected).expect("clean");
         let doc: toml::Value = toml::from_str(&cleaned).expect("parse cleaned");
-        assert!(doc.get("model_provider").is_none());
+        assert_eq!(doc["model_provider"].as_str(), Some("custom"));
         for alias in [
             "custom",
             "yuanheng",
@@ -2638,7 +2653,7 @@ model_providers = { rightcode = { name = "RightCode", experimental_bearer_token 
 
         let cleaned = remove_codex_official_proxy_route(&projected).expect("clean projected");
         let cleaned_doc: toml::Value = toml::from_str(&cleaned).expect("parse cleaned");
-        assert!(cleaned_doc.get("model_provider").is_none());
+        assert_eq!(cleaned_doc["model_provider"].as_str(), Some("custom"));
         assert!(cleaned_doc["model_providers"].get("rightcode").is_some());
         assert!(
             cleaned_doc["model_providers"][CC_SWITCH_CODEX_OFFICIAL_PROXY_PROVIDER_ID]

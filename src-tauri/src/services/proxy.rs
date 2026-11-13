@@ -5604,7 +5604,7 @@ wire_api = "chat"
         let route_id = crate::codex_config::CC_SWITCH_CODEX_OFFICIAL_PROXY_PROVIDER_ID;
         let route = &parsed["model_providers"][route_id];
 
-        assert_eq!(parsed["model_provider"].as_str(), Some(route_id));
+        assert_eq!(parsed["model_provider"].as_str(), Some("custom"));
         assert_eq!(route["base_url"].as_str(), Some(proxy_url));
         assert_eq!(route["requires_openai_auth"].as_bool(), Some(true));
         assert!(parsed.get("experimental_bearer_token").is_none());

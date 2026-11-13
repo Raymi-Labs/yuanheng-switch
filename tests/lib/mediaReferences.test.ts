@@ -31,12 +31,12 @@ describe("reference model boundaries", () => {
   );
   it("keeps per-model limits separate and counts padding correctly", () => {
     expect(mediaReferencePolicy("muse-video")).toMatchObject({
-      maxCount: 4,
+      maxCount: 16,
       maxBytes: 10 * 1024 * 1024,
-      maxTotalBytes: 24 * 1024 * 1024,
+      maxTotalBytes: 64 * 1024 * 1024,
     });
     expect(
-      referencesFit("muse-video", Array(5).fill("data:image/png;base64,eA==")),
+      referencesFit("muse-video", Array(17).fill("data:image/png;base64,eA==")),
     ).toBe(false);
     expect(
       referencesFit("gemini-3.1-flash-image-preview", [

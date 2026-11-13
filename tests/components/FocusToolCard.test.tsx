@@ -1,4 +1,10 @@
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { runToolLifecycleJob } from "@/lib/toolLifecycleState";
 import { yuanhengApi } from "@/lib/api/yuanheng";
@@ -102,6 +108,81 @@ function createSwitcher(
 }
 
 describe("FocusToolCard", () => {
+  it("switching to an unsupported group automatically returns to standard without blocking launch", async () => {
+    const query = vi
+      .spyOn(yuanhengApi, "getCodexLaunchTiers")
+      .mockImplementation(async (_model, group) =>
+        group === "supported"
+          ? [{ id: "priority", name: "Fast ×2", description: "" }]
+          : [],
+      );
+    const switcher = createSwitcher("ready");
+    switcher.runnableRows = ["codex"];
+    switcher.models = { codex: "gpt-6-astra" };
+    switcher.groups = { codex: "unsupported" };
+    switcher.installedApps = new Set(["codex"]);
+    const { rerender } = render(
+      <FocusToolCard switcher={switcher} onOpenTools={vi.fn()} />,
+    );
+    await waitFor(() => expect(query).toHaveBeenCalled());
+    expect(
+      screen.queryByRole("combobox", { name: "本次启动速度" }),
+    ).not.toBeInTheDocument();
+    switcher.groups = { codex: "supported" };
+    rerender(<FocusToolCard switcher={switcher} onOpenTools={vi.fn()} />);
+    const picker = await screen.findByRole("combobox", {
+      name: "本次启动速度",
+    });
+    expect(
+      screen.queryByRole("option", { name: "UltraFast ×6" }),
+    ).not.toBeInTheDocument();
+    fireEvent.click(picker);
+    fireEvent.click(screen.getByRole("option", { name: "Fast ×2" }));
+    switcher.groups = { codex: "unsupported" };
+    await act(async () => {
+      rerender(<FocusToolCard switcher={switcher} onOpenTools={vi.fn()} />);
+    });
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("combobox", { name: "本次启动速度" }),
+      ).not.toBeInTheDocument(),
+    );
+    expect(screen.getByRole("button", { name: "启动 Codex" })).toBeEnabled();
+    query.mockRestore();
+  });
+  it("starts this Codex terminal at the selected tier and preserves the visible choice", async () => {
+    const query = vi
+      .spyOn(yuanhengApi, "getCodexLaunchTiers")
+      .mockResolvedValue([
+        { id: "ultrafast", name: "UltraFast ×6", description: "" },
+      ]);
+    const switcher = createSwitcher("ready");
+    switcher.runnableRows = ["codex"];
+    switcher.models = { codex: "gpt-6-astra" };
+    switcher.groups = { codex: "g" };
+    switcher.installedApps = new Set(["codex"]);
+    switcher.connection!.models = ["gpt-6-astra"];
+    switcher.connection!.reasoningLevels = { "gpt-6-astra": ["high"] };
+    switcher.launch = vi.fn().mockResolvedValue(true);
+    render(<FocusToolCard switcher={switcher} onOpenTools={vi.fn()} />);
+    const speed = await screen.findByRole("combobox", { name: "本次启动速度" });
+    await waitFor(() => expect(speed).toBeEnabled());
+    fireEvent.click(speed);
+    fireEvent.click(screen.getByRole("option", { name: "UltraFast ×6" }));
+    expect(screen.getByText(/6倍费用请求/)).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "启动 Codex" }));
+    expect(switcher.launch).toHaveBeenCalledWith(
+      "codex",
+      expect.any(Function),
+      { tier: "ultrafast", model: "gpt-6-astra", group: "g", owner: "1024" },
+    );
+    await screen.findByText("最近启动：UltraFast ×6");
+    expect(speed).toHaveTextContent("UltraFast ×6");
+    fireEvent.click(speed);
+    fireEvent.click(screen.getByRole("option", { name: "标准" }));
+    expect(screen.getByText("最近启动：UltraFast ×6")).toBeVisible();
+    query.mockRestore();
+  });
   it.each([
     "claude",
     "gemini",
@@ -467,55 +548,25 @@ describe("FocusToolCard", () => {
       const { rerender } = render(
         <FocusToolCard switcher={switcher} onOpenTools={vi.fn()} />,
       );
-      expect(screen.getByText(/使用中转无需退出 ChatGPT 账号/)).toBeVisible();
-      const official = screen.getByRole("button", { name: "OpenAI 官方" });
+      expect(screen.queryByText(/使用中转无需退出 ChatGPT 账号/)).toBeNull();
+      const official = screen.getByRole("button", { name: "OpenAI" });
       expect(official).toBeEnabled();
       fireEvent.click(official);
       expect(switcher.switchCodexMode).toHaveBeenCalledWith("official");
       switcher.codexAccountMode.data!.mode = "official";
       rerender(<FocusToolCard switcher={switcher} onOpenTools={vi.fn()} />);
-      expect(
-        screen.getByText("重启 Codex 后使用 ChatGPT 官方账号登录"),
-      ).toBeVisible();
       expect(screen.getByText(/若当前使用 API Key/)).toHaveTextContent(
         "Sign in with ChatGPT",
       );
       expect(
         screen.queryByText("使用 Codex 中已登录的 OpenAI 官方账号"),
       ).not.toBeInTheDocument();
-      fireEvent.click(screen.getByRole("button", { name: "元衡中转" }));
+      fireEvent.click(screen.getByRole("button", { name: "Meta API" }));
       expect(switcher.switchCodexMode).toHaveBeenCalledWith("yuanheng");
     },
   );
 
-  it("exposes Codex project recovery and reports the restored counts", async () => {
-    const repair = vi
-      .spyOn(yuanhengApi, "repairCodexProjectMap")
-      .mockResolvedValue({
-        fingerprint: "preview-hash",
-        applied: false,
-        projectsFound: 34,
-        projectsRestored: 33,
-        assignmentsRestored: 120,
-        backupPath: "/tmp/codex-state.bak",
-        blockedReason: null,
-      });
-    const switcher = createSwitcher("ready");
-    switcher.rows = ["chatgpt-desktop"];
-    switcher.runnableRows = ["chatgpt-desktop"];
-    switcher.installedApps = new Set(["chatgpt-desktop"]);
-    render(<FocusToolCard switcher={switcher} onOpenTools={vi.fn()} />);
-
-    await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: "检查本地项目" }));
-    });
-
-    expect(repair).toHaveBeenCalledOnce();
-    expect(screen.getByRole("button", { name: "备份并恢复" })).toBeVisible();
-    repair.mockRestore();
-  });
-
-  it("官方模式隐藏元衡模型控件并允许切回中转", () => {
+  it("在当前模型行显示 Meta API/OpenAI 切换并允许切回 Meta API", () => {
     const switcher = createSwitcher("ready");
     switcher.rows = ["codex"];
     switcher.runnableRows = ["codex"];
@@ -535,9 +586,20 @@ describe("FocusToolCard", () => {
     render(<FocusToolCard switcher={switcher} onOpenTools={vi.fn()} />);
 
     expect(screen.getByText("OpenAI 官方账号")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Meta API" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "OpenAI" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
     expect(screen.queryByText("1 · 模型供应商")).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Codex 推理等级")).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "元衡中转" }));
+    expect(screen.queryByText("使用方式")).not.toBeInTheDocument();
+    expect(
+      screen.queryByText(
+        "历史对话沿用当前使用方式；旧模型不可用时，请在 Codex 中重新选择模型。",
+      ),
+    ).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Meta API" }));
     expect(switcher.switchCodexMode).toHaveBeenCalledWith("yuanheng");
   });
 

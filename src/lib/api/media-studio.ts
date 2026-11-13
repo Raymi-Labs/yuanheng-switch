@@ -4,6 +4,9 @@ import type { YuanhengGroupOption } from "./yuanheng";
 export interface MediaGroups {
   groups: YuanhengGroupOption[];
   selectedGroup: string | null;
+  unverifiedGroupCount?: number;
+  modelsByGroup?: Record<string, MediaModel[]>;
+  selectedGroups?: Partial<Record<"image" | "video", string | null>>;
 }
 
 export interface MediaModel {
@@ -12,6 +15,22 @@ export interface MediaModel {
   reference: "none" | "optional" | "required";
   sizes: string[];
   durations: number[];
+  qualities?: string[];
+  resolutions?: string[];
+  outputFormats?: string[];
+  backgrounds?: string[];
+  customSize?: boolean;
+}
+export interface MediaDraft {
+  size: string;
+  duration: number | null;
+  quality?: string;
+  resolution?: string;
+  outputFormat?: string;
+  background?: string;
+  outputCompression?: number;
+  prompt?: string;
+  needsReference?: boolean;
 }
 export interface MediaRecord {
   id: string;
@@ -29,8 +48,10 @@ export interface MediaRecord {
   taskId: string | null;
   message: string;
   hasMedia: boolean;
+  draft?: MediaDraft;
 }
-export interface MediaRequest {
+export interface MediaRequest extends Omit<MediaDraft, "prompt"> {
+  savePrompt?: boolean;
   operationId: string;
   group: string;
   model: string;
@@ -47,8 +68,11 @@ export const mediaStudioApi = {
   ) =>
     invoke<string | null>("save_media_file_dialog", { defaultName, extension }),
   groups: () => invoke<MediaGroups>("get_media_studio_groups"),
-  selectGroup: (group: string) =>
-    invoke<string>("set_media_studio_group", { group }),
+  selectGroup: (group: string, kind?: "image" | "video") =>
+    invoke<string>("set_media_studio_group", {
+      group,
+      ...(kind ? { kind } : {}),
+    }),
   models: (group: string) =>
     invoke<MediaModel[]>("get_media_studio_models", { group }),
   history: () => invoke<MediaRecord[]>("get_media_studio_history"),
@@ -63,5 +87,7 @@ export const mediaStudioApi = {
     }),
   export: (id: string, path: string) =>
     invoke<void>("export_media_studio", { id, path }),
+  forgetPrompt: (id: string) =>
+    invoke<void>("forget_media_studio_prompt", { id }),
   delete: (id: string) => invoke<void>("delete_media_studio", { id }),
 };

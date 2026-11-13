@@ -127,3 +127,48 @@ describe("Yuanheng credential repair", () => {
     });
   });
 });
+
+describe("tool session cache recovery", () => {
+  it.each(["switch", "configure"])(
+    "rereads login after %s rejects an expired session",
+    async (action) => {
+      const client = createTestQueryClient();
+      const invalidate = vi.spyOn(client, "invalidateQueries");
+      vi.spyOn(yuanhengApi, "switchCodexAccountMode").mockRejectedValue(
+        new Error("登录会话已过期"),
+      );
+      vi.spyOn(yuanhengApi, "configureTools").mockRejectedValue(
+        new Error("登录会话已过期"),
+      );
+      const {
+        useSwitchCodexAccountMode,
+        useConfigureYuanhengTools,
+        yuanhengKeys,
+      } = await import("@/lib/query/yuanheng");
+      const { result } = renderHook(
+        () => {
+          const switching = useSwitchCodexAccountMode();
+          const configuring = useConfigureYuanhengTools();
+          return { switching, configuring };
+        },
+        {
+          wrapper: ({ children }: { children: ReactNode }) => (
+            <QueryClientProvider client={client}>
+              {children}
+            </QueryClientProvider>
+          ),
+        },
+      );
+      await act(async () => {
+        await expect(
+          action === "switch"
+            ? result.current.switching.mutateAsync({ mode: "yuanheng" })
+            : result.current.configuring.mutateAsync({ apps: ["codex"] }),
+        ).rejects.toThrow("登录会话已过期");
+      });
+      expect(invalidate).toHaveBeenCalledWith({
+        queryKey: yuanhengKeys.connection,
+      });
+    },
+  );
+});

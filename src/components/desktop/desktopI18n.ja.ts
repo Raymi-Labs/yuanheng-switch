@@ -1,9 +1,22 @@
+import { PLUGIN_JA } from "./nativePluginTranslations";
 // Japanese translations for the desktop Simplified Chinese source strings.
 import { MEDIA_JA } from "./mediaStudioTranslations";
 import { COMMERCE_JA } from "./accioCommerceTranslations";
 import { BROWSER_LOGIN_JA } from "./browserLoginTranslations";
 export const DESKTOP_JA: Record<string, string> = {
   ...COMMERCE_JA,
+  "最近启动：{{tier}}": "直近の起動：{{tier}}",
+  已切回标准: "標準に戻しました",
+  速度: "速度",
+  本次启动速度: "今回の起動の速度",
+  "正在确认支持档位…": "利用可能な速度を確認中…",
+  无法确认速度支持范围: "利用可能な速度を確認できません",
+  "当前账号、模型或分组尚未确认支持所选档位，请重新选择或重试":
+    "現在のアカウント、モデル、グループでは未確認です。再選択または再試行してください。",
+  "仅本次启动的新对话；×2/×6是费用倍率，不保证速度。实际结算请查看使用日志。":
+    "今回起動した新規会話のみ。×2/×6は料金倍率で、速度保証ではありません。請求は利用ログで確認してください。",
+  "本次新对话按{{multiplier}}倍费用请求；结算以使用日志为准。":
+    "新規会話は料金{{multiplier}}倍でリクエストします。請求は利用ログで確認してください。",
   "项目消失可能与登录切换有关。可检查历史登录保存在本机的项目映射。":
     "プロジェクトが消えた場合は、以前のログインで保存されたローカル一覧を確認できます。",
   检查本地项目: "ローカルプロジェクトを確認",
@@ -111,6 +124,7 @@ export const DESKTOP_JA: Record<string, string> = {
   "官方版本查询失败，不影响配置和启动。请稍后重试。":
     "公式バージョンの確認に失敗しました。設定と起動には影響しません。後で再試行してください。",
   ...MEDIA_JA,
+  ...PLUGIN_JA,
   等待状态检查: "状態確認待ち",
   尚无检查结果: "確認結果はまだありません",
   "刷新状态后再判断配置是否生效。":

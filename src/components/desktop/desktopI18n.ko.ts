@@ -1,9 +1,22 @@
+import { PLUGIN_KO } from "./nativePluginTranslations";
 // ko translations for the desktop Simplified Chinese source strings.
 import { MEDIA_KO } from "./mediaStudioTranslations";
 import { COMMERCE_KO } from "./accioCommerceTranslations";
 import { BROWSER_LOGIN_KO } from "./browserLoginTranslations";
 export const DESKTOP_KO: Record<string, string> = {
   ...COMMERCE_KO,
+  "最近启动：{{tier}}": "최근 실행: {{tier}}",
+  已切回标准: "표준으로 전환했습니다",
+  速度: "속도",
+  本次启动速度: "이번 실행 속도",
+  "正在确认支持档位…": "사용 가능한 등급 확인 중…",
+  无法确认速度支持范围: "사용 가능한 속도 등급을 확인할 수 없습니다",
+  "当前账号、模型或分组尚未确认支持所选档位，请重新选择或重试":
+    "현재 계정, 모델 또는 그룹의 지원이 확인되지 않았습니다. 다시 선택하거나 재시도하세요.",
+  "仅本次启动的新对话；×2/×6是费用倍率，不保证速度。实际结算请查看使用日志。":
+    "이번 실행의 새 대화에만 적용됩니다. ×2/×6은 요금 배율이며 속도를 보장하지 않습니다. 실제 요금은 사용 로그를 확인하세요.",
+  "本次新对话按{{multiplier}}倍费用请求；结算以使用日志为准。":
+    "새 대화는 {{multiplier}}배 요금으로 요청합니다. 최종 요금은 사용 로그를 확인하세요.",
   "项目消失可能与登录切换有关。可检查历史登录保存在本机的项目映射。":
     "프로젝트가 사라지면 이전 로그인에 저장된 로컬 프로젝트 목록을 확인하세요。",
   检查本地项目: "로컬 프로젝트 확인",
@@ -110,6 +123,7 @@ export const DESKTOP_KO: Record<string, string> = {
   "官方版本查询失败，不影响配置和启动。请稍后重试。":
     "공식 버전 조회에 실패했습니다. 설정과 실행에는 영향이 없습니다. 나중에 다시 시도하세요.",
   ...MEDIA_KO,
+  ...PLUGIN_KO,
   等待状态检查: "상태 확인 대기 중",
   尚无检查结果: "아직 점검 결과가 없습니다",
   "刷新状态后再判断配置是否生效。":

@@ -22,6 +22,16 @@ export const COMMERCE_FIRST =
 export const COMMERCE_REVISION =
   "初稿已核对并保存基线。只处理当前work文件夹，读取revision.json，仅修改指定SKU的指定标题字段；所有其他字段、商品与源文件不变。重新运行本地预览脚本并读回两个文件后停止。不访问网络或店铺。";
 
+export function commerceError(message: string): string {
+  const match = /^(DEMO-[A-Z0-9-]+)：(.+)$/.exec(message);
+  if (!match) return dt(message);
+  const [, sku, detail] = match;
+  const language = /^(zh|en) (标题缺失或语言不符|卖点必须有三条)$/.exec(detail);
+  return `${sku}：${
+    language ? dt(`{{lang}} ${language[2]}`, { lang: language[1] }) : dt(detail)
+  }`;
+}
+
 export function AccioCommerceGuide() {
   const [open, setOpen] = useState(false);
   const [root, setRoot] = useState("");
@@ -217,7 +227,7 @@ export function AccioCommerceGuide() {
           )}
           {error && (
             <p role="alert" className="text-sm text-destructive break-words">
-              {dt(error)}
+              {commerceError(error)}
             </p>
           )}
           {notice && (
@@ -240,7 +250,7 @@ export function AccioCommerceGuide() {
               {!!report.errors.length && (
                 <ul className="list-disc pl-5">
                   {report.errors.map((item, i) => (
-                    <li key={i}>{dt(item)}</li>
+                    <li key={i}>{commerceError(item)}</li>
                   ))}
                 </ul>
               )}

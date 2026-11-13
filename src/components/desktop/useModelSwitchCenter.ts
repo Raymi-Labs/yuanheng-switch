@@ -736,7 +736,11 @@ export function useModelSwitchCenter() {
     }
   };
 
-  const launch = async (app: YuanhengToolId, canContinue = () => true) => {
+  const launch = async (
+    app: YuanhengToolId,
+    canContinue = () => true,
+    speed?: { tier: string; model: string; group: string; owner: string },
+  ) => {
     const operationId = beginOperation(app);
     try {
       const status = statusMap.get(app);
@@ -807,6 +811,7 @@ export function useModelSwitchCenter() {
         isYuanhengCliTool(app)
           ? launchDirectoryState.directories[app]
           : undefined,
+        speed,
       );
       if (shouldRestart || app === "accio-work") clearRestartRequired(app);
       if (!isCurrentOperation(app, operationId)) return;
@@ -815,6 +820,7 @@ export function useModelSwitchCenter() {
       toast.success(dt("{{v0}} 已启动", { v0: toolLabel(app) }));
       await queryClient.invalidateQueries({ queryKey: ["yuanheng"] });
       await activationStatuses.refetch();
+      return true;
     } catch (error) {
       if (isCurrentOperation(app, operationId)) {
         toast.error(extractErrorMessage(error) || dt("启动失败"));

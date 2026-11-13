@@ -1,3 +1,4 @@
+import { NativePluginsPanel } from "./NativePluginsPanel";
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
@@ -201,6 +202,10 @@ export function CapabilityCenter({
             </span>
           </div>
         </section>
+
+        {(activeTool === "codex" || activeTool === "chatgpt-desktop") && (
+          <NativePluginsPanel key={`plugins-${activeTool}`} tool={activeTool} />
+        )}
 
         <ImagegenCapabilityCard
           key={activeTool}

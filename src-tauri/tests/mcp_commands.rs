@@ -364,6 +364,52 @@ command = "echo"
 }
 
 #[test]
+fn codex_http_without_type_round_trips_and_cleans_legacy_fields() {
+    let _guard = test_mutex().lock().unwrap();
+    reset_test_fs();
+    let dir = ensure_test_home().join(".codex");
+    fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("config.toml");
+    fs::write(
+        &path,
+        r#"# keep
+[mcp_servers.remote]
+url = "https://example.com/mcp"
+[mcp_servers.remote.http_headers]
+type = "keep"
+[mcp_servers.computer-use]
+type = "stdio"
+command = "client"
+enabled = false
+"#,
+    )
+    .unwrap();
+    let state = create_test_state().unwrap();
+    McpService::import_from_codex(&state).unwrap();
+    let servers = state.db.get_all_mcp_servers().unwrap();
+    let server = servers.get("remote").unwrap();
+    assert_eq!(server.server["type"], "http");
+    assert_eq!(server.server["headers"]["type"], "keep");
+    McpService::upsert_server(&state, server.clone()).unwrap();
+    let text = fs::read_to_string(&path).unwrap();
+    let doc: toml::Value = text.parse().unwrap();
+    assert!(doc["mcp_servers"]["remote"].get("type").is_none());
+    assert_eq!(
+        doc["mcp_servers"]["remote"]["url"].as_str(),
+        Some("https://example.com/mcp")
+    );
+    assert_eq!(
+        doc["mcp_servers"]["remote"]["http_headers"]["type"].as_str(),
+        Some("keep")
+    );
+    assert!(doc["mcp_servers"]["computer-use"].get("type").is_none());
+    assert_eq!(
+        doc["mcp_servers"]["computer-use"]["enabled"].as_bool(),
+        Some(false)
+    );
+}
+
+#[test]
 fn import_mcp_from_claude_does_not_sync_existing_codex_enabled_server() {
     let _guard = test_mutex().lock().expect("acquire test mutex");
     reset_test_fs();

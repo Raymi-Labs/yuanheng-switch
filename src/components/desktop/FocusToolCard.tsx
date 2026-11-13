@@ -1,7 +1,7 @@
 import { ClaudeDesktopModeSwitch } from "./ClaudeDesktopModeSwitch";
 import { toolReasoningLevels } from "@/lib/agentReasoning";
+import { useCodexLaunchSpeed } from "./useCodexLaunchSpeed";
 import { ToolInstallProgress } from "./ToolInstallProgress";
-import { CodexHistoryHint } from "./CodexHistoryHint";
 import { useEffect, useState, type ReactNode } from "react";
 import { withAssistedTools } from "@/config/desktopTools";
 import { TraeSetupGuide } from "./TraeSetupGuide";
@@ -34,10 +34,8 @@ import {
 } from "./useModelSwitchCenter";
 import { dt } from "./desktopI18n";
 import { launchDirectoryLabel } from "./useToolLaunchDirectories";
-import { ToolActivationProgress } from "./ToolActivationProgress";
 import { AccioConnectionNotice } from "./AccioConnectionNotice";
 import { accioConfigurationBlocked } from "@/lib/api/yuanheng";
-import { CodexProjectRecovery } from "./CodexProjectRecovery";
 import { ToolInstallCancel } from "./ToolInstallCancel";
 import { toolInstallLabel } from "./toolInstallFeedback";
 import { useToolLifecycleState } from "@/lib/toolLifecycleState";
@@ -235,8 +233,6 @@ export function FocusToolCard({
     launchDirectories,
     launchDirectoryPendingApps,
     statusMap,
-    activationMap,
-    preflightResults,
     codexBridge,
     codexAccountMode,
     codexModePending,
@@ -257,6 +253,14 @@ export function FocusToolCard({
   const status = app ? statusMap.get(app) : undefined;
   const current = app ? models[app] : undefined;
   const currentGroup = app ? (groups[app] ?? status?.group) : undefined;
+  const speed = useCodexLaunchSpeed(
+    app === "codex" &&
+      Boolean(connection?.connected) &&
+      codexAccountMode.data?.mode !== "official",
+    connection?.userId,
+    current,
+    currentGroup,
+  );
   const currentReasoning = app
     ? (reasoning[app] ?? status?.reasoning ?? "auto")
     : "auto";
@@ -426,7 +430,10 @@ export function FocusToolCard({
           disabled={bootstrapRefreshing}
           aria-label={dt("重新检测")}
           title={dt("重新检测")}
-          onClick={() => void retryBootstrap()}
+          onClick={() => {
+            if (app === "codex") speed.retry();
+            void retryBootstrap();
+          }}
           className="ml-auto inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-white/60 transition-colors hover:bg-white/10 hover:text-white disabled:opacity-50"
         >
           <RefreshCw
@@ -435,13 +442,30 @@ export function FocusToolCard({
         </button>
         <button
           type="button"
-          disabled={pending || accioConfigurationBlocked(status)}
+          disabled={
+            pending ||
+            accioConfigurationBlocked(status) ||
+            (app === "codex" && !speed.valid)
+          }
           aria-label={
             restartRequired
               ? dt("重启并应用 {{v0}}", { v0: toolLabel(app) })
               : dt("启动 {{v0}}", { v0: toolLabel(app) })
           }
-          onClick={() => void launch(app)}
+          onClick={() => {
+            if (app !== "codex") {
+              void launch(app);
+              return;
+            }
+            if (app === "codex" && !speed.valid) return;
+            void launch(
+              app,
+              speed.isCurrent,
+              app === "codex" ? speed.request : undefined,
+            ).then((ok) => {
+              if (ok) speed.markLaunched();
+            });
+          }}
           className="inline-flex h-[34px] shrink-0 items-center gap-1.5 rounded-[10px] bg-[#e9b67c] px-4 text-[12px] font-semibold text-[#163a36] transition-colors hover:bg-[#f3c995] disabled:opacity-60"
         >
           {pending ? (
@@ -460,50 +484,91 @@ export function FocusToolCard({
         </div>
       )}
 
-      <div className="relative mt-4 flex flex-wrap items-baseline gap-x-3 gap-y-1">
-        <span className="text-[11px] text-white/55">{dt("当前模型")}</span>
-        <span className="font-display text-2xl font-semibold tabular-nums tracking-tight">
-          {usesOfficialAccount
-            ? dt(
-                usesOfficialClaudeAccount
-                  ? "Claude 官方账号"
-                  : "OpenAI 官方账号",
-              )
-            : (current ?? dt("未选择"))}
-        </span>
-        {!usesOfficialAccount && currentGroup && (
-          <span className="rounded-full bg-white/10 px-2 py-0.5 text-[10px] text-white/75">
-            {currentGroup} {dt("分组")}
+      <div className="relative mt-4 flex items-center gap-3">
+        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-3 gap-y-1">
+          <span className="shrink-0 text-[11px] text-white/55">
+            {dt("当前模型")}
           </span>
-        )}
-        {!usesOfficialAccount && currentReasoning !== "auto" && (
-          <span className="rounded-full bg-white/10 px-2 py-0.5 text-[10px] text-white/75">
-            {currentReasoning} {dt("推理")}
-          </span>
-        )}
-        {isYuanhengCliTool(app) && (
-          <button
-            type="button"
-            disabled={pending || launchDirectoryPending}
-            aria-label={dt("选择 {{tool}} 工作目录", {
-              tool: toolLabel(app),
-            })}
-            title={launchDirectory ?? dt("用户主目录")}
-            onClick={() => void chooseLaunchDirectory(app)}
-            className="inline-flex min-w-0 items-center gap-1.5 text-[10px] text-white/60 transition-colors hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+          <span
+            className="min-w-0 truncate font-display text-2xl font-semibold tabular-nums tracking-tight"
+            title={usesOfficialAccount ? undefined : current}
           >
-            {launchDirectoryPending ? (
-              <Loader2 className="h-3 w-3 shrink-0 animate-spin" />
-            ) : (
-              <FolderOpen className="h-3 w-3 shrink-0" />
-            )}
-            <span>{dt("工作目录")}</span>
-            <span className="max-w-[180px] truncate font-medium text-white/85">
-              {launchDirectoryLabel(launchDirectory)}
+            {usesOfficialAccount
+              ? dt(
+                  usesOfficialClaudeAccount
+                    ? "Claude 官方账号"
+                    : "OpenAI 官方账号",
+                )
+              : (current ?? dt("未选择"))}
+          </span>
+          {!usesOfficialAccount && currentGroup && (
+            <span className="rounded-full bg-white/10 px-2 py-0.5 text-[10px] text-white/75">
+              {currentGroup} {dt("分组")}
             </span>
-          </button>
+          )}
+          {!usesOfficialAccount && currentReasoning !== "auto" && (
+            <span className="rounded-full bg-white/10 px-2 py-0.5 text-[10px] text-white/75">
+              {currentReasoning} {dt("推理")}
+            </span>
+          )}
+        </div>
+        {isCodexSurface && (
+          <div
+            role="group"
+            aria-label={dt("Codex 使用方式")}
+            className="ml-auto flex shrink-0 rounded-md border border-white/10 bg-black/15 p-0.5"
+          >
+            {(["yuanheng", "official"] as const).map((mode) => {
+              const active = codexAccountMode.data?.mode === mode;
+              return (
+                <button
+                  key={mode}
+                  type="button"
+                  aria-pressed={active}
+                  disabled={codexModePending || pending}
+                  onClick={() => void switchCodexMode(mode)}
+                  className={`h-6 rounded px-2 text-[10px] font-semibold transition-colors disabled:opacity-50 ${
+                    active
+                      ? "bg-[#e9b67c] text-[#163a36]"
+                      : "text-white/60 hover:bg-white/10 hover:text-white"
+                  }`}
+                >
+                  {codexModePending && !active ? (
+                    <Loader2 className="mx-auto h-3 w-3 animate-spin" />
+                  ) : mode === "yuanheng" ? (
+                    "Meta API"
+                  ) : (
+                    "OpenAI"
+                  )}
+                </button>
+              );
+            })}
+          </div>
         )}
       </div>
+
+      {isYuanhengCliTool(app) && (
+        <button
+          type="button"
+          disabled={pending || launchDirectoryPending}
+          aria-label={dt("选择 {{tool}} 工作目录", {
+            tool: toolLabel(app),
+          })}
+          title={launchDirectory ?? dt("用户主目录")}
+          onClick={() => void chooseLaunchDirectory(app)}
+          className="inline-flex min-w-0 items-center gap-1.5 text-[10px] text-white/60 transition-colors hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {launchDirectoryPending ? (
+            <Loader2 className="h-3 w-3 shrink-0 animate-spin" />
+          ) : (
+            <FolderOpen className="h-3 w-3 shrink-0" />
+          )}
+          <span>{dt("工作目录")}</span>
+          <span className="max-w-[180px] truncate font-medium text-white/85">
+            {launchDirectoryLabel(launchDirectory)}
+          </span>
+        </button>
+      )}
 
       {codexStatus && (
         <p
@@ -530,61 +595,6 @@ export function FocusToolCard({
         />
       )}
 
-      {isCodexSurface && (
-        <div className="relative mt-3 flex items-center justify-between gap-3 rounded-xl border border-white/10 bg-white/[0.05] px-3 py-2">
-          <div>
-            <p className="text-[10px] font-semibold text-white/75">
-              {dt("使用方式")}
-            </p>
-            <p className="mt-0.5 text-[9px] text-white/45">
-              {usesOfficialCodexAccount
-                ? dt("重启 Codex 后使用 ChatGPT 官方账号登录")
-                : dt("使用元衡模型、分组与本地安全路由")}
-            </p>
-            <CodexHistoryHint status={codexAccountMode.data} />
-          </div>
-          <div className="flex shrink-0 rounded-lg border border-white/10 bg-black/15 p-0.5">
-            {(["yuanheng", "official"] as const).map((mode) => {
-              const active = codexAccountMode.data?.mode === mode;
-              return (
-                <button
-                  key={mode}
-                  type="button"
-                  disabled={codexModePending || pending}
-                  onClick={() => void switchCodexMode(mode)}
-                  className={`h-7 rounded-md px-2.5 text-[10px] font-semibold transition-colors disabled:opacity-50 ${
-                    active
-                      ? "bg-[#e9b67c] text-[#163a36]"
-                      : "text-white/60 hover:bg-white/10 hover:text-white"
-                  }`}
-                >
-                  {codexModePending && !active ? (
-                    <Loader2 className="mx-auto h-3 w-3 animate-spin" />
-                  ) : mode === "yuanheng" ? (
-                    dt("元衡中转")
-                  ) : (
-                    dt("OpenAI 官方")
-                  )}
-                </button>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-      {isCodexSurface && <CodexProjectRecovery />}
-
-      {isCodexSurface && !usesOfficialAccount && (
-        <p
-          role="status"
-          className="relative mt-2 text-xs leading-relaxed text-white/70"
-        >
-          {dt(
-            "使用中转无需退出 ChatGPT 账号。若 API Key 登录后原项目不可见，请保存工作并重新登录原 ChatGPT 账号和工作区，中转配置可以保留。",
-          )}
-        </p>
-      )}
-
       {usesOfficialCodexAccount && (
         <p
           role="status"
@@ -596,18 +606,11 @@ export function FocusToolCard({
         </p>
       )}
 
-      <div className="relative mt-3">
-        <AccioConnectionNotice status={status} dark />
-        <ToolActivationProgress
-          activation={activationMap.get(app)}
-          preflight={preflightResults[app]}
-          restartRequired={restartRequired}
-          onRefresh={switcher.refreshActivation}
-          refreshing={switcher.activationRefreshing}
-          refreshFailed={switcher.activationRefreshFailed}
-          dark
-        />
-      </div>
+      {app === "accio-work" && (
+        <div className="relative mt-3">
+          <AccioConnectionNotice status={status} dark />
+        </div>
+      )}
 
       {!usesOfficialAccount && (
         <div className="relative mt-4 rounded-xl border border-white/10 bg-black/10 p-3">
@@ -634,30 +637,103 @@ export function FocusToolCard({
                 }
               />
             )}
-            {showReasoning && (
-              <label className="min-w-0">
-                <span className="mb-1 block text-[9px] font-medium text-white/50">
-                  {dt("推理等级")}
-                </span>
-                <CompactSelectPicker
-                  label={dt("{{v0}} 推理等级", { v0: toolLabel(app) })}
-                  value={selectedReasoning}
-                  options={reasoningOptions.map((level) => ({
-                    value: level,
-                    label: reasoningLabel(level, defaultReasoning),
-                  }))}
-                  disabled={
-                    pending ||
-                    !supportedReasoning.length ||
-                    accioConfigurationBlocked(status)
-                  }
-                  triggerClassName="border-white/15 bg-white/[0.08] px-2.5 text-[10.5px] text-white transition-colors hover:bg-white/[0.12] focus:border-[#e9b67c]/70"
-                  onChange={(level) =>
-                    void applyReasoning(app, level as YuanhengReasoningLevel)
-                  }
-                />
-              </label>
-            )}
+            <div
+              className={`grid grid-cols-1 gap-3 ${app === "codex" && speed.visible ? "sm:grid-cols-2" : ""}`}
+            >
+              {showReasoning && (
+                <label className="min-w-0">
+                  <span className="mb-1 block text-[9px] font-medium text-white/50">
+                    {dt("推理等级")}
+                  </span>
+                  <CompactSelectPicker
+                    label={dt("{{v0}} 推理等级", { v0: toolLabel(app) })}
+                    value={selectedReasoning}
+                    options={reasoningOptions.map((level) => ({
+                      value: level,
+                      label: reasoningLabel(level, defaultReasoning),
+                    }))}
+                    disabled={
+                      pending ||
+                      !supportedReasoning.length ||
+                      accioConfigurationBlocked(status)
+                    }
+                    triggerClassName="border-white/15 bg-white/[0.08] px-2.5 text-[10.5px] text-white transition-colors hover:bg-white/[0.12] focus:border-[#e9b67c]/70"
+                    onChange={(level) =>
+                      void applyReasoning(app, level as YuanhengReasoningLevel)
+                    }
+                  />
+                </label>
+              )}
+              {app === "codex" && speed.visible && (
+                <div
+                  className="min-w-0"
+                  title={dt(
+                    "仅本次启动的新对话；×2/×6是费用倍率，不保证速度。实际结算请查看使用日志。",
+                  )}
+                >
+                  <span className="mb-1 block text-[11px] font-medium text-white/70">
+                    {dt("速度")}
+                  </span>
+                  <CompactSelectPicker
+                    label={dt("本次启动速度")}
+                    value={speed.tier}
+                    disabled={pending || speed.loading}
+                    triggerClassName="border-white/15 bg-white/[0.08] px-2.5 text-[10.5px] text-white transition-colors hover:bg-white/[0.12] focus:border-[#e9b67c]/70"
+                    onChange={speed.select}
+                    options={[
+                      { value: "default", label: dt("标准") },
+                      ...Array.from(
+                        new Set([
+                          ...speed.tiers,
+                          ...(speed.tier !== "default" ? [speed.tier] : []),
+                        ]),
+                      ).map((tier) => ({
+                        value: tier,
+                        disabled: !speed.tiers.includes(tier),
+                        label: tier === "priority" ? "Fast ×2" : "UltraFast ×6",
+                      })),
+                    ]}
+                  />
+                  {speed.loading && (
+                    <span className="text-xs text-white/70" role="status">
+                      {dt("正在确认支持档位…")}
+                    </span>
+                  )}
+                  {speed.error && (
+                    <div className="mt-1 text-xs text-amber-200" role="alert">
+                      {dt(speed.error)}{" "}
+                      <button
+                        type="button"
+                        className="underline"
+                        onClick={speed.retry}
+                      >
+                        {dt("重试")}
+                      </button>
+                    </div>
+                  )}
+                  {speed.tier !== "default" && (
+                    <p className="mt-1 text-xs text-amber-200">
+                      {dt(
+                        "本次新对话按{{multiplier}}倍费用请求；结算以使用日志为准。",
+                        { multiplier: speed.tier === "priority" ? 2 : 6 },
+                      )}
+                    </p>
+                  )}
+                  {speed.lastLaunchedTier && (
+                    <p className="mt-1 text-xs text-white/70" role="status">
+                      {dt("最近启动：{{tier}}", {
+                        tier:
+                          speed.lastLaunchedTier === "default"
+                            ? dt("标准")
+                            : speed.lastLaunchedTier === "priority"
+                              ? "Fast ×2"
+                              : "UltraFast ×6",
+                      })}
+                    </p>
+                  )}
+                </div>
+              )}
+            </div>
             <p className="text-xs text-white/65">
               {dt(
                 supportedReasoning.length

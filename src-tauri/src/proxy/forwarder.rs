@@ -1451,6 +1451,7 @@ impl RequestForwarder {
         // 与 CCH 对齐：请求前不做 thinking 主动改写（仅保留兼容入口）
         crate::core_diagnostics::stage(crate::core_diagnostics::Stage::ModelMapped);
         let mut mapped_body = normalize_thinking_type(mapped_body);
+        super::codex_page_context::normalize_for_provider(app_type, provider, &mut mapped_body);
         let is_context_compaction = matches!(app_type, AppType::ClaudeDesktop)
             && super::copilot_optimizer::is_compact_request(&mapped_body);
 
@@ -3907,6 +3908,80 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn codex_page_context_reaches_http_upstreams_without_orphan_tool_results() {
+        use axum::{routing::post, Json, Router};
+        for (format, path, field) in [
+            ("openai_responses", "/v1/responses", "input"),
+            ("openai_chat", "/v1/chat/completions", "messages"),
+            ("anthropic", "/v1/messages", "messages"),
+        ] {
+            let received = Arc::new(std::sync::Mutex::new(Vec::<Value>::new()));
+            let capture = received.clone();
+            let app = Router::new().route(
+                path,
+                post(move |Json(body): Json<Value>| {
+                    let capture = capture.clone();
+                    async move {
+                        capture.lock().unwrap().push(body);
+                        Json(json!({"id":"synthetic_response","output":[]}))
+                    }
+                }),
+            );
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let origin = format!("http://{}/v1", listener.local_addr().unwrap());
+            let task = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+            let mut provider = test_provider_with_type(None);
+            provider.settings_config =
+                json!({"base_url":origin,"auth":{"OPENAI_API_KEY":"synthetic"}});
+            provider.meta = Some(crate::provider::ProviderMeta {
+                api_format: Some(format.into()),
+                ..Default::default()
+            });
+            let f = test_forwarder(Duration::from_secs(2), Duration::from_secs(2))
+                .with_provider_namespace(Some("chatgpt-desktop"));
+            let body = json!({"model":"synthetic","stream":false,"input":[
+                {"type":"function_call_output","namespace":"agent","name":"codex_apps_open_page","output":"{\"page_id\":null}"},
+                {"type":"function_call_output","namespace":"agent","name":"codex_apps_selected_page_part_1_of_1","output":"synthetic selected context"},
+                {"role":"user","content":"hello"}
+            ]});
+            for _ in 0..2 {
+                let result = f
+                    .forward_with_retry(
+                        &AppType::Codex,
+                        http::Method::POST,
+                        "/responses",
+                        body.clone(),
+                        HeaderMap::new(),
+                        Extensions::new(),
+                        vec![provider.clone()],
+                    )
+                    .await;
+                assert!(
+                    result.is_ok(),
+                    "{format}: {:?}",
+                    result.err().map(|e| e.error)
+                );
+            }
+            let captured = received.lock().unwrap().clone();
+            task.abort();
+            assert_eq!(captured.len(), 2, "{format}");
+            for request in captured {
+                let items = request[field].as_array().unwrap();
+                assert!(
+                    items
+                        .iter()
+                        .all(|i| i["type"] != "function_call_output" && i["role"] != "tool"),
+                    "{format}: {items:?}"
+                );
+                let text = serde_json::to_string(items).unwrap();
+                assert!(text.contains("synthetic selected context"), "{format}");
+                assert!(text.contains("page_id"), "{format}");
+                assert!(text.contains("hello"), "{format}");
+            }
+        }
+    }
+
+    #[tokio::test]
     async fn desktop_paid_tiers_preserve_wire_and_do_not_retry_provider_failure() {
         use axum::{routing::post, Json, Router};
         let received = Arc::new(std::sync::Mutex::new(Vec::<Value>::new()));
@@ -3931,13 +4006,36 @@ mod tests {
         provider.id = crate::commands::MANAGED_PROVIDER_ID.into();
         provider.category = Some("managed".into());
         provider.notes = Some("group=g".into());
-        provider.settings_config = json!({"auth":{"OPENAI_API_KEY":"synthetic"},"config":format!("model_provider = \"custom\"\n[model_providers.custom]\nbase_url = \"{origin}/v1\"\nwire_api = \"responses\"\n"),"yuanhengServiceTiers":{"owner":"7","group":"g","models":{"synthetic":[{"id":"priority"},{"id":"ultrafast"}]}}});
+        provider.settings_config = json!({"auth":{"OPENAI_API_KEY":"synthetic"},"config":format!("model=\"synthetic\"\nmodel_provider = \"custom\"\n[model_providers.custom]\nbase_url = \"{origin}/v1\"\nwire_api = \"responses\"\n"),"modelCatalog":{"models":[{"model":"synthetic","serviceTiers":[]}]},"yuanhengServiceTiers":{"owner":"7","group":"g","models":{}}});
         provider.meta = Some(crate::provider::ProviderMeta {
             api_format: Some("openai_responses".into()),
             ..Default::default()
         });
         let mut f = test_forwarder(Duration::from_secs(2), Duration::from_secs(2));
         f.max_attempts = 3;
+        let db = Arc::new(Database::memory().unwrap());
+        db.set_setting(
+            "yuanheng_connection_cache",
+            r#"{"userId":"7","connected":true}"#,
+        )
+        .unwrap();
+        db.save_provider("codex", &provider).unwrap();
+        db.set_current_provider("codex", &provider.id).unwrap();
+        let scope = crate::services::codex_launch_speed::LaunchSpeed {
+            tier: "ultrafast".into(),
+            model: "synthetic".into(),
+            group: "g".into(),
+            owner: "7".into(),
+        };
+        assert!(scope.check(&db).is_err());
+        crate::services::codex_launch_speed::refresh_for_launch(&db, &scope, async {
+            Ok(vec![json!({"id":"ultrafast"})])
+        })
+        .await
+        .unwrap();
+        // Core's router loads the updated provider from the shared DB, rather than a GUI snapshot.
+        let router = ProviderRouter::new(db);
+        provider = router.select_providers("codex").await.unwrap().remove(0);
         let mut ext = Extensions::new();
         ext.insert(crate::services::desktop_service_tiers::RequestOwner(Some(
             "7".into(),

@@ -252,3 +252,7 @@
     gap: 16px;
   }
 }
+
+.dark .media-studio-shell :where(.border, .border-b) {
+  border-color: #3c4a43;
+}

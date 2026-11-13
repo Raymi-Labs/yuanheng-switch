@@ -91,3 +91,6 @@ pub use yuanheng::*;
 
 mod route_selection;
 pub use route_selection::*;
+
+mod native_plugins;
+pub use native_plugins::*;

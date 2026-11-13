@@ -1,4 +1,5 @@
 mod gallery;
+mod pricing;
 mod transport;
 mod voice;
 
@@ -277,7 +278,11 @@ async fn mobile_api(
         .send()
         .await
         .map_err(|_| "网络请求失败，请检查连接后重试")?;
-    let result = bounded_json(response, 4 * 1024 * 1024).await?;
+    let result = if operation == "pricing" {
+        pricing::read(response).await?
+    } else {
+        bounded_json(response, 4 * 1024 * 1024).await?
+    };
     if let Some(epoch) = epoch {
         state.check(epoch)?;
     }

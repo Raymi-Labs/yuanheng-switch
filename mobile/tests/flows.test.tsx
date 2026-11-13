@@ -322,6 +322,46 @@ const pricing = {
   group_ratio: { standard: 0.7, vertex: 4 },
   usable_group: { standard: "标准分组", vertex: "Vertex 分组" },
 };
+it("batches model cards while searching the entire catalogue and resets after filters change", async () => {
+  const data = Array.from({ length: 60 }, (_, i) => ({
+    ...pricing.data[0],
+    model_name: `batch-${String(i).padStart(2, "0")}`,
+    display_name: `Model ${i}`,
+    description: i === 59 ? "末尾专用关键词" : "普通模型",
+    model_ratio: i + 1,
+    context_length: i + 1,
+    vendor_id: i < 30 ? 1 : 2,
+    enable_groups: i < 30 ? ["standard"] : ["vertex"],
+  }));
+  vi.mocked(api.pricing).mockResolvedValue({ ...pricing, data } as never);
+  const onUse = vi.fn();
+  const { container } = render(
+    <Models defaultGroup="default" unit="quota" price={0.2} onUse={onUse} />,
+  );
+  await screen.findByRole("button", { name: "加载更多（24 / 60）" });
+  expect(container.querySelectorAll(".model-card").length).toBe(24);
+  fireEvent.click(screen.getByRole("button", { name: /加载更多/ }));
+  expect(container.querySelectorAll(".model-card").length).toBe(48);
+  fireEvent.click(screen.getByRole("button", { name: /加载更多/ }));
+  expect(container.querySelectorAll(".model-card").length).toBe(60);
+  expect(screen.queryByRole("button", { name: /加载更多/ })).toBeNull();
+  fireEvent.change(screen.getByLabelText("搜索模型"), {
+    target: { value: "末尾专用关键词" },
+  });
+  expect(container.querySelectorAll(".model-card").length).toBe(1);
+  fireEvent.click(screen.getByText("Model 59"));
+  fireEvent.click(await screen.findByRole("button", { name: /用此模型对话/ }));
+  expect(onUse).toHaveBeenCalledWith("batch-59", "vertex");
+  fireEvent.change(screen.getByLabelText("搜索模型"), {
+    target: { value: "" },
+  });
+  await screen.findByRole("button", { name: "加载更多（24 / 60）" });
+  fireEvent.click(screen.getByRole("button", { name: /加载更多/ }));
+  fireEvent.click(screen.getByRole("button", { name: "Google" }));
+  await screen.findByRole("button", { name: "加载更多（24 / 30）" });
+  expect(container.querySelectorAll(".model-card").length).toBe(24);
+});
+
 it("shows website prices for the selected pricing group", async () => {
   vi.mocked(api.pricing).mockResolvedValue(pricing as never);
   const onUse = vi.fn();

@@ -3,6 +3,8 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Download,
   ImagePlus,
+  Info,
+  Pencil,
   Loader2,
   Play,
   RefreshCw,
@@ -12,6 +14,20 @@ import {
   X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import {
+  defaultMediaParameters,
+  loadMediaPreference,
+  saveMediaPreference,
+  mediaPreferenceKey,
+  mediaParametersValid,
+  type MediaParameters,
+} from "@/lib/mediaPreferences";
 import { Textarea } from "@/components/ui/textarea";
 import {
   mediaStudioApi,
@@ -27,8 +43,32 @@ import {
 } from "@/lib/mediaReferences";
 import { MediaInspirationGallery } from "./MediaInspirationGallery";
 import type { MediaInspiration } from "@/lib/mediaInspiration";
+import { MediaParameterFields } from "./MediaParameterFields";
 import { PageHeader } from "./PageHeader";
 import { dt } from "./desktopI18n";
+
+function MediaHelp({ text }: { text: string }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <TooltipProvider>
+      <Tooltip open={open} onOpenChange={setOpen}>
+        <TooltipTrigger asChild>
+          <button
+            type="button"
+            aria-label={dt("查看说明")}
+            onClick={() => setOpen(!open)}
+            className="inline-flex rounded p-1 text-muted-foreground"
+          >
+            <Info size={15} />
+          </button>
+        </TooltipTrigger>
+        <TooltipContent className="max-w-xs whitespace-pre-wrap">
+          {text}
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  );
+}
 
 const pending = (r: MediaRecord) =>
   ["queued", "in_progress"].includes(r.status);
@@ -50,20 +90,39 @@ export function MediaStudioPage() {
 
 export function MediaStudioContent({ scope }: { scope: string }) {
   const client = useQueryClient();
+  const [view, setView] = useState<"explore" | "create" | "history">("explore");
+  const [kind, setKind] = useState<"image" | "video">("image");
   const historyKey = ["media-studio", scope, "history"];
   const groupsKey = ["media-studio", scope, "groups"];
   const groups = useQuery({
     queryKey: groupsKey,
     queryFn: mediaStudioApi.groups,
     retry: false,
-    refetchOnWindowFocus: false,
+    refetchOnWindowFocus: true,
+    refetchOnMount: "always",
     staleTime: 0,
   });
-  const [chosenGroup, setChosenGroup] = useState<string | null>(null);
+  const [chosenGroups, setChosenGroups] = useState<
+    Partial<Record<"image" | "video", string>>
+  >({});
   const [switchingGroup, setSwitchingGroup] = useState(false);
   const [groupError, setGroupError] = useState("");
   const groupLock = useRef(false);
-  const group = chosenGroup ?? groups.data?.selectedGroup ?? "";
+  const eligibleGroups = (groups.data?.groups ?? []).filter(
+    (g) =>
+      view === "explore" ||
+      !groups.data?.modelsByGroup ||
+      groups.data.modelsByGroup[g.id]?.some((m) => m.kind === kind),
+  );
+  const candidateGroup =
+    chosenGroups[kind] ??
+    (groups.data?.selectedGroups
+      ? groups.data.selectedGroups[kind]
+      : groups.data?.selectedGroup) ??
+    "";
+  const group = eligibleGroups.some((g) => g.id === candidateGroup)
+    ? candidateGroup
+    : "";
   const groupAllowed =
     !!group && !!groups.data?.groups.some((g) => g.id === group);
   const groupReady =
@@ -74,19 +133,61 @@ export function MediaStudioContent({ scope }: { scope: string }) {
     enabled: groupReady,
     retry: false,
     staleTime: 0,
-    refetchOnWindowFocus: false,
+    refetchOnMount: "always",
+    initialData: () => groups.data?.modelsByGroup?.[group],
+    initialDataUpdatedAt: groups.dataUpdatedAt,
+    refetchOnWindowFocus: true,
   });
+  const appliedCatalogAt = useRef(0);
+  useEffect(() => {
+    if (appliedCatalogAt.current === groups.dataUpdatedAt) return;
+    if (!groups.data?.modelsByGroup || groups.isError || groups.isFetching)
+      return;
+    appliedCatalogAt.current = groups.dataUpdatedAt;
+    for (const [id, catalog] of Object.entries(groups.data.modelsByGroup)) {
+      client.setQueryData(["media-studio", scope, "models", id], catalog, {
+        updatedAt: groups.dataUpdatedAt,
+      });
+    }
+  }, [
+    groups.data,
+    groups.dataUpdatedAt,
+    groups.isError,
+    groups.isFetching,
+    scope,
+    client,
+  ]);
   const history = useQuery({
     queryKey: historyKey,
     queryFn: mediaStudioApi.history,
     retry: false,
     refetchOnWindowFocus: false,
   });
-  const [view, setView] = useState<"explore" | "create" | "history">("explore");
-  const [kind, setKind] = useState<"image" | "video">("image");
+
   const [model, setModel] = useState("");
+  const [parametersKey, setParametersKey] = useState("");
   const [size, setSize] = useState("");
   const [duration, setDuration] = useState<number | null>(null);
+  const [quality, setQuality] = useState<string | undefined>();
+  const [resolution, setResolution] = useState<string | undefined>();
+  const [outputFormat, setOutputFormat] = useState<string | undefined>();
+  const [background, setBackground] = useState<string | undefined>();
+  const [outputCompression, setOutputCompression] = useState<
+    number | undefined
+  >();
+  const [savePrompt, setSavePrompt] = useState(false);
+  const [needsReference, setNeedsReference] = useState(false);
+  const pendingParameters = useRef<MediaParameters | null>(null);
+  const parameters: MediaParameters = {
+    size,
+    duration,
+    quality,
+    resolution,
+    outputFormat,
+    background,
+    outputCompression,
+  };
+  const preferenceKey = mediaPreferenceKey(scope, kind, group);
   const [prompt, setPrompt] = useState("");
   const [reference, setReference] = useState<string | null>(null);
   const [extraReferences, setExtraReferences] = useState<string[]>([]);
@@ -119,11 +220,21 @@ export function MediaStudioContent({ scope }: { scope: string }) {
   const isGptImage = model.startsWith("gpt-image-");
   const referencePolicy = mediaReferencePolicy(model);
   const referenceList = reference ? [reference, ...extraReferences] : [];
-  const referencesValid = referencesFit(model, referenceList);
+  const referencesValid =
+    referencesFit(model, referenceList) &&
+    !(selected?.reference === "none" && referenceList.length > 0);
   const promptLimit = isMuse ? 4000 : 8000;
-  const referenceVideoModels = (groupReady ? (models.data ?? []) : []).filter(
-    (m) => m.kind === "video" && m.reference !== "none",
-  );
+  const videoGroup =
+    chosenGroups.video ??
+    (groups.data?.selectedGroups ? groups.data.selectedGroups.video : group) ??
+    "";
+  const referenceVideoModels = (
+    !groups.isError && !groups.isFetching && !switchingGroup
+      ? groups.data?.modelsByGroup
+        ? (groups.data.modelsByGroup[videoGroup] ?? [])
+        : (models.data ?? [])
+      : []
+  ).filter((m) => m.kind === "video" && m.reference !== "none");
   useEffect(() => {
     alive.current = true;
     return () => {
@@ -137,15 +248,11 @@ export function MediaStudioContent({ scope }: { scope: string }) {
     if (model || !groupReady || models.isFetching || models.isError) return;
     let saved: string | null = null;
     try {
-      saved = localStorage.getItem(
-        `yuanheng-media-model-${scope}-${group}-${kind}`,
-      );
+      saved = loadMediaPreference(preferenceKey)?.model ?? null;
     } catch {
       /* storage optional */
     }
-    setModel(
-      available.find((m) => m.id === saved)?.id ?? available[0]?.id ?? "",
-    );
+    setModel(saved ?? available[0]?.id ?? "");
   }, [
     kind,
     models.data,
@@ -157,20 +264,32 @@ export function MediaStudioContent({ scope }: { scope: string }) {
     scope,
   ]);
   useEffect(() => {
-    setSize(selected?.sizes[0] ?? "");
-    setDuration(selected?.durations[0] ?? null);
+    if (selected) {
+      const remembered = loadMediaPreference(preferenceKey);
+      const next =
+        pendingParameters.current ??
+        (remembered?.model === model
+          ? remembered.parameters
+          : defaultMediaParameters(selected));
+      pendingParameters.current = null;
+      setParametersKey(JSON.stringify([kind, group, model]));
+      setSize(next.size);
+      setDuration(next.duration);
+      setQuality(next.quality);
+      setResolution(next.resolution);
+      setOutputFormat(next.outputFormat);
+      setBackground(next.background);
+      setOutputCompression(next.outputCompression);
+    }
     if (stagedReference.current?.model === model) {
       setReference(stagedReference.current.data);
       setExtraReferences([]);
       stagedReference.current = null;
-    } else if (selected?.reference === "none") {
-      if (reference)
-        setMessage(
-          dt("此模型不支持参考图，已移除图片。生成前请确认使用方式。"),
-        );
-      setReference(null);
-      setExtraReferences([]);
-    } else if (selected && !referencesFit(model, referenceList)) {
+    } else if (
+      selected &&
+      (!referencesFit(model, referenceList) ||
+        (selected.reference === "none" && referenceList.length > 0))
+    ) {
       setMessage(
         dt(
           "参考图不符合当前模型的数量、格式或大小要求，请调整后再生成；原图已保留。",
@@ -191,6 +310,41 @@ export function MediaStudioContent({ scope }: { scope: string }) {
     }
   }, [view]);
 
+  useEffect(() => {
+    if (
+      parametersKey === JSON.stringify([kind, group, model]) &&
+      selected &&
+      groupReady &&
+      mediaParametersValid(selected, parameters)
+    ) {
+      saveMediaPreference(preferenceKey, model, parameters);
+    }
+  }, [
+    size,
+    duration,
+    quality,
+    resolution,
+    outputFormat,
+    background,
+    outputCompression,
+    model,
+    parametersKey,
+  ]);
+  const applyParameters = (p: MediaParameters) => {
+    setSize(p.size);
+    setDuration(p.duration);
+    setQuality(p.quality);
+    setResolution(p.resolution);
+    setOutputFormat(p.outputFormat);
+    setBackground(p.background);
+    setOutputCompression(p.outputCompression);
+  };
+  const switchKind = (next: "image" | "video") => {
+    if (next === kind || busy || reading || action || switchingGroup) return;
+    setKind(next);
+    setModel("");
+    pendingParameters.current = null;
+  };
   const update = (record: MediaRecord) => {
     client.setQueryData<MediaRecord[]>(historyKey, (rows) =>
       [record, ...(rows ?? []).filter((r) => r.id !== record.id)].sort(
@@ -259,9 +413,14 @@ export function MediaStudioContent({ scope }: { scope: string }) {
     const existing = referencePolicy.maxCount > 1 ? referenceList : [];
     if (files.length + existing.length > referencePolicy.maxCount) {
       setMessage(
-        dt("当前模型最多支持 {{count}} 张参考图。", {
-          count: referencePolicy.maxCount,
-        }),
+        dt(
+          kind === "video"
+            ? "客户端单次最多读取 {{count}} 张参考图。"
+            : "当前模型最多支持 {{count}} 张参考图。",
+          {
+            count: referencePolicy.maxCount,
+          },
+        ),
       );
       return;
     }
@@ -279,8 +438,8 @@ export function MediaStudioContent({ scope }: { scope: string }) {
         dt(
           isGptImage
             ? "GPT Image最多16张PNG、JPEG或WebP参考图，每张须小于50MB。"
-            : isMuse
-              ? "Muse支持PNG、JPEG、WebP，单张最多10MB，总计最多24MB。"
+            : kind === "video"
+              ? "客户端参考图资源限制：单张10MB、合计64MB，支持PNG、JPEG、WebP。"
               : "请选择不超过 10 MB 的 PNG 或 JPEG 参考图",
         ),
       );
@@ -291,10 +450,12 @@ export function MediaStudioContent({ scope }: { scope: string }) {
       0,
     );
     if (
-      isMuse &&
-      existingSize + files.reduce((n, f) => n + f.size, 0) > 24 * 1024 * 1024
+      existingSize + files.reduce((n, f) => n + f.size, 0) >
+      referencePolicy.maxTotalBytes
     ) {
-      setMessage(dt("Muse支持PNG、JPEG、WebP，单张最多10MB，总计最多24MB。"));
+      setMessage(
+        dt("客户端参考图资源限制：单张10MB、合计64MB，支持PNG、JPEG、WebP。"),
+      );
       return;
     }
     readLock.current = true;
@@ -361,9 +522,10 @@ export function MediaStudioContent({ scope }: { scope: string }) {
       submitLock.current ||
       actionLock.current ||
       !selected ||
+      !mediaParametersValid(selected, parameters) ||
+      (needsReference && referenceList.length === 0) ||
       !prompt.trim() ||
       Array.from(prompt).length > promptLimit ||
-      (kind === "video" && !selected.durations.includes(duration ?? 0)) ||
       !referencesValid ||
       readLock.current ||
       reading ||
@@ -375,16 +537,14 @@ export function MediaStudioContent({ scope }: { scope: string }) {
     setMessage("");
     setWaiting(null);
     try {
-      try {
-        localStorage.setItem(
-          `yuanheng-media-model-${scope}-${group}-${kind}`,
-          model,
-        );
-      } catch {
-        /* optional preference */
-      }
       const record = await mediaStudioApi.submit({
         operationId: crypto.randomUUID(),
+        quality,
+        resolution,
+        outputFormat,
+        background,
+        outputCompression,
+        savePrompt,
         group,
         model,
         prompt: prompt.trim(),
@@ -476,7 +636,9 @@ export function MediaStudioContent({ scope }: { scope: string }) {
   const useForVideo = async (record: MediaRecord) => {
     if (
       groupLock.current ||
-      !groupReady ||
+      groups.isError ||
+      groups.isFetching ||
+      !videoGroup ||
       submitLock.current ||
       models.isError ||
       models.isFetching ||
@@ -501,6 +663,7 @@ export function MediaStudioContent({ scope }: { scope: string }) {
     readSequence.current++;
     if (target.id === model) setReference(data);
     else stagedReference.current = { model: target.id, data };
+    setChosenGroups((old) => ({ ...old, video: videoGroup }));
     setKind("video");
     setModel(target.id);
     setPrompt("");
@@ -541,9 +704,13 @@ export function MediaStudioContent({ scope }: { scope: string }) {
     setExtraReferences([]);
     if (fileInput.current) fileInput.current.value = "";
     setKind(target.kind);
+    pendingParameters.current =
+      target.id === model && target.kind === kind
+        ? null
+        : defaultMediaParameters(target);
+    setNeedsReference(false);
     setModel(target.id);
-    setSize(target.sizes[0] ?? "");
-    setDuration(target.durations[0] ?? null);
+    applyParameters(defaultMediaParameters(target));
     setPrompt(dt(example.prompt));
     focusDraft.current = true;
     setMessage(
@@ -553,6 +720,66 @@ export function MediaStudioContent({ scope }: { scope: string }) {
     return true;
   };
 
+  const editRecord = (record: MediaRecord) => {
+    if (busy || reading || action || switchingGroup || groupLock.current)
+      return;
+    if (
+      (prompt.trim() || referenceList.length) &&
+      !window.confirm(dt("再次编辑将替换当前草稿，是否继续？"))
+    )
+      return;
+    setKind(record.kind);
+    setChosenGroups((old) => ({
+      ...old,
+      [record.kind]: record.group ?? "生图和视频",
+    }));
+    setModel(record.model);
+    const draft = record.draft;
+    pendingParameters.current =
+      record.kind === kind &&
+      record.model === model &&
+      (record.group ?? "生图和视频") === group
+        ? null
+        : (draft ?? null);
+    if (draft) applyParameters(draft);
+    else {
+      const original =
+        groups.data?.modelsByGroup?.[record.group ?? "生图和视频"]?.find(
+          (m) => m.id === record.model,
+        ) ?? models.data?.find((m) => m.id === record.model);
+      if (original) applyParameters(defaultMediaParameters(original));
+    }
+    if (activeUrl.current) {
+      URL.revokeObjectURL(activeUrl.current);
+      activeUrl.current = null;
+    }
+    setPreview(null);
+    setPrompt(draft?.prompt ?? "");
+    setReference(null);
+    setExtraReferences([]);
+    stagedReference.current = null;
+    readSequence.current++;
+    setNeedsReference(!!draft?.needsReference);
+    setSavePrompt(false);
+    setMessage(
+      dt(
+        draft?.needsReference
+          ? "参数已恢复，请重新添加参考图；尚未提交请求。"
+          : draft?.prompt
+            ? "草稿已恢复，确认后再生成。"
+            : "参数已恢复，请补充描述；旧记录缺失的参数需重新确认。",
+      ),
+    );
+    focusDraft.current = true;
+    setView("create");
+    requestAnimationFrame(() => {
+      if (!alive.current) return;
+      formRef.current
+        ?.querySelector<HTMLTextAreaElement>("textarea")
+        ?.focus({ preventScroll: true });
+      pageRef.current?.scrollTo?.({ top: 0 });
+    });
+  };
   const changeGroup = async (next: string) => {
     if (
       !next ||
@@ -569,15 +796,34 @@ export function MediaStudioContent({ scope }: { scope: string }) {
     setSwitchingGroup(true);
     setGroupError("");
     try {
-      const saved = await mediaStudioApi.selectGroup(next);
+      const nextKind =
+        view === "explore" &&
+        groups.data?.modelsByGroup?.[next] &&
+        !groups.data.modelsByGroup[next].some((m) => m.kind === kind)
+          ? groups.data.modelsByGroup[next][0].kind
+          : kind;
+      const saved = await mediaStudioApi.selectGroup(next, nextKind);
       if (!alive.current) return;
       if (saved !== next)
         throw new Error(dt("分组切换未确认，请刷新分组后重试。"));
       // Keep model and references: an unavailable model requires explicit replacement.
-      setChosenGroup(saved);
+      setChosenGroups((old) => ({ ...old, [nextKind]: saved }));
+      if (nextKind !== kind) {
+        setKind(nextKind);
+        setModel("");
+      }
       setMessage("");
-      client.setQueryData(groupsKey, (data: MediaGroups | undefined) =>
-        data ? { ...data, selectedGroup: saved } : data,
+      client.setQueryData(
+        groupsKey,
+        (data: MediaGroups | undefined) =>
+          data
+            ? {
+                ...data,
+                selectedGroups: { ...data.selectedGroups, [nextKind]: saved },
+                selectedGroup: saved,
+              }
+            : data,
+        { updatedAt: groups.dataUpdatedAt },
       );
     } catch (error) {
       if (alive.current) setGroupError(extractErrorMessage(error));
@@ -593,10 +839,7 @@ export function MediaStudioContent({ scope }: { scope: string }) {
       className="media-studio-shell h-full overflow-y-auto p-4 md:p-6"
     >
       {view !== "explore" && (
-        <PageHeader
-          title={dt("图片与视频")}
-          description={dt("描述你的想法，选择模型，直接生成图片或视频。")}
-        />
+        <PageHeader title={dt("图片与视频")} description="" />
       )}
       <nav
         className="media-studio-nav"
@@ -649,14 +892,13 @@ export function MediaStudioContent({ scope }: { scope: string }) {
             )}
           </button>
         ))}
-        <span className="studio-badge">{dt("灵感在这里，创作由你决定")}</span>
       </nav>
       {view !== "history" && (
         <div className="mb-5 flex flex-wrap items-center gap-3 border-b pb-4">
           <label className="flex min-w-0 flex-[0_1_400px] items-center gap-3 text-xs">
-            <span className="shrink-0">{dt("创作分组")}</span>
+            <span className="shrink-0">{dt("模型分组")}</span>
             <select
-              aria-label={dt("创作分组")}
+              aria-label={dt("模型分组")}
               className="block min-w-0 flex-1 rounded-md border bg-background p-2 text-sm"
               value={group}
               disabled={
@@ -672,15 +914,9 @@ export function MediaStudioContent({ scope }: { scope: string }) {
               <option value="" disabled>
                 {dt(groups.isPending ? "正在读取分组…" : "请选择创作分组")}
               </option>
-              {group && !groupAllowed && (
-                <option value={group} disabled>
-                  {group} · {dt("已不可用")}
-                </option>
-              )}
-              {groups.data?.groups.map((g) => (
+              {eligibleGroups.map((g) => (
                 <option key={g.id} value={g.id}>
                   {g.id}
-                  {g.description ? ` · ${g.description}` : ""}
                 </option>
               ))}
             </select>
@@ -698,11 +934,12 @@ export function MediaStudioContent({ scope }: { scope: string }) {
           >
             {dt("刷新分组")}
           </Button>
-          <p className="min-w-[200px] flex-1 text-xs leading-relaxed text-muted-foreground">
-            {dt(
-              "分组仅筛选创作模型，实际路由由平台统一令牌决定；旧任务继续使用提交时的凭据。",
+          <MediaHelp
+            text={dt(
+              "分组仅筛选模型；实际路由和费用由平台统一令牌决定。切换不改变聊天配置。",
             )}
-          </p>
+          />
+
           {(groups.isError || groupError) && (
             <p
               role="alert"
@@ -711,16 +948,25 @@ export function MediaStudioContent({ scope }: { scope: string }) {
               {groupError || extractErrorMessage(groups.error)}
             </p>
           )}
+          {!groups.isError && !!groups.data?.unverifiedGroupCount && (
+            <p
+              role="alert"
+              className="w-full text-xs text-destructive dark:text-red-300"
+            >
+              {dt("部分分组目录读取失败，请刷新重试。")}
+            </p>
+          )}
           {!groups.isPending &&
             !groups.isError &&
-            !groups.data?.groups.length && (
+            !groups.data?.unverifiedGroupCount &&
+            eligibleGroups.length === 0 && (
               <p role="alert" className="w-full text-xs">
-                {dt("当前账号没有可用分组，请检查权限。")}
+                {dt("暂无可用的生图或视频分组。")}
               </p>
             )}
           {!groups.isPending &&
             !groups.isError &&
-            !!groups.data?.groups.length &&
+            eligibleGroups.length > 0 &&
             !groupAllowed && (
               <p role="alert" className="w-full text-xs">
                 {dt("请选择有权限的创作分组，不会自动切换到其他分组。")}
@@ -773,19 +1019,15 @@ export function MediaStudioContent({ scope }: { scope: string }) {
                 role="tab"
                 aria-selected={kind === tab}
                 variant={kind === tab ? "default" : "outline"}
-                disabled={busy || !!action}
+                disabled={busy || !!action || switchingGroup || reading}
                 onClick={() => {
-                  setKind(tab);
-                  setModel("");
+                  switchKind(tab);
                 }}
               >
                 {dt(tab === "image" ? "图片生成" : "视频生成")}
               </Button>
             ))}
           </div>
-          <span className="rounded-full bg-primary/10 px-3 py-1 text-xs">
-            {dt("当前分组：{{group}}", { group: group || "—" })}
-          </span>
         </div>
         <div className="grid gap-5 xl:grid-cols-[minmax(280px,1fr)_minmax(300px,1.3fr)]">
           <form
@@ -810,7 +1052,11 @@ export function MediaStudioContent({ scope }: { scope: string }) {
                     !groupReady ||
                     models.isFetching
                   }
-                  onChange={(e) => setModel(e.target.value)}
+                  onChange={(e) => {
+                    pendingParameters.current = null;
+                    setModel(e.target.value);
+                    setNeedsReference(false);
+                  }}
                 >
                   {!model && <option value="">{dt("请选择模型")}</option>}
                   {model && !selected && (
@@ -849,19 +1095,6 @@ export function MediaStudioContent({ scope }: { scope: string }) {
                 {extractErrorMessage(models.error)}
               </p>
             )}
-            {selected && (
-              <p className="text-xs text-muted-foreground">
-                {dt(
-                  selected.kind === "video"
-                    ? selected.reference === "none"
-                      ? "此模型当前仅支持文生视频，不接受参考图。"
-                      : "此模型支持文生视频和图生视频。"
-                    : selected.reference === "none"
-                      ? "此模型当前仅支持文生图。"
-                      : "此模型支持文字生成和参考图创作。",
-                )}
-              </p>
-            )}
             {model && !selected && !models.isPending && (
               <p
                 role="alert"
@@ -888,7 +1121,7 @@ export function MediaStudioContent({ scope }: { scope: string }) {
                 onChange={(e) => setPrompt(e.target.value)}
                 rows={6}
                 maxLength={promptLimit * 2}
-                disabled={busy || !!action}
+                disabled={busy || !!action || switchingGroup || reading}
                 placeholder={dt(
                   "例如：清晨的海边书店，阳光穿过落地窗，温暖的胶片色调…",
                 )}
@@ -897,201 +1130,170 @@ export function MediaStudioContent({ scope }: { scope: string }) {
             <p className="text-xs text-muted-foreground">
               {Array.from(prompt).length} / {promptLimit}
             </p>
-            {selected && selected.reference !== "none" && (
-              <div className="space-y-2">
-                <input
-                  ref={fileInput}
-                  type="file"
-                  accept={referencePolicy.mimeTypes.join(",")}
-                  multiple={referencePolicy.maxCount > 1}
-                  className="hidden"
-                  aria-label={dt("选择参考图")}
-                  onChange={(e) => {
-                    const files = Array.from(e.target.files ?? []);
-                    e.target.value = "";
-                    void pick(files);
-                  }}
-                  disabled={busy || !!action || reading}
-                />
-                <Button
-                  type="button"
-                  variant="outline"
-                  disabled={busy || !!action || reading}
-                  onClick={() => fileInput.current?.click()}
-                >
-                  <ImagePlus className="h-4 w-4" />
-                  {dt(
-                    selected.reference === "required"
-                      ? "上传参考图（必选）"
-                      : "上传参考图（可选）",
-                  )}
-                </Button>
-                <p className="text-xs text-muted-foreground">
-                  {dt(
-                    "也可在此表单按 ⌘V / Ctrl+V 粘贴复制的图片或截图，点击生成后才会上传。",
-                  )}
-                </p>
-                {isGptImage && (
-                  <p className="text-xs text-muted-foreground">
-                    {dt(
-                      "GPT Image最多16张PNG、JPEG或WebP参考图，每张须小于50MB。",
-                    )}
-                  </p>
-                )}
-                {!referencesValid && (
-                  <p
-                    role="alert"
-                    className="text-sm text-destructive dark:text-red-300"
+            {selected &&
+              (selected.reference !== "none" || referenceList.length > 0) && (
+                <div className="space-y-2">
+                  <input
+                    ref={fileInput}
+                    type="file"
+                    accept={referencePolicy.mimeTypes.join(",")}
+                    multiple={referencePolicy.maxCount > 1}
+                    className="hidden"
+                    aria-label={dt("选择参考图")}
+                    onChange={(e) => {
+                      const files = Array.from(e.target.files ?? []);
+                      e.target.value = "";
+                      void pick(files);
+                    }}
+                    disabled={
+                      busy ||
+                      !!action ||
+                      reading ||
+                      selected?.reference === "none"
+                    }
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    disabled={
+                      busy ||
+                      !!action ||
+                      reading ||
+                      selected?.reference === "none"
+                    }
+                    onClick={() => fileInput.current?.click()}
                   >
+                    <ImagePlus className="h-4 w-4" />
                     {dt(
-                      "参考图不符合当前模型的数量、格式或大小要求，请调整后再生成；原图已保留。",
+                      selected.reference === "required"
+                        ? "上传参考图（必选）"
+                        : "上传参考图（可选）",
                     )}
-                  </p>
-                )}
-                {referenceList.map((raw, index) => (
-                  <div
-                    key={`${index}-${raw.slice(-16)}`}
-                    className="flex flex-wrap items-start gap-2"
-                  >
-                    {referencePolicy.maxCount > 1 && (
-                      <span className="text-xs">
-                        {index + 1} ·{" "}
-                        {dt(isMuse && index === 0 ? "首帧" : "参考图")}
-                      </span>
+                  </Button>
+                  <MediaHelp
+                    text={dt(
+                      isGptImage
+                        ? "GPT Image最多16张PNG、JPEG或WebP参考图，每张须小于50MB。"
+                        : kind === "video"
+                          ? "客户端参考图资源限制：单张10MB、合计64MB，支持PNG、JPEG、WebP。"
+                          : "也可在此表单按 ⌘V / Ctrl+V 粘贴复制的图片或截图，点击生成后才会上传。",
                     )}
-                    <img
-                      src={raw}
-                      alt={
-                        index === 0
-                          ? dt("参考图")
-                          : `${dt("参考图")} ${index + 1}`
-                      }
-                      className="h-24 max-w-full rounded-md object-contain"
-                    />
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      disabled={busy || !!action || reading}
-                      aria-label={dt("移除参考图")}
-                      onClick={() => {
-                        readSequence.current++;
-                        const next = referenceList.filter(
-                          (_, i) => i !== index,
-                        );
-                        setReference(next[0] ?? null);
-                        setExtraReferences(next.slice(1));
-                        if (fileInput.current) fileInput.current.value = "";
-                      }}
+                  />
+                  {!referencesValid && (
+                    <p
+                      role="alert"
+                      className="text-sm text-destructive dark:text-red-300"
                     >
-                      <X className="h-4 w-4" />
-                    </Button>
-                    {index > 0 && (
+                      {dt(
+                        "参考图不符合当前模型的数量、格式或大小要求，请调整后再生成；原图已保留。",
+                      )}
+                    </p>
+                  )}
+                  {referenceList.map((raw, index) => (
+                    <div
+                      key={`${index}-${raw.slice(-16)}`}
+                      className="flex flex-wrap items-start gap-2"
+                    >
+                      {referencePolicy.maxCount > 1 && (
+                        <span className="text-xs">
+                          {index + 1} ·{" "}
+                          {dt(isMuse && index === 0 ? "首帧" : "参考图")}
+                        </span>
+                      )}
+                      <img
+                        src={raw}
+                        alt={
+                          index === 0
+                            ? dt("参考图")
+                            : `${dt("参考图")} ${index + 1}`
+                        }
+                        className="h-24 max-w-full rounded-md object-contain"
+                      />
                       <Button
                         type="button"
                         variant="ghost"
                         disabled={busy || !!action || reading}
+                        aria-label={dt("移除参考图")}
                         onClick={() => {
-                          const next = [...referenceList];
-                          [next[index - 1], next[index]] = [
-                            next[index],
-                            next[index - 1],
-                          ];
-                          setReference(next[0]);
+                          readSequence.current++;
+                          const next = referenceList.filter(
+                            (_, i) => i !== index,
+                          );
+                          setReference(next[0] ?? null);
                           setExtraReferences(next.slice(1));
+                          if (fileInput.current) fileInput.current.value = "";
                         }}
                       >
-                        {dt("前移")}
+                        <X className="h-4 w-4" />
                       </Button>
-                    )}
-                  </div>
-                ))}
-                {isMuse && (
-                  <p className="text-xs text-muted-foreground">
-                    {dt(
-                      "最多4张：第一张是首帧，其余为人物、场景或画风参考，最后一张不是尾帧。",
-                    )}
-                  </p>
-                )}
-                {isMuse && referenceList.length > 1 && (
-                  <p
-                    role="note"
-                    className="text-xs text-amber-700 dark:text-amber-300"
-                  >
-                    {dt(
-                      "多图参考为实验功能：已测样本主要采纳首图，第2–4张的效果不保证。",
-                    )}
-                  </p>
-                )}
-                <p className="text-xs text-muted-foreground">
-                  {dt("仅发送你选择的参考图和描述；请确认拥有素材使用权。")}
-                </p>
-              </div>
-            )}
-            {selected && (
-              <details className="rounded-lg bg-muted/30 p-3">
-                <summary className="cursor-pointer text-sm">
-                  {dt("更多设置")}
-                </summary>
-                <div className="mt-3 grid grid-cols-2 gap-3">
-                  <label className="text-xs">
-                    {dt("尺寸或比例")}
-                    <select
-                      className="mt-1 block w-full rounded border bg-background p-2"
-                      value={size}
-                      disabled={busy || !!action}
-                      onChange={(e) => setSize(e.target.value)}
-                    >
-                      {selected.sizes.map((s) => (
-                        <option key={s}>{s}</option>
-                      ))}
-                    </select>
-                  </label>
-                  {kind === "video" && (
-                    <label className="text-xs">
-                      {dt("请求时长（秒）")}
-                      {isMuse ? (
-                        <input
-                          type="number"
-                          min={4}
-                          max={180}
-                          step={1}
-                          aria-label={dt("Muse时长（秒）")}
-                          className="mt-1 block w-full rounded border bg-background p-2"
-                          value={duration ?? ""}
-                          disabled={busy || !!action}
-                          onChange={(e) =>
-                            setDuration(
-                              e.target.value === ""
-                                ? null
-                                : Number(e.target.value),
-                            )
-                          }
-                        />
-                      ) : (
-                        <select
-                          className="mt-1 block w-full rounded border bg-background p-2"
-                          value={duration ?? ""}
-                          disabled={busy || !!action}
-                          onChange={(e) => setDuration(Number(e.target.value))}
+                      {index > 0 && (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          disabled={busy || !!action || reading}
+                          onClick={() => {
+                            const next = [...referenceList];
+                            [next[index - 1], next[index]] = [
+                              next[index],
+                              next[index - 1],
+                            ];
+                            setReference(next[0]);
+                            setExtraReferences(next.slice(1));
+                          }}
                         >
-                          {selected.durations.map((d) => (
-                            <option key={d} value={d}>
-                              {d}
-                            </option>
-                          ))}
-                        </select>
+                          {dt("前移")}
+                        </Button>
                       )}
-                    </label>
+                    </div>
+                  ))}
+                  {isMuse && referenceList.length > 1 && (
+                    <p
+                      role="note"
+                      className="text-xs text-amber-700 dark:text-amber-300"
+                    >
+                      {dt(
+                        "多图参考为实验功能：已测样本主要采纳首图，第2–4张的效果不保证。",
+                      )}
+                    </p>
                   )}
-                </div>
-                {kind === "video" && (
-                  <p className="mt-2 text-xs text-muted-foreground">
-                    {dt(
-                      "实际时长可能由供应商调整；Grok 当前使用 480p，其他型号按所选尺寸生成。",
-                    )}
+                  <p className="text-xs text-muted-foreground">
+                    {dt("仅发送你选择的参考图和描述；请确认拥有素材使用权。")}
                   </p>
+                </div>
+              )}
+            {selected && (
+              <MediaParameterFields
+                model={selected}
+                value={parameters}
+                onChange={applyParameters}
+                disabled={busy || !!action || switchingGroup || reading}
+              />
+            )}
+            <label className="flex items-center gap-2 text-xs">
+              <input
+                type="checkbox"
+                checked={savePrompt}
+                onChange={(e) => setSavePrompt(e.target.checked)}
+                disabled={busy}
+              />
+              {dt("保存描述到本机以便再次编辑")}
+            </label>
+            {needsReference && !referenceList.length && (
+              <p
+                role="alert"
+                className="text-sm text-amber-700 dark:text-amber-300"
+              >
+                {dt("原作品使用过参考图，请重新添加后生成。")}
+                {selected?.reference !== "required" && (
+                  <button
+                    type="button"
+                    className="ml-2 underline underline-offset-4"
+                    onClick={() => setNeedsReference(false)}
+                  >
+                    {dt("改为纯文字创作")}
+                  </button>
                 )}
-              </details>
+              </p>
             )}
             <p className="text-xs leading-relaxed text-muted-foreground">
               {dt(
@@ -1099,27 +1301,13 @@ export function MediaStudioContent({ scope }: { scope: string }) {
               )}
             </p>
             {kind === "video" && (
-              <p className="text-xs text-muted-foreground">
-                {dt(
+              <MediaHelp
+                text={dt(
                   isMuse
-                    ? "Muse提交最长等待30分钟。返回任务编号后继续查询；超时不会自动重发。"
-                    : "视频提交最长等待 10 分钟。返回任务编号后继续查询；超时不会自动重发。",
+                    ? "Muse支持4–180秒；长片按段拼接。提交最长等待30分钟，超时不自动重发。"
+                    : "实际时长以供应商结果为准。提交最长等待10分钟，超时不自动重发。",
                 )}
-              </p>
-            )}
-            {isMuse && (
-              <p className="text-xs leading-relaxed text-muted-foreground">
-                {dt(
-                  "Muse文档支持4–180秒、720p；超过30秒会分段拼接，请按段描述镜头，并非单个连续长镜头。新能力正在实际验证。",
-                )}
-              </p>
-            )}
-            {isMuse && (
-              <p className="text-xs text-muted-foreground">
-                {dt(
-                  "Muse自动查询约30分钟；长片建议直接保存，超过64MB不在页面内预览。下载最长15分钟、上限256MB，失败可重下原任务。",
-                )}
-              </p>
+              />
             )}
             <Button
               type="submit"
@@ -1134,10 +1322,9 @@ export function MediaStudioContent({ scope }: { scope: string }) {
                 !selected ||
                 !prompt.trim() ||
                 Array.from(prompt).length > promptLimit ||
-                (kind === "video" &&
-                  !selected?.durations.includes(duration ?? 0)) ||
                 models.isError ||
-                !selected.sizes.includes(size) ||
+                !mediaParametersValid(selected, parameters) ||
+                (needsReference && !referenceList.length) ||
                 (selected.reference === "required" && !reference)
               }
             >
@@ -1214,7 +1401,14 @@ export function MediaStudioContent({ scope }: { scope: string }) {
         className="mt-6 space-y-3"
       >
         <div className="flex items-center justify-between">
-          <h2 className="font-medium">{dt("本机作品记录")}</h2>
+          <div className="flex items-center gap-1">
+            <h2 className="font-medium">{dt("本机作品记录")}</h2>
+            <MediaHelp
+              text={dt(
+                "最多保留50条；描述仅在勾选保存时保存在本机，参考图不保存。",
+              )}
+            />
+          </div>
           <Button
             variant="ghost"
             disabled={history.isFetching || busy}
@@ -1223,11 +1417,7 @@ export function MediaStudioContent({ scope }: { scope: string }) {
             {dt("刷新记录")}
           </Button>
         </div>
-        <p className="text-xs text-muted-foreground">
-          {dt(
-            "最多保留 50 条记录；提示词和参考图不写入历史。视频可继续查询原任务，暂停等待不会取消生成或退款。",
-          )}
-        </p>
+
         {history.isError && (
           <p role="alert">{extractErrorMessage(history.error)}</p>
         )}
@@ -1257,6 +1447,35 @@ export function MediaStudioContent({ scope }: { scope: string }) {
               )}
             </div>
             <div className="flex flex-wrap gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={busy || reading || !!action || switchingGroup}
+                onClick={() => editRecord(record)}
+              >
+                <Pencil size={14} />
+                {dt("再次编辑")}
+              </Button>
+              {record.draft?.prompt &&
+                !pending(record) &&
+                record.status !== "submitting" && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    disabled={!!action || busy}
+                    onClick={() => {
+                      if (
+                        window.confirm(dt("删除已保存的描述？成品和参数保留。"))
+                      )
+                        void operate(record.id, async () => {
+                          await mediaStudioApi.forgetPrompt(record.id);
+                          await history.refetch();
+                        });
+                    }}
+                  >
+                    {dt("删除描述")}
+                  </Button>
+                )}
               {record.status === "completed" && (
                 <>
                   <Button

@@ -1,9 +1,22 @@
+import { PLUGIN_ZH_TW } from "./nativePluginTranslations";
 // Generated from the desktop Simplified Chinese source strings, then normalized for Taiwan terminology.
 import { MEDIA_ZH_TW } from "./mediaStudioTranslations";
 import { COMMERCE_ZH_TW } from "./accioCommerceTranslations";
 import { BROWSER_LOGIN_ZH_TW } from "./browserLoginTranslations";
 export const DESKTOP_ZH_TW: Record<string, string> = {
   ...COMMERCE_ZH_TW,
+  "最近启动：{{tier}}": "最近啟動：{{tier}}",
+  已切回标准: "已切回標準",
+  速度: "速度",
+  本次启动速度: "本次啟動速度",
+  "正在确认支持档位…": "正在確認支援檔位…",
+  无法确认速度支持范围: "無法確認速度支援範圍",
+  "当前账号、模型或分组尚未确认支持所选档位，请重新选择或重试":
+    "目前帳號、模型或分組尚未確認支援所選檔位，請重新選擇或重試",
+  "仅本次启动的新对话；×2/×6是费用倍率，不保证速度。实际结算请查看使用日志。":
+    "僅本次啟動的新對話；×2/×6是費用倍率，不保證速度。實際結算請查看使用日誌。",
+  "本次新对话按{{multiplier}}倍费用请求；结算以使用日志为准。":
+    "本次新對話按{{multiplier}}倍費用請求；結算以使用日誌為準。",
   "项目消失可能与登录切换有关。可检查历史登录保存在本机的项目映射。":
     "專案消失可能與登入切換有關。可檢查歷史登入儲存在本機的專案映射。",
   检查本地项目: "檢查本機專案",
@@ -107,6 +120,7 @@ export const DESKTOP_ZH_TW: Record<string, string> = {
   "官方版本查询失败，不影响配置和启动。请稍后重试。":
     "官方版本查詢失敗，不影響設定和啟動。請稍後重試。",
   ...MEDIA_ZH_TW,
+  ...PLUGIN_ZH_TW,
   等待状态检查: "等待狀態檢查",
   尚无检查结果: "尚無檢查結果",
   "刷新状态后再判断配置是否生效。": "重新整理狀態後再判斷設定是否生效。",

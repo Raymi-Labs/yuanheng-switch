@@ -3639,7 +3639,11 @@ pub async fn launch_tool(
     tool: String,
     restart: Option<bool>,
     cwd: Option<String>,
+    speed: Option<crate::services::codex_launch_speed::LaunchSpeed>,
 ) -> Result<bool, String> {
+    if speed.is_some() && tool != "codex" {
+        return Err("本次速度选择仅支持Codex CLI".into());
+    }
     if matches!(tool.as_str(), "trae" | "trae-cn") {
         // Assisted setup is independent of managed model configuration. Never
         // terminate a running TRAE session or pretend this applies a provider.
@@ -3761,13 +3765,28 @@ pub async fn launch_tool(
         return Ok(true);
     }
     if tool == "codex" {
+        let speed_token = if let Some(scope) = speed {
+            let state = app.state::<crate::store::AppState>();
+            super::yuanheng::service_tiers::prepare_launch(&state, &scope).await?;
+            Some(crate::services::codex_launch_speed::issue(
+                scope,
+                state.db.clone(),
+            )?)
+        } else {
+            None
+        };
         let launch_cwd = resolve_tool_launch_cwd(&app, &tool, cwd)?;
         let codex_executable = resolve_path_launch_command("codex")
             .unwrap_or_else(|| std::path::PathBuf::from("codex"));
         let endpoint =
             crate::services::codex_session_bridge::ensure_codex_session_bridge(codex_executable)
                 .await?;
-        let command = crate::loopback_proxy::cli_command(&format!("codex --remote {endpoint}"));
+        let command = crate::loopback_proxy::cli_command(
+            &crate::services::codex_launch_speed::terminal_command(
+                &endpoint,
+                speed_token.as_deref(),
+            ),
+        );
         tokio::task::spawn_blocking(move || {
             launch_terminal_running(&command, "tool_codex", Some(&launch_cwd))
         })

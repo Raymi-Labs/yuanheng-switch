@@ -11,7 +11,6 @@ const MAX_MEDIA: usize = 64 * 1024 * 1024;
 const MAX_REFERENCE: usize = 10 * 1024 * 1024;
 const MAX_GPT_REFERENCE: usize = 50 * 1024 * 1024;
 const MAX_GPT_REFERENCES: usize = 16;
-const MAX_MUSE_REFERENCES: usize = 24 * 1024 * 1024;
 const MAX_VIDEO: u64 = 256 * 1024 * 1024;
 const VIDEO_SUBMIT_TIMEOUT: Duration = Duration::from_secs(600);
 const MUSE_SUBMIT_TIMEOUT: Duration = Duration::from_secs(1800);
@@ -28,9 +27,39 @@ pub struct MediaModel {
     reference: String,
     sizes: Vec<String>,
     durations: Vec<u32>,
+    qualities: Vec<String>,
+    resolutions: Vec<String>,
+    output_formats: Vec<String>,
+    backgrounds: Vec<String>,
+    custom_size: bool,
 }
 
+fn video_family(id: &str) -> bool {
+    id.split(['-', '_'])
+        .any(|part| matches!(part, "video" | "seedance"))
+        || [
+            "sora-",
+            "kling-",
+            "vidu",
+            "MiniMax-Hailuo-",
+            "MiniMax-H3",
+            "wan2.",
+        ]
+        .iter()
+        .any(|prefix| id.starts_with(prefix))
+}
+fn valid_media_model_id(id: &str) -> bool {
+    !id.is_empty()
+        && id.len() <= 200
+        && id
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b"-_.".contains(&b))
+}
 fn profile(id: &str) -> Option<MediaModel> {
+    if !valid_media_model_id(id) || id == "flow-video-veo-3.1-lite" {
+        return None;
+    }
+
     let (kind, reference, sizes, durations): (&str, &str, &[&str], Vec<u32>) = match id {
         "gpt-image-1"
         | "gpt-image-1.5"
@@ -66,14 +95,85 @@ fn profile(id: &str) -> Option<MediaModel> {
         }
         // Veo is intentionally excluded from this client at the user's request.
         // Omni720p was explicitly re-enabled after the user's confirmation.
+        _ if video_family(id) => ("video", "optional", &["16:9", "9:16", "1:1"], vec![4]),
+        _ if id.starts_with("gpt-image-") => (
+            "image",
+            "optional",
+            &["1024x1024", "1536x1024", "1024x1536"],
+            vec![],
+        ),
+        _ if id.starts_with("gemini-") && id.split('-').any(|p| p == "image") => {
+            ("image", "optional", &["1:1", "16:9", "9:16"], vec![])
+        }
         _ => return None,
+    };
+    let gpt = id.starts_with("gpt-image-");
+    let custom_size = id.starts_with("gpt-image-2.5-");
+    let values = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+    let mut sizes = values(sizes);
+    if custom_size {
+        sizes.extend(values(&[
+            "1536x864",
+            "864x1536",
+            "2560x1440",
+            "1440x2560",
+            "3840x2160",
+            "2160x3840",
+        ]));
+    }
+    if gpt {
+        sizes.push("auto".into());
+    }
+    if kind == "image" && id.starts_with("gemini-") {
+        sizes = values(&[
+            "1:1", "16:9", "9:16", "2:3", "3:2", "3:4", "4:3", "4:5", "5:4", "21:9",
+        ]);
+        if id == "gemini-3.1-flash-image-preview" {
+            sizes.extend(values(&["1:4", "4:1", "1:8", "8:1"]));
+        }
+    }
+    if id.starts_with("grok-imagine-video") {
+        sizes.extend(values(&["4:3", "3:4", "3:2", "2:3", "21:9", "5:2"]));
+    }
+    let resolutions = match id {
+        "gemini-3.1-flash-image-preview" => values(&["1K", "512", "2K", "4K"]),
+        "gemini-3-pro-image-preview" => values(&["1K", "2K", "4K"]),
+        "gemini-2.5-flash-image" => values(&["1K"]),
+        "grok-imagine-video" => values(&["480p", "720p"]),
+        "grok-imagine-video-1.5" => values(&["480p", "720p", "1080p"]),
+        "flow-video-gemini-omni-flash-1.1-1080p" => values(&["1080p", "720p", "480p"]),
+        _ if kind == "video" => values(&["720p", "1080p", "480p"]),
+        _ => vec![],
     };
     Some(MediaModel {
         id: id.into(),
         kind: kind.into(),
-        reference: reference.into(),
-        sizes: sizes.iter().map(|v| (*v).into()).collect(),
+        reference: if kind == "video" {
+            "optional".into()
+        } else {
+            reference.into()
+        },
+        sizes,
         durations,
+        qualities: if custom_size {
+            values(&["auto", "low", "medium", "high", "xhigh", "max"])
+        } else if gpt {
+            values(&["auto", "low", "medium", "high"])
+        } else {
+            vec![]
+        },
+        resolutions,
+        output_formats: if gpt {
+            values(&["png", "jpeg", "webp"])
+        } else {
+            vec![]
+        },
+        backgrounds: if gpt {
+            values(&["auto", "opaque", "transparent"])
+        } else {
+            vec![]
+        },
+        custom_size: custom_size || kind == "video",
     })
 }
 
@@ -81,6 +181,18 @@ fn profile(id: &str) -> Option<MediaModel> {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct MediaRequest {
     operation_id: String,
+    #[serde(default)]
+    quality: Option<String>,
+    #[serde(default)]
+    resolution: Option<String>,
+    #[serde(default)]
+    output_format: Option<String>,
+    #[serde(default)]
+    background: Option<String>,
+    #[serde(default)]
+    output_compression: Option<u8>,
+    #[serde(default)]
+    save_prompt: bool,
     group: String,
     model: String,
     prompt: String,
@@ -106,6 +218,99 @@ pub struct MediaRecord {
     has_media: bool,
     #[serde(default)]
     token_id: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    draft: Option<MediaDraft>,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MediaDraft {
+    size: String,
+    duration: Option<u32>,
+    #[serde(default)]
+    quality: Option<String>,
+    #[serde(default)]
+    resolution: Option<String>,
+    #[serde(default)]
+    output_format: Option<String>,
+    #[serde(default)]
+    background: Option<String>,
+    #[serde(default)]
+    output_compression: Option<u8>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    prompt: Option<String>,
+    #[serde(default)]
+    needs_reference: bool,
+    #[serde(default)]
+    prompt_saved: bool,
+}
+fn draft_snapshot(r: &MediaRequest) -> MediaDraft {
+    MediaDraft {
+        size: r.size.clone(),
+        duration: r.duration,
+        quality: r.quality.clone(),
+        resolution: r.resolution.clone(),
+        output_format: r.output_format.clone(),
+        background: r.background.clone(),
+        output_compression: r.output_compression,
+        prompt: if r.save_prompt {
+            Some(r.prompt.trim().into())
+        } else {
+            None
+        },
+        needs_reference: r.reference.is_some() || !r.images.is_empty(),
+        prompt_saved: r.save_prompt,
+    }
+}
+fn valid_custom_size(size: &str) -> bool {
+    let Some((w, h)) = size.split_once('x') else {
+        return false;
+    };
+    let (Ok(w), Ok(h)) = (w.parse::<u32>(), h.parse::<u32>()) else {
+        return false;
+    };
+    w > 0
+        && h > 0
+        && w <= 3840
+        && h <= 3840
+        && w % 16 == 0
+        && h % 16 == 0
+        && w <= h * 3
+        && h <= w * 3
+        && (655_360..=8_294_400).contains(&(w * h))
+}
+fn validate_options(r: &MediaRequest, p: &MediaModel) -> Result<(), String> {
+    if p.kind == "video" && r.resolution.as_ref().is_some_and(|v| !valid_resolution(v)) {
+        return Err("该模型不支持所选生成参数".into());
+    }
+    for (value, allowed) in [
+        (&r.quality, &p.qualities),
+        (
+            if p.kind == "video" {
+                &None
+            } else {
+                &r.resolution
+            },
+            &p.resolutions,
+        ),
+        (&r.output_format, &p.output_formats),
+        (&r.background, &p.backgrounds),
+    ] {
+        if value.as_ref().is_some_and(|v| !allowed.contains(v)) {
+            return Err("该模型不支持所选生成参数".into());
+        }
+    }
+    if r.background.as_deref() == Some("transparent") && r.output_format.as_deref() == Some("jpeg")
+    {
+        return Err("透明背景请使用PNG或WebP".into());
+    }
+    if r.output_compression.is_some_and(|n| n > 100)
+        || (r.output_compression.is_some()
+            && !matches!(r.output_format.as_deref(), Some("jpeg" | "webp")))
+    {
+        return Err("压缩质量仅支持JPEG/WebP的0至100整数".into());
+    }
+    Ok(())
 }
 
 struct Login {
@@ -141,12 +346,64 @@ fn records_key(owner: &str) -> String {
     format!("media_studio_v1_{owner}")
 }
 fn records(state: &AppState, owner: &str) -> Result<Vec<MediaRecord>, String> {
-    state
+    let mut rows: Vec<MediaRecord> = state
         .db
         .get_setting(&records_key(owner))
         .map_err(|_| "无法读取创作记录")?
-        .map(|s| serde_json::from_str(&s).map_err(|_| "创作记录损坏，请勿重复提交".into()))
-        .unwrap_or(Ok(vec![]))
+        .map(|s| serde_json::from_str(&s).map_err(|_| "创作记录损坏，请勿重复提交".to_string()))
+        .unwrap_or(Ok(vec![]))?;
+    for row in &mut rows {
+        if let Some(draft) = row.draft.as_mut() {
+            draft.prompt = None;
+            if draft.prompt_saved {
+                draft.prompt = read_local_prompt(owner, &row.id).ok();
+            }
+        }
+    }
+    Ok(rows)
+}
+fn records_json(rows: &[MediaRecord]) -> Result<String, String> {
+    let mut rows = rows.to_vec();
+    for row in &mut rows {
+        if let Some(draft) = row.draft.as_mut() {
+            draft.prompt = None;
+        }
+    }
+    serde_json::to_string(&rows).map_err(|_| "无法编码记录".into())
+}
+fn local_prompt_path(owner: &str, id: &str) -> Result<PathBuf, String> {
+    Ok(media_path(owner, id)?.with_extension("prompt"))
+}
+fn save_local_prompt(owner: &str, id: &str, prompt: &str) -> Result<(), String> {
+    let path = local_prompt_path(owner, id)?;
+    let mut file = private_media_temp(&path)?;
+    file.write_all(prompt.as_bytes())
+        .map_err(|_| "无法保存本机描述")?;
+    file.as_file().sync_all().map_err(|_| "无法保存本机描述")?;
+    file.persist_noclobber(&path)
+        .map_err(|_| "本机描述已存在或保存失败")?;
+    Ok(())
+}
+fn read_local_prompt(owner: &str, id: &str) -> Result<String, String> {
+    let path = local_prompt_path(owner, id)?;
+    check_media_directory(&path)?;
+    let metadata = std::fs::symlink_metadata(&path).map_err(|_| "本机描述不可用")?;
+    if !metadata.is_file() || metadata.len() > 64 * 1024 {
+        return Err("本机描述无效".into());
+    }
+    std::fs::read_to_string(&path).map_err(|_| "本机描述不可用".into())
+}
+fn remove_local_prompt(owner: &str, id: &str) -> Result<(), String> {
+    let path = local_prompt_path(owner, id)?;
+    match std::fs::symlink_metadata(&path) {
+        Ok(_) => {
+            check_media_directory(&path)?;
+            std::fs::remove_file(&path).map_err(|_| "无法删除本机描述")?;
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        Err(_) => return Err("无法读取本机描述".into()),
+    }
+    Ok(())
 }
 fn persist(state: &AppState, owner: &str, record: &MediaRecord, new: bool) -> Result<(), String> {
     let _lock = RECORDS.lock().map_err(|_| "创作记录锁不可用")?;
@@ -156,7 +413,13 @@ fn persist(state: &AppState, owner: &str, record: &MediaRecord, new: bool) -> Re
         return Err("此生成操作已提交，请查看原记录，不要重复发送".into());
     }
     if let Some(index) = index {
-        rows[index] = record.clone();
+        let mut updated = record.clone();
+        // Existing local consent/redaction is authoritative over stale async snapshots.
+        if let Some(draft) = updated.draft.as_mut() {
+            draft.prompt_saved = rows[index].draft.as_ref().is_some_and(|d| d.prompt_saved);
+            draft.prompt = rows[index].draft.as_ref().and_then(|d| d.prompt.clone());
+        }
+        rows[index] = updated;
     } else {
         if !new {
             return Err("原创作记录已移除，不能重新写入".into());
@@ -164,13 +427,24 @@ fn persist(state: &AppState, owner: &str, record: &MediaRecord, new: bool) -> Re
         if rows.len() >= 50 {
             return Err("已有 50 条创作记录，请先删除不需要的记录".into());
         }
+        if let Some(prompt) = record
+            .draft
+            .as_ref()
+            .filter(|d| d.prompt_saved)
+            .and_then(|d| d.prompt.as_deref())
+        {
+            save_local_prompt(owner, &record.id, prompt)?;
+        }
         rows.insert(0, record.clone());
     }
-    let text = serde_json::to_string(&rows).map_err(|_| "无法编码创作记录")?;
-    state
-        .db
-        .set_setting(&records_key(owner), &text)
-        .map_err(|_| "无法保存创作记录，请勿重复提交".into())
+    let text = records_json(&rows)?;
+    if state.db.set_setting(&records_key(owner), &text).is_err() {
+        if new && record.draft.as_ref().is_some_and(|d| d.prompt_saved) {
+            let _ = remove_local_prompt(owner, &record.id);
+        }
+        return Err("无法保存创作记录，请勿重复提交".into());
+    }
+    Ok(())
 }
 fn valid_id(id: &str) -> bool {
     uuid::Uuid::parse_str(id).is_ok_and(|uuid| uuid.to_string() == id)
@@ -226,7 +500,7 @@ fn request_reference(model: &str, raw: &str) -> Result<(&'static str, Vec<u8>), 
     if model.starts_with("gpt-image-") {
         reference_with_limit(raw, true, MAX_GPT_REFERENCE - 1)
     } else {
-        reference_with_webp(raw, model == "muse-video")
+        reference_with_webp(raw, video_family(model))
     }
 }
 fn reference_with_limit(
@@ -303,6 +577,61 @@ fn video_reference(bytes: &[u8]) -> Result<MediaPreview, String> {
         mime: "image/png".into(),
     })
 }
+fn valid_video_size(size: &str) -> bool {
+    size.split_once('x')
+        .or_else(|| size.split_once(':'))
+        .is_some_and(|(w, h)| {
+            [w, h].iter().all(|s| {
+                !s.starts_with('0')
+                    && s.bytes().all(|b| b.is_ascii_digit())
+                    && s.parse::<u32>().is_ok_and(|v| v > 0)
+            })
+        })
+}
+fn valid_resolution(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 32
+        && value.as_bytes()[0].is_ascii_alphanumeric()
+        && value
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b"._-".contains(&b))
+}
+fn video_pixel_size(size: &str, resolution: Option<&str>) -> Option<String> {
+    if size.contains('x') {
+        return Some(size.into());
+    }
+    let (a, b) = size.split_once(':')?;
+    let (a, b) = (a.parse::<u64>().ok()?, b.parse::<u64>().ok()?);
+    let pixels = resolution?.strip_suffix('p')?.parse::<u32>().ok()? as u64;
+    let short = a.min(b);
+    if short == 0 || pixels == 0 || pixels * a % short != 0 || pixels * b % short != 0 {
+        return None;
+    }
+    let (w, h) = (pixels * a / short, pixels * b / short);
+    if w > u32::MAX as u64 || h > u32::MAX as u64 {
+        return None;
+    }
+    Some(format!("{w}x{h}"))
+}
+fn compatible_task_id(value: &Value) -> Result<String, String> {
+    let read = |name: &str| -> Result<Option<&str>, String> {
+        match value.get(name) {
+            None | Some(Value::Null) => Ok(None),
+            Some(Value::String(v)) if v.is_empty() => Ok(None),
+            Some(Value::String(v)) => Ok(Some(v.as_str())),
+            _ => Err("任务编号格式错误，提交结果未知；请勿重复生成".into()),
+        }
+    };
+    let (id, alias) = (read("id")?, read("task_id")?);
+    if id.is_some() && alias.is_some() && id != alias {
+        return Err("任务编号冲突，提交结果未知；请勿重复生成".into());
+    }
+    let id = id
+        .or(alias)
+        .ok_or("未返回任务编号，提交结果未知；请勿重复生成")?;
+    task_path(id)?;
+    Ok(id.into())
+}
 fn validate(request: &MediaRequest) -> Result<MediaModel, String> {
     if !valid_id(&request.operation_id) {
         return Err("生成操作编号无效".into());
@@ -316,17 +645,38 @@ fn validate(request: &MediaRequest) -> Result<MediaModel, String> {
     if request.prompt.trim().is_empty() || request.prompt.chars().count() > prompt_limit {
         return Err(format!("请填写 1–{prompt_limit} 字的画面描述"));
     }
-    if !p.sizes.contains(&request.size)
-        || (p.kind == "video" && !p.durations.contains(&request.duration.unwrap_or(0)))
+    validate_options(request, &p)?;
+    let size_valid = if p.kind == "video" {
+        valid_video_size(&request.size)
+    } else {
+        p.sizes.contains(&request.size) || (p.custom_size && valid_custom_size(&request.size))
+    };
+    if !size_valid
+        || (p.kind == "video" && request.duration.unwrap_or(0) == 0)
         || (p.kind == "image" && request.duration.is_some())
     {
         return Err("该模型不支持所选尺寸或时长".into());
     }
+    if p.kind == "video" {
+        if let (Some((w, h)), Some(pixels)) = (
+            request.size.split_once('x'),
+            request
+                .resolution
+                .as_deref()
+                .and_then(|v| v.strip_suffix('p'))
+                .and_then(|v| v.parse::<u32>().ok()),
+        ) {
+            if w.parse::<u32>().unwrap().min(h.parse::<u32>().unwrap()) != pixels {
+                return Err("像素尺寸与分辨率冲突，请使用一致参数".into());
+            }
+        }
+    }
     if !request.images.is_empty() {
         let max_count = if request.model.starts_with("gpt-image-") {
             MAX_GPT_REFERENCES
-        } else if request.model == "muse-video" {
-            4
+        } else if p.kind == "video" {
+            // Local request resource protection, not a provider capability limit.
+            16
         } else {
             return Err("当前模型不支持多图参考".into());
         };
@@ -338,8 +688,8 @@ fn validate(request: &MediaRequest) -> Result<MediaModel, String> {
         let mut total = 0;
         for raw in &request.images {
             total += request_reference(&request.model, raw)?.1.len();
-            if request.model == "muse-video" && total > MAX_MUSE_REFERENCES {
-                return Err("Muse参考图总大小不能超过24MB".into());
+            if p.kind == "video" && total > MAX_MEDIA {
+                return Err("参考图总大小超过客户端资源限制".into());
             }
         }
     }
@@ -439,28 +789,173 @@ fn save_group_preference(
 pub struct MediaGroups {
     groups: Vec<YuanhengGroupOption>,
     selected_group: Option<String>,
+    unverified_group_count: usize,
+    models_by_group: HashMap<String, Vec<MediaModel>>,
+    selected_groups: HashMap<String, Option<String>>,
+}
+async fn creation_groups_at(
+    state: &AppState,
+    session: &Login,
+    client: &reqwest::Client,
+    origin: &str,
+) -> Result<
+    (
+        Vec<YuanhengGroupOption>,
+        usize,
+        HashMap<String, Vec<MediaModel>>,
+    ),
+    String,
+> {
+    let authorized = tokio::time::timeout(
+        Duration::from_secs(15),
+        authorized_groups_at(state, session, client, origin),
+    )
+    .await
+    .map_err(|_| "读取创作分组超时，请刷新重试")??;
+    let total = authorized.len();
+    // Buffered futures are cancelled on drop; no detached catalog workers.
+    let mut pending = futures::stream::iter(authorized.into_iter().map(|group| async move {
+        let result = media_catalog_at(state, session, client, origin, &group.id).await;
+        (group, result)
+    }))
+    .buffered(4);
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
+    let mut groups = Vec::new();
+    let mut models_by_group = HashMap::new();
+    let mut checked = 0;
+    let mut failed = 0;
+    loop {
+        match tokio::time::timeout_at(deadline, pending.next()).await {
+            Ok(Some((group, result))) => {
+                checked += 1;
+                match result {
+                    Ok(models) if !models.is_empty() => {
+                        models_by_group.insert(group.id.clone(), models);
+                        groups.push(group);
+                    }
+                    Ok(_) => {}
+                    Err(_) => failed += 1,
+                }
+            }
+            Ok(None) => break,
+            Err(_) => {
+                failed += total - checked;
+                break;
+            }
+        }
+    }
+    same_login(state, session)?;
+    if total > 0 && failed == total {
+        return Err("创作模型目录读取失败，请刷新重试".into());
+    }
+    Ok((groups, failed, models_by_group))
+}
+struct MediaCatalogCache {
+    owner: String,
+    session_hash: String,
+    at: std::time::Instant,
+    groups: Vec<YuanhengGroupOption>,
+    models: HashMap<String, Vec<MediaModel>>,
+}
+static MEDIA_CATALOG: Mutex<Option<MediaCatalogCache>> = Mutex::new(None);
+fn cached_selection(
+    session: &Login,
+    group: &str,
+) -> Option<(Vec<YuanhengGroupOption>, Vec<MediaModel>)> {
+    let cache = MEDIA_CATALOG.lock().ok()?;
+    let cache = cache.as_ref()?;
+    if cache.owner != session.owner
+        || cache.session_hash != format!("{:x}", Sha256::digest(session.cookie.as_bytes()))
+        || cache.at.elapsed() >= Duration::from_secs(60)
+    {
+        return None;
+    }
+    Some((cache.groups.clone(), cache.models.get(group)?.clone()))
 }
 #[tauri::command]
 pub async fn get_media_studio_groups(state: State<'_, AppState>) -> Result<MediaGroups, String> {
     let session = login(&state)?;
-    let groups = authorized_groups(&state, &session).await?;
+    // An explicit refresh invalidates a previous authorization snapshot, including on error.
+    *MEDIA_CATALOG.lock().map_err(|_| "模型目录缓存不可用")? = None;
+    let (groups, unverified_group_count, models_by_group) =
+        creation_groups_at(&state, &session, &yuanheng_client()?, BASE_URL).await?;
     let saved = state
         .db
         .get_setting(&group_setting_key(&session.owner))
         .map_err(|_| "无法读取创作分组偏好")?;
+    let mut selected_groups = HashMap::new();
+    for kind in ["image", "video"] {
+        let preference = state
+            .db
+            .get_setting(&format!("{}_{}", group_setting_key(&session.owner), kind))
+            .map_err(|_| "无法读取创作偏好")?;
+        let value = preference.or_else(|| saved.clone());
+        let eligible = groups
+            .iter()
+            .filter(|g| {
+                models_by_group
+                    .get(&g.id)
+                    .is_some_and(|m| m.iter().any(|m| m.kind == kind))
+            })
+            .cloned()
+            .collect::<Vec<_>>();
+        selected_groups.insert(kind.into(), selected_group(value, &eligible));
+    }
+    same_login(&state, &session)?;
+    *MEDIA_CATALOG.lock().map_err(|_| "模型目录缓存不可用")? = Some(MediaCatalogCache {
+        owner: session.owner.clone(),
+        session_hash: format!("{:x}", Sha256::digest(session.cookie.as_bytes())),
+        at: std::time::Instant::now(),
+        groups: groups.clone(),
+        models: models_by_group.clone(),
+    });
     Ok(MediaGroups {
         selected_group: selected_group(saved, &groups),
         groups,
+        unverified_group_count,
+        models_by_group,
+        selected_groups,
     })
 }
 #[tauri::command]
 pub async fn set_media_studio_group(
     state: State<'_, AppState>,
     group: String,
+    kind: Option<String>,
 ) -> Result<String, String> {
     let session = login(&state)?;
-    let groups = authorized_groups(&state, &session).await?;
-    save_group_preference(&state, &session, &group, &groups)?;
+    let (groups, models) = if let Some(cached) = cached_selection(&session, &group) {
+        cached
+    } else {
+        let groups = authorized_groups(&state, &session).await?;
+        validate_group(&group, &groups)?;
+        let models =
+            media_catalog_at(&state, &session, &yuanheng_client()?, BASE_URL, &group).await?;
+        (groups, models)
+    };
+    validate_group(&group, &groups)?;
+    if models.is_empty()
+        || kind
+            .as_ref()
+            .is_some_and(|kind| !models.iter().any(|m| m.kind == *kind))
+    {
+        return Err("此分组没有当前创作类型可用的模型，请重新选择".into());
+    }
+    if let Some(kind) = kind {
+        if !["image", "video"].contains(&kind.as_str()) {
+            return Err("创作类型无效".into());
+        }
+        same_login(&state, &session)?;
+        state
+            .db
+            .set_setting(
+                &format!("{}_{}", group_setting_key(&session.owner), kind),
+                &group,
+            )
+            .map_err(|_| "无法保存创作偏好")?;
+    } else {
+        save_group_preference(&state, &session, &group, &groups)?;
+    }
     Ok(group)
 }
 async fn catalog(
@@ -479,10 +974,20 @@ async fn catalog_at(
 ) -> Result<Vec<MediaModel>, String> {
     let groups = authorized_groups_at(state, session, client, origin).await?;
     validate_group(group, &groups)?;
+    media_catalog_at(state, session, client, origin, group).await
+}
+async fn media_catalog_at(
+    state: &AppState,
+    session: &Login,
+    client: &reqwest::Client,
+    origin: &str,
+    group: &str,
+) -> Result<Vec<MediaModel>, String> {
     let response = with_session(
         client
             .get(format!("{origin}/api/user/models"))
-            .query(&[("group", group)]),
+            .query(&[("group", group)])
+            .timeout(Duration::from_secs(10)),
         Some(&session.cookie),
         Some(&session.user),
     )
@@ -496,32 +1001,76 @@ async fn catalog_at(
 }
 
 fn json_payload(request: &MediaRequest, p: &MediaModel) -> Value {
-    if request.model.starts_with("gemini-") {
+    if p.kind == "image" && request.model.starts_with("gemini-") {
         let mut parts = vec![json!({"text":request.prompt.trim()})];
         if let Some(raw) = &request.reference {
             // Validated before constructing a wire payload.
             let (mime, bytes) = reference(raw).expect("validated reference");
             parts.push(json!({"inlineData":{"mimeType":mime,"data":B64.encode(bytes)}}));
         }
-        return json!({"contents":[{"role":"user","parts":parts}],"generationConfig":{"responseModalities":["IMAGE"],"candidateCount":1,"imageConfig":{"aspectRatio":request.size,"imageSize":"1K"}}});
+        return json!({"contents":[{"role":"user","parts":parts}],"generationConfig":{"responseModalities":["IMAGE"],"candidateCount":1,"imageConfig":{"aspectRatio":request.size,"imageSize":request.resolution.as_deref().unwrap_or("1K")}}});
     }
     if p.kind == "image" {
         let mut v = json!({"model":request.model,"prompt":request.prompt.trim(),"n":1,"response_format":"b64_json"});
         if request.size != "auto" {
             v["size"] = json!(request.size);
         }
+        for (name, value) in [
+            ("quality", &request.quality),
+            ("output_format", &request.output_format),
+            ("background", &request.background),
+        ] {
+            if let Some(value) = value {
+                v[name] = json!(value);
+            }
+        }
+        if let Some(n) = request.output_compression {
+            v["output_compression"] = json!(n);
+        }
         return v;
     }
-    if request.model.starts_with("grok-imagine-video") {
-        return json!({"model":request.model,"prompt":request.prompt.trim(),"duration":request.duration,"resolution":"480p","aspect_ratio":request.size});
-    }
-    let mut v = json!({"model":request.model,"prompt":request.prompt.trim(),"seconds":request.duration.unwrap_or(4).to_string(),"size":request.size});
-    if let Some(raw) = &request.reference {
-        v["input_reference"] = json!(raw);
-    } else if request.images.len() == 1 {
-        v["input_reference"] = json!(request.images[0]);
-    } else if !request.images.is_empty() {
-        v["images"] = json!(request.images);
+    let mut v = if request.model.starts_with("grok-imagine-video") {
+        json!({"model":request.model,"prompt":request.prompt.trim(),"duration":request.duration,"resolution":request.resolution.as_deref().unwrap_or("480p"),"aspect_ratio":request.size})
+    } else if request.model.split('-').any(|part| part == "seedance") {
+        let ratio = request
+            .size
+            .split_once('x')
+            .map(|(w, h)| {
+                let (w, h) = (w.parse::<u32>().unwrap(), h.parse::<u32>().unwrap());
+                let (mut a, mut b) = (w, h);
+                while b != 0 {
+                    (a, b) = (b, a % b);
+                }
+                format!("{}:{}", w / a, h / a)
+            })
+            .unwrap_or_else(|| request.size.clone());
+        json!({"model":request.model,"prompt":request.prompt.trim(),"seconds":request.duration.unwrap_or(4).to_string(),"resolution":request.resolution.as_deref().unwrap_or("720p"),"metadata":{"ratio":ratio,"generate_audio":true,"watermark":false}})
+    } else {
+        let mut v = json!({"model":request.model,"prompt":request.prompt.trim(),"seconds":request.duration.unwrap_or(4).to_string()});
+        if let Some(size) = video_pixel_size(&request.size, request.resolution.as_deref()) {
+            v["size"] = json!(size);
+        }
+        if request.size.contains(':') {
+            v["aspect_ratio"] = json!(request.size);
+        }
+        if let Some(value) = &request.resolution {
+            v["resolution"] = json!(value);
+        }
+        v
+    };
+    let refs = request
+        .reference
+        .iter()
+        .chain(request.images.iter())
+        .collect::<Vec<_>>();
+    if !refs.is_empty() {
+        if request.model.split('-').any(|part| part == "seedance") || refs.len() > 1 {
+            v["images"] = json!(refs);
+        } else if request.model.starts_with("grok-imagine-video") {
+            v["image"] = json!({"url":refs[0]});
+        } else {
+            v["input_reference"] = json!(refs[0]);
+        }
     }
     v
 }
@@ -553,6 +1102,19 @@ fn multipart(request: &MediaRequest) -> Result<(String, Vec<u8>), String> {
             "--{boundary}\r\nContent-Disposition: form-data; name=\"{name}\"\r\n\r\n{value}\r\n"
         )
         .map_err(|_| "无法构建图片请求")?;
+    }
+    for (name, value) in [
+        ("quality", request.quality.clone()),
+        ("output_format", request.output_format.clone()),
+        ("background", request.background.clone()),
+        (
+            "output_compression",
+            request.output_compression.map(|n| n.to_string()),
+        ),
+    ] {
+        if let Some(value) = value {
+            write!(out,"--{boundary}\r\nContent-Disposition: form-data; name=\"{name}\"\r\n\r\n{value}\r\n").map_err(|_| "无法构建图片请求")?;
+        }
     }
     let references: Vec<&str> = request
         .reference
@@ -887,6 +1449,7 @@ pub async fn submit_media_studio(
     }
     same_login(&state, &session)?;
     let mut record = MediaRecord {
+        draft: Some(draft_snapshot(&request)),
         group: request.group.clone(),
         id: request.operation_id.clone(),
         model: request.model.clone(),
@@ -934,12 +1497,7 @@ pub async fn submit_media_studio(
             }
             record.status = "completed".into();
         } else {
-            let id = value
-                .get("id")
-                .and_then(Value::as_str)
-                .ok_or("未返回任务编号，提交结果未知；请勿重复生成")?;
-            task_path(id)?;
-            record.task_id = Some(id.into());
+            record.task_id = Some(compatible_task_id(&value)?);
             record.status = "queued".into();
             record.message = "任务已提交，查询原任务不会重新生成".into();
         }
@@ -952,7 +1510,7 @@ pub async fn submit_media_studio(
     }
     persist(&state, &session.owner, &record, false)?;
     same_login(&state, &session)?;
-    Ok(record)
+    find_record(&state, &session, &record.id)
 }
 
 fn find_record(state: &AppState, session: &Login, id: &str) -> Result<MediaRecord, String> {
@@ -1038,7 +1596,7 @@ pub async fn refresh_media_studio(
     .into();
     same_login(&state, &session)?;
     persist(&state, &session.owner, &record, false)?;
-    Ok(record)
+    find_record(&state, &session, &record.id)
 }
 
 #[derive(Serialize)]
@@ -1191,6 +1749,35 @@ async fn load_media(
     Ok((bytes, mime))
 }
 #[tauri::command]
+pub fn forget_media_studio_prompt(state: State<'_, AppState>, id: String) -> Result<(), String> {
+    let session = login(&state)?;
+    forget_prompt(&state, &session, &id)
+}
+fn forget_prompt(state: &AppState, session: &Login, id: &str) -> Result<(), String> {
+    let _lock = RECORDS.lock().map_err(|_| "创作记录锁不可用")?;
+    let mut rows = records(state, &session.owner)?;
+    let row = rows
+        .iter_mut()
+        .find(|r| r.id == id)
+        .ok_or("创作记录不存在")?;
+    if pending_status(&row.status) {
+        return Err("请等待任务结束再删除描述".into());
+    }
+    if let Some(draft) = row.draft.as_mut() {
+        draft.prompt = None;
+        draft.prompt_saved = false;
+    }
+    same_login(state, session)?;
+    remove_local_prompt(&session.owner, id)?;
+    state
+        .db
+        .set_setting(&records_key(&session.owner), &records_json(&rows)?)
+        .map_err(|_| "无法更新记录".into())
+}
+fn pending_status(status: &str) -> bool {
+    ["submitting", "queued", "in_progress"].contains(&status)
+}
+#[tauri::command]
 pub async fn preview_media_studio(
     state: State<'_, AppState>,
     id: String,
@@ -1268,6 +1855,7 @@ pub fn delete_media_studio(state: State<'_, AppState>, id: String) -> Result<(),
         return Err("任务未结束，请保留记录以便查询".into());
     }
     let path = media_path(&session.owner, &id)?;
+    remove_local_prompt(&session.owner, &id)?;
     crate::secure_storage::delete_secret(&image_url_key(&session.owner, &id)?)
         .map_err(|_| "无法清理作品下载地址，请恢复系统凭据访问后重试")?;
     if path.exists() {
@@ -1278,10 +1866,7 @@ pub fn delete_media_studio(state: State<'_, AppState>, id: String) -> Result<(),
     rows.retain(|r| r.id != id);
     state
         .db
-        .set_setting(
-            &records_key(&session.owner),
-            &serde_json::to_string(&rows).map_err(|_| "无法编码记录")?,
-        )
+        .set_setting(&records_key(&session.owner), &records_json(&rows)?)
         .map_err(|_| "无法更新创作记录".into())
 }
 
@@ -1290,6 +1875,202 @@ mod tests {
     use super::*;
     use crate::database::Database;
     use std::sync::Arc;
+    #[test]
+    fn generation_options_validate_each_model_without_cross_provider_leaks() {
+        let mut r = request("gpt-image-2.5-sunburst");
+        r.size = "3840x2160".into();
+        r.quality = Some("max".into());
+        r.output_format = Some("webp".into());
+        r.background = Some("transparent".into());
+        r.output_compression = Some(85);
+        let p = validate(&r).unwrap();
+        let payload = json_payload(&r, &p);
+        assert_eq!(payload["quality"], "max");
+        assert_eq!(payload["output_format"], "webp");
+        assert_eq!(payload["output_compression"], 85);
+        assert_eq!(payload["background"], "transparent");
+        for bad in ["3841x2160", "3840x3840", "16x16", "2000x100", "4096x2048"] {
+            r.size = bad.into();
+            assert!(validate(&r).is_err());
+        }
+        r.size = "1536x864".into();
+        assert!(validate(&r).is_ok());
+        r.output_format = Some("jpeg".into());
+        assert!(validate(&r).is_err());
+        r.background = Some("opaque".into());
+        r.output_compression = Some(101);
+        assert!(validate(&r).is_err());
+        let mut old = request("gpt-image-1");
+        old.quality = Some("max".into());
+        assert!(validate(&old).is_err());
+        let mut g = request("gemini-3.1-flash-image-preview");
+        g.size = "4:1".into();
+        g.resolution = Some("4K".into());
+        let p = validate(&g).unwrap();
+        assert_eq!(
+            json_payload(&g, &p)["generationConfig"]["imageConfig"]["imageSize"],
+            "4K"
+        );
+        g.model = "gemini-2.5-flash-image".into();
+        g.size = "16:9".into();
+        assert!(validate(&g).is_err());
+        let mut video = request("grok-imagine-video-1.5");
+        video.resolution = Some("1080p".into());
+        video.size = "21:9".into();
+        let p = validate(&video).unwrap();
+        assert_eq!(json_payload(&video, &p)["resolution"], "1080p");
+        video.model = "grok-imagine-video".into();
+        assert!(validate(&video).is_ok());
+        video.resolution = Some("720p".into());
+        video.quality = Some("high".into());
+        assert!(validate(&video).is_err());
+    }
+    #[test]
+    fn editing_multipart_carries_options_and_never_privacy_flag() {
+        let mut r = request("gpt-image-2.5-flare");
+        r.reference = Some(png());
+        r.quality = Some("xhigh".into());
+        r.output_format = Some("webp".into());
+        r.output_compression = Some(90);
+        r.save_prompt = true;
+        validate(&r).unwrap();
+        let (_, bytes) = multipart(&r).unwrap();
+        let text = String::from_utf8_lossy(&bytes);
+        assert!(text.contains("name=\"quality\"\r\n\r\nxhigh"));
+        assert!(text.contains("name=\"output_compression\"\r\n\r\n90"));
+        assert!(!text.contains("savePrompt"));
+    }
+    #[test]
+    fn history_snapshot_only_retains_opted_in_prompt_and_never_reference_bytes() {
+        let mut r = request("gpt-image-2.5-sunburst");
+        r.prompt = "private synthetic prompt".into();
+        r.reference = Some(png());
+        let draft = draft_snapshot(&r);
+        assert!(draft.prompt.is_none());
+        assert!(draft.needs_reference);
+        let raw = serde_json::to_string(&draft).unwrap();
+        assert!(!raw.contains("private synthetic"));
+        assert!(!raw.contains("base64"));
+        r.save_prompt = true;
+        let mut draft = draft_snapshot(&r);
+        assert_eq!(draft.prompt.as_deref(), Some("private synthetic prompt"));
+        draft.prompt = None;
+        assert!(!serde_json::to_string(&draft)
+            .unwrap()
+            .contains("private synthetic"));
+        let legacy:MediaRecord=serde_json::from_value(json!({"id":"legacy","model":"muse-video","kind":"video","status":"completed","createdAt":1,"taskId":null,"message":"done","hasMedia":false})).unwrap();
+        assert!(legacy.draft.is_none());
+    }
+    #[test]
+    #[serial_test::serial]
+    fn prompt_stays_out_of_database_sync_and_redaction_survives_stale_updates() {
+        let (_home, state) = super::super::tests::isolated_state();
+        let status = YuanhengConnectionStatus {
+            connected: true,
+            user_id: Some("test-user".into()),
+            ..Default::default()
+        };
+        persist_connection_for_group(
+            &state,
+            "session=test",
+            "test-user",
+            "",
+            0,
+            &status,
+            "chat-group",
+        )
+        .unwrap();
+        let session = login(&state).unwrap();
+        let mut r = request("gpt-image-2.5-sunburst");
+        r.prompt = "local-secret-description".into();
+        r.save_prompt = true;
+        let mut record = MediaRecord {
+            id: r.operation_id.clone(),
+            group: r.group.clone(),
+            model: r.model.clone(),
+            kind: "image".into(),
+            status: "completed".into(),
+            created_at: 1,
+            task_id: None,
+            message: "done".into(),
+            has_media: false,
+            token_id: None,
+            draft: Some(draft_snapshot(&r)),
+        };
+        persist(&state, &session.owner, &record, true).unwrap();
+        let raw = state
+            .db
+            .get_setting(&records_key(&session.owner))
+            .unwrap()
+            .unwrap();
+        assert!(!raw.contains("local-secret-description"));
+        assert!(!state
+            .db
+            .export_sql_string_for_sync()
+            .unwrap()
+            .contains("local-secret-description"));
+        assert_eq!(
+            records(&state, &session.owner).unwrap()[0]
+                .draft
+                .as_ref()
+                .unwrap()
+                .prompt
+                .as_deref(),
+            Some("local-secret-description")
+        );
+        assert!(read_local_prompt(&"a".repeat(64), &record.id).is_err());
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(
+                std::fs::metadata(local_prompt_path(&session.owner, &record.id).unwrap())
+                    .unwrap()
+                    .permissions()
+                    .mode()
+                    & 0o777,
+                0o600
+            );
+        }
+        forget_prompt(&state, &session, &record.id).unwrap();
+        record.message = "late completed".into();
+        persist(&state, &session.owner, &record, false).unwrap();
+        let rows = records(&state, &session.owner).unwrap();
+        assert!(rows[0].draft.as_ref().unwrap().prompt.is_none());
+        assert!(!rows[0].draft.as_ref().unwrap().prompt_saved);
+        assert!(!local_prompt_path(&session.owner, &record.id)
+            .unwrap()
+            .exists());
+    }
+    #[test]
+    #[serial_test::serial]
+    fn catalog_preference_cache_is_session_bound_and_expires() {
+        let session = Login {
+            owner: "one".into(),
+            user: "one".into(),
+            cookie: "session-one".into(),
+        };
+        let mut models = HashMap::new();
+        models.insert("video".into(), vec![profile("muse-video").unwrap()]);
+        *MEDIA_CATALOG.lock().unwrap() = Some(MediaCatalogCache {
+            owner: session.owner.clone(),
+            session_hash: format!("{:x}", Sha256::digest(session.cookie.as_bytes())),
+            at: std::time::Instant::now(),
+            groups: test_groups(),
+            models,
+        });
+        assert!(cached_selection(&session, "video").is_some());
+        assert!(cached_selection(&session, "unknown").is_none());
+        let stale = Login {
+            owner: "one".into(),
+            user: "one".into(),
+            cookie: "other-session".into(),
+        };
+        assert!(cached_selection(&stale, "video").is_none());
+        MEDIA_CATALOG.lock().unwrap().as_mut().unwrap().at =
+            std::time::Instant::now() - Duration::from_secs(61);
+        assert!(cached_selection(&session, "video").is_none());
+        *MEDIA_CATALOG.lock().unwrap() = None;
+    }
     fn test_groups() -> Vec<YuanhengGroupOption> {
         vec![LEGACY_GROUP, "partner-video"]
             .into_iter()
@@ -1418,7 +2199,7 @@ mod tests {
             .route("/api/user/models", get(|AxumState(seen):AxumState<Arc<std::sync::Mutex<Vec<String>>>>, Query(query):Query<HashMap<String,String>>| async move {
                 let group = query.get("group").cloned().unwrap_or_default();
                 seen.lock().unwrap().push(group.clone());
-                Json(json!({"success":true,"data":if group == "partner-video" { vec!["muse-video"] } else { vec!["gpt-image-2.5-sunburst"] }}))
+                Json(json!({"success":true,"data":if group == "partner-video" { vec!["muse-video", "doubao-seedance-2-5-260628", "gpt-6-astra", "flow-video-veo-3.1-lite"] } else { vec!["gpt-image-2.5-sunburst"] }}))
             })).with_state(seen.clone());
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let origin = format!("http://{}", listener.local_addr().unwrap());
@@ -1433,8 +2214,11 @@ mod tests {
         let result = catalog_at(&state, &session, &client, &origin, "partner-video")
             .await
             .unwrap();
-        assert_eq!(result.len(), 1);
-        assert_eq!(result[0].id, "muse-video");
+        assert_eq!(result.len(), 2);
+        assert_eq!(
+            result.iter().map(|m| m.id.as_str()).collect::<Vec<_>>(),
+            vec!["doubao-seedance-2-5-260628", "muse-video"]
+        );
         assert!(
             catalog_at(&state, &session, &client, &origin, "unauthorized")
                 .await
@@ -1451,6 +2235,133 @@ mod tests {
         assert_eq!(*seen.lock().unwrap(), vec!["partner-video"]);
         server.abort();
         let _ = server.await;
+    }
+    #[tokio::test]
+    #[serial_test::serial]
+    async fn creation_groups_hide_text_and_empty_groups_by_catalog_not_name() {
+        use axum::{extract::Query, routing::get, Json, Router};
+        let (_home, state) = super::super::tests::isolated_state();
+        let status = YuanhengConnectionStatus {
+            connected: true,
+            user_id: Some("test-user".into()),
+            ..Default::default()
+        };
+        persist_connection_for_group(
+            &state,
+            "session=test",
+            "test-user",
+            "",
+            0,
+            &status,
+            "chat-group",
+        )
+        .unwrap();
+        let session = login(&state).unwrap();
+        let app = Router::new()
+            .route("/api/user/self/groups",get(||async {Json(json!({"success":true,"data":{"chat":{},"empty":{},"image":{},"video":{},"生图和视频":{}}}))}))
+            .route("/api/user/models",get(|Query(q):Query<HashMap<String,String>>|async move {
+                Json(json!({"success":true,"data":match q["group"].as_str() {
+                    "image" => vec!["gpt-image-2.5-sunburst"],
+                    "video" => vec!["muse-video"],
+                    "empty" => vec![],
+                    _ => vec!["claude-sonnet-4"]
+                }}))
+            }));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let origin = format!("http://{}", listener.local_addr().unwrap());
+        let server = tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+        let client = reqwest::Client::builder()
+            .no_proxy()
+            .timeout(Duration::from_secs(3))
+            .build()
+            .unwrap();
+        let result = creation_groups_at(&state, &session, &client, &origin).await;
+        server.abort();
+        let _ = server.await;
+        let mut ids = result
+            .unwrap()
+            .0
+            .into_iter()
+            .map(|g| g.id)
+            .collect::<Vec<_>>();
+        ids.sort();
+        assert_eq!(ids, vec!["image", "video"]);
+    }
+    #[tokio::test]
+    #[serial_test::serial]
+    async fn creation_group_failures_are_not_empty_catalogs_and_stale_accounts_are_rejected() {
+        use axum::{
+            extract::{Query, State as AxumState},
+            routing::get,
+            Json, Router,
+        };
+        let (_home, state) = super::super::tests::isolated_state();
+        let status = YuanhengConnectionStatus {
+            connected: true,
+            user_id: Some("test-user".into()),
+            ..Default::default()
+        };
+        persist_connection_for_group(
+            &state,
+            "session=test",
+            "test-user",
+            "",
+            0,
+            &status,
+            "chat-group",
+        )
+        .unwrap();
+        let session = login(&state).unwrap();
+        let all_fail = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let app = Router::new()
+            .route(
+                "/api/user/self/groups",
+                get(|| async { Json(json!({"success":true,"data":{"good":{},"failed":{}}})) }),
+            )
+            .route(
+                "/api/user/models",
+                get(
+                    |AxumState(all): AxumState<Arc<std::sync::atomic::AtomicBool>>,
+                     Query(q): Query<HashMap<String, String>>| async move {
+                        if all.load(std::sync::atomic::Ordering::SeqCst) || q["group"] == "failed" {
+                            Json(json!({"success":false,"data":["muse-video"]}))
+                        } else {
+                            Json(json!({"success":true,"data":["muse-video"]}))
+                        }
+                    },
+                ),
+            )
+            .with_state(all_fail.clone());
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let origin = format!("http://{}", listener.local_addr().unwrap());
+        let server = tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+        let client = reqwest::Client::builder()
+            .no_proxy()
+            .timeout(Duration::from_secs(3))
+            .build()
+            .unwrap();
+        let partial = creation_groups_at(&state, &session, &client, &origin).await;
+        all_fail.store(true, std::sync::atomic::Ordering::SeqCst);
+        let failed = creation_groups_at(&state, &session, &client, &origin).await;
+        let stale = Login {
+            cookie: "stale".into(),
+            user: session.user.clone(),
+            owner: session.owner.clone(),
+        };
+        let stale_result = creation_groups_at(&state, &stale, &client, &origin).await;
+        server.abort();
+        let _ = server.await;
+        let (groups, count, _) = partial.unwrap();
+        assert_eq!(groups.len(), 1);
+        assert_eq!(groups[0].id, "good");
+        assert_eq!(count, 1);
+        assert!(failed.is_err());
+        assert!(stale_result.is_err());
+        assert_eq!(selected_group(Some("failed".into()), &groups), None);
     }
     #[tokio::test]
     #[serial_test::serial]
@@ -1535,6 +2446,12 @@ mod tests {
     fn request(model: &str) -> MediaRequest {
         let p = profile(model).unwrap();
         MediaRequest {
+            quality: None,
+            resolution: None,
+            output_format: None,
+            background: None,
+            output_compression: None,
+            save_prompt: false,
             group: legacy_group(),
             operation_id: uuid::Uuid::new_v4().to_string(),
             model: model.into(),
@@ -1569,7 +2486,7 @@ mod tests {
     #[test]
     fn muse_document_duration_prompt_and_multi_image_contract() {
         let mut r = request("muse-video");
-        for seconds in [4, 30, 31, 60, 120, 180] {
+        for seconds in [3, 4, 30, 31, 60, 120, 180, 181] {
             r.duration = Some(seconds);
             assert!(validate(&r).is_ok());
             assert_eq!(
@@ -1577,7 +2494,7 @@ mod tests {
                 seconds.to_string()
             );
         }
-        for seconds in [0, 3, 181] {
+        for seconds in [0] {
             r.duration = Some(seconds);
             assert!(validate(&r).is_err());
         }
@@ -1602,7 +2519,7 @@ mod tests {
         assert_eq!(v["images"], json!(r.images));
         assert!(v.get("input_reference").is_none());
         r.images.push(first.clone());
-        assert!(validate(&r).is_err());
+        assert!(validate(&r).is_ok());
         r.images.pop();
         r.reference = Some(first.clone());
         assert!(validate(&r).is_err());
@@ -1625,8 +2542,8 @@ mod tests {
         let mut r = request("muse-video");
         r.images = vec![data.clone(), data.clone()];
         assert!(validate(&r).is_ok());
-        r.images.push(data);
-        assert!(validate(&r).err().unwrap().contains("24MB"));
+        r.images = vec![data; 8];
+        assert!(validate(&r).err().unwrap().contains("资源限制"));
         bytes.resize(MAX_REFERENCE + 1, 0);
         r.images = vec![format!("data:image/png;base64,{}", B64.encode(&bytes))];
         assert!(validate(&r).is_err());
@@ -1707,6 +2624,108 @@ mod tests {
     }
 
     #[test]
+    fn refreshed_catalog_includes_new_video_families_and_preserves_parameters() {
+        for id in [
+            "doubao-seedance-2-5-260628",
+            "sora-3",
+            "flow-video-next",
+            "grok-imagine-video-2",
+        ] {
+            let p = profile(id).expect("server-authorized video must not be hidden by exact IDs");
+            assert_eq!(p.kind, "video");
+            let mut r = request(id);
+            r.size = "21:9".into();
+            r.duration = Some(30);
+            r.resolution = Some("2160p".into());
+            assert!(validate(&r).is_ok());
+            let body = json_payload(&r, &p);
+            assert_eq!(body["model"], id);
+            assert_eq!(body["resolution"], "2160p");
+            assert_eq!(submission_endpoint(&r, &p), "/v1/videos");
+        }
+        assert!(profile("gpt-6-astra").is_none());
+        assert!(profile("flow-video-veo-3.1-lite").is_none());
+    }
+
+    #[test]
+    fn seedance_and_grok_requests_preserve_reference_resolution_and_ratio() {
+        let mut r = request("doubao-seedance-2-5-260628");
+        r.duration = Some(8);
+        r.resolution = Some("1080p".into());
+        r.size = "1920x1080".into();
+        r.reference = Some(png());
+        let p = validate(&r).unwrap();
+        let value = json_payload(&r, &p);
+        assert_eq!(value["seconds"], "8");
+        assert_eq!(value["resolution"], "1080p");
+        assert_eq!(value["metadata"]["ratio"], "16:9");
+        assert_eq!(value["images"][0], r.reference.as_ref().unwrap().as_str());
+        r.model = "grok-imagine-video-2".into();
+        r.size = "21:9".into();
+        let p = validate(&r).unwrap();
+        let value = json_payload(&r, &p);
+        assert_eq!(
+            value["image"]["url"],
+            r.reference.as_ref().unwrap().as_str()
+        );
+        assert_eq!(value["duration"], 8);
+        assert_eq!(value["resolution"], "1080p");
+        for size in ["0:9", "01:9", "-1:9", "16:9:1", "4294967296:9"] {
+            r.size = size.into();
+            assert!(validate(&r).is_err());
+        }
+    }
+
+    #[test]
+    fn video_default_dimensions_match_named_1080p_model() {
+        let p = profile("flow-video-gemini-omni-flash-1.1-1080p").unwrap();
+        assert_eq!(p.resolutions[0], "1080p");
+        let mut r = request(&p.id);
+        r.resolution = Some(p.resolutions[0].clone());
+        let body = json_payload(&r, &validate(&r).unwrap());
+        assert_eq!(body["size"], "1920x1080");
+    }
+
+    #[test]
+    fn compatible_video_dimensions_and_task_id_aliases() {
+        assert_eq!(
+            video_pixel_size("21:9", Some("1080p")).as_deref(),
+            Some("2520x1080")
+        );
+        assert_eq!(
+            video_pixel_size("9:16", Some("1080p")).as_deref(),
+            Some("1080x1920")
+        );
+        assert_eq!(video_pixel_size("21:9", Some("cinema")), None);
+        let mut r = request("muse-video");
+        r.size = "21:9".into();
+        r.resolution = Some("1080p".into());
+        assert_eq!(
+            json_payload(&r, &validate(&r).unwrap())["size"],
+            "2520x1080"
+        );
+        r.size = "1920x1080".into();
+        r.resolution = Some("720p".into());
+        assert!(validate(&r).is_err());
+        for body in [
+            json!({"id":"task_ok"}),
+            json!({"task_id":"task_ok"}),
+            json!({"id":"", "task_id":"task_ok"}),
+            json!({"id":"task_ok","task_id":"task_ok"}),
+        ] {
+            assert_eq!(compatible_task_id(&body).unwrap(), "task_ok");
+        }
+        for body in [
+            json!({}),
+            json!({"task_id":"../bad"}),
+            json!({"id":"task_a","task_id":"task_b"}),
+            json!({"id":12,"task_id":"task_ok"}),
+        ] {
+            assert!(compatible_task_id(&body).is_err());
+        }
+    }
+
+    #[test]
     fn profiles_reject_unknown_models_and_preserve_explicit_ids() {
         for id in [
             "gpt-6-astra",
@@ -1732,10 +2751,10 @@ mod tests {
         let mut r = request("muse-video");
         assert!(validate(&r).is_ok());
         r.duration = Some(181);
-        assert!(validate(&r).is_err());
+        assert!(validate(&r).is_ok());
         r.duration = Some(4);
         r.size = "1920x1080".into();
-        assert!(validate(&r).is_err());
+        assert!(validate(&r).is_ok());
         r.size = "1280x720".into();
         r.prompt = " ".into();
         assert!(validate(&r).is_err());
@@ -1756,7 +2775,7 @@ mod tests {
         assert!(validate(&r).is_ok());
         let mut r = request("grok-imagine-video");
         r.reference = Some(png());
-        assert!(validate(&r).is_err());
+        assert!(validate(&r).is_ok());
         assert!(reference("data:image/png;base64,PHN2Zz4=").is_err());
         assert!(reference(&png().replace("image/png", "image/jpeg")).is_err());
         assert!(reference("https://example.test/image.png").is_err());
@@ -1817,13 +2836,13 @@ mod tests {
             );
         }
         r.duration = Some(8);
-        assert!(validate(&r).is_err());
+        assert!(validate(&r).is_ok());
         r.duration = Some(4);
         r.size = "1920x1080".into();
-        assert!(validate(&r).is_err());
+        assert!(validate(&r).is_ok());
         r.size = "1280x720".into();
         r.reference = Some(png());
-        assert!(validate(&r).is_err());
+        assert!(validate(&r).is_ok());
     }
     #[test]
     fn download_urls_restrict_origins_and_never_echo_signed_values() {
@@ -2102,6 +3121,7 @@ mod tests {
     fn records_block_replay_isolate_accounts_and_never_store_prompts_or_keys() {
         let state = AppState::new(Arc::new(Database::memory().unwrap()));
         let r = MediaRecord {
+            draft: None,
             group: legacy_group(),
             id: uuid::Uuid::new_v4().to_string(),
             model: "muse-video".into(),

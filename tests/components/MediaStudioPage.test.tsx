@@ -7,7 +7,7 @@ import {
   screen,
   waitFor,
 } from "@testing-library/react";
-import { QueryClientProvider } from "@tanstack/react-query";
+import { QueryClientProvider, focusManager } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   MediaStudioPage,
@@ -30,6 +30,7 @@ const mocks = vi.hoisted(() => ({
   prepareVideoReference: vi.fn(),
   export: vi.fn(),
   delete: vi.fn(),
+  forgetPrompt: vi.fn(),
   save: vi.fn(),
   saveDialog: vi.fn(),
 }));
@@ -109,6 +110,7 @@ beforeEach(() => {
   mocks.selectGroup.mockImplementation(async (group: string) => group);
   mocks.models.mockResolvedValue(profiles);
   mocks.history.mockResolvedValue([]);
+  mocks.forgetPrompt.mockResolvedValue(undefined);
   mocks.submit.mockResolvedValue(item());
   mocks.refresh.mockResolvedValue(item());
   mocks.preview.mockResolvedValue({ mime: "image/png", data: btoa("test") });
@@ -161,7 +163,7 @@ function pasteImages(files: File[], itemsOnly = false) {
 }
 
 describe("media group selection boundaries", () => {
-  const groupSelect = () => screen.getByRole("combobox", { name: "创作分组" });
+  const groupSelect = () => screen.getByRole("combobox", { name: "模型分组" });
   const choosePartner = () =>
     fireEvent.change(groupSelect(), { target: { value: "伙伴创作" } });
   const ready = async () => {
@@ -192,9 +194,7 @@ describe("media group selection boundaries", () => {
   it("does not fetch models or enable creation for an empty authorized group list", async () => {
     mocks.groups.mockResolvedValue({ groups: [], selectedGroup: null });
     mount();
-    expect(
-      await screen.findByText("当前账号没有可用分组，请检查权限。"),
-    ).toBeVisible();
+    expect(await screen.findByText("暂无可用的生图或视频分组。")).toBeVisible();
     expect(mocks.models).not.toHaveBeenCalled();
     expect(screen.getByRole("button", { name: "生成" })).toBeDisabled();
   });
@@ -221,6 +221,55 @@ describe("media group selection boundaries", () => {
     await waitFor(() =>
       expect(screen.getByRole("button", { name: "生成" })).toBeEnabled(),
     );
+  });
+  it("shows only returned eligible groups without redundant descriptions", async () => {
+    mocks.groups.mockResolvedValue({
+      groups: [{ id: "生图和视频", description: "生图和视频", ratio: 1 }],
+      selectedGroup: "生图和视频",
+    });
+    mount();
+    await ready();
+    expect(
+      screen.getByRole("option", { name: "生图和视频" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("option", { name: "生图和视频 · 生图和视频" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("option", { name: "伙伴创作" }),
+    ).not.toBeInTheDocument();
+  });
+  it("distinguishes unverified catalogs from an empty media catalog", async () => {
+    mocks.groups.mockResolvedValue({
+      groups: [],
+      selectedGroup: null,
+      unverifiedGroupCount: 1,
+    });
+    mount();
+    expect(
+      await screen.findByText("部分分组目录读取失败，请刷新重试。"),
+    ).toBeVisible();
+    expect(
+      screen.queryByText("暂无可用的生图或视频分组。"),
+    ).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "刷新分组" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "生成" })).toBeDisabled();
+  });
+  it("removes a saved group that no longer has media without silently switching", async () => {
+    mount();
+    await ready();
+    choosePartner();
+    await waitFor(() => expect(groupSelect()).toHaveValue("伙伴创作"));
+    mocks.groups.mockResolvedValue({
+      groups: [{ id: "生图和视频", description: "", ratio: 1 }],
+      selectedGroup: null,
+    });
+    fireEvent.click(screen.getByRole("button", { name: "刷新分组" }));
+    await waitFor(() => expect(groupSelect()).toHaveValue(""));
+    expect(
+      screen.queryByRole("option", { name: /伙伴创作/ }),
+    ).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "生成" })).toBeDisabled();
   });
   it("restores the account preference and does not create a credential on mount", async () => {
     mocks.groups.mockResolvedValue({
@@ -404,6 +453,239 @@ describe("media group selection boundaries", () => {
     await waitFor(() => expect(mocks.refresh).toHaveBeenCalledWith(item().id), {
       timeout: 4000,
     });
+    expect(mocks.submit).not.toHaveBeenCalled();
+  });
+});
+
+describe("P1/P2 media studio", () => {
+  const enhanced = {
+    ...profiles[0],
+    sizes: ["1024x1024", "3840x2160"],
+    qualities: ["auto", "high", "max"],
+    outputFormats: ["png", "jpeg", "webp"],
+    backgrounds: ["auto", "transparent"],
+    customSize: true,
+  };
+  const video = { ...profiles[2], resolutions: ["720p"] };
+  const catalog = {
+    groups: [
+      { id: "images", description: "", ratio: 1 },
+      { id: "videos", description: "", ratio: 1 },
+    ],
+    selectedGroup: null,
+    selectedGroups: { image: "images", video: "videos" },
+    modelsByGroup: { images: [enhanced], videos: [video] },
+  };
+  const setup = () => {
+    mocks.groups.mockResolvedValue(catalog);
+    mocks.models.mockImplementation(async (g: string) =>
+      g.startsWith("images") ? [enhanced] : [video],
+    );
+  };
+  const ready = async () => {
+    await waitFor(() =>
+      expect(screen.getByRole("combobox", { name: "生成模型" })).toHaveValue(
+        enhanced.id,
+      ),
+    );
+  };
+  it("refreshes the group model catalog on entry and filters groups by type", async () => {
+    setup();
+    mount();
+    await ready();
+    expect(mocks.models).toHaveBeenCalledWith("images");
+    expect(
+      screen.queryByRole("option", { name: "videos" }),
+    ).not.toBeInTheDocument();
+    fireEvent.change(screen.getByRole("textbox", { name: "画面描述" }), {
+      target: { value: "scene" },
+    });
+    fireEvent.change(screen.getByRole("combobox", { name: "画质" }), {
+      target: { value: "max" },
+    });
+    fireEvent.change(screen.getByRole("combobox", { name: "尺寸或比例" }), {
+      target: { value: "3840x2160" },
+    });
+    fireEvent.click(screen.getByRole("tab", { name: "视频生成" }));
+    await waitFor(() =>
+      expect(screen.getByRole("combobox", { name: "模型分组" })).toHaveValue(
+        "videos",
+      ),
+    );
+    expect(
+      screen.queryByRole("option", { name: "images" }),
+    ).not.toBeInTheDocument();
+    fireEvent.change(
+      await screen.findByRole("spinbutton", { name: "Muse时长（秒）" }),
+      { target: { value: "180" } },
+    );
+    fireEvent.click(screen.getByRole("tab", { name: "图片生成" }));
+    await ready();
+    expect(screen.getByRole("combobox", { name: "画质" })).toHaveValue("max");
+    expect(screen.getByRole("combobox", { name: "尺寸或比例" })).toHaveValue(
+      "3840x2160",
+    );
+    fireEvent.click(screen.getByRole("tab", { name: "视频生成" }));
+    await waitFor(() =>
+      expect(
+        screen.getByRole("spinbutton", { name: "Muse时长（秒）" }),
+      ).toHaveValue(180),
+    );
+    expect(screen.getByRole("textbox", { name: "画面描述" })).toHaveValue(
+      "scene",
+    );
+    expect(mocks.submit).not.toHaveBeenCalled();
+  });
+  it("restores settings after reopening without storing the prompt", async () => {
+    setup();
+    const view = mount();
+    await ready();
+    fireEvent.change(screen.getByRole("combobox", { name: "画质" }), {
+      target: { value: "max" },
+    });
+    fireEvent.change(screen.getByRole("combobox", { name: "尺寸或比例" }), {
+      target: { value: "3840x2160" },
+    });
+    fireEvent.change(screen.getByRole("textbox", { name: "画面描述" }), {
+      target: { value: "not-persisted" },
+    });
+    view.unmount();
+    client.clear();
+    mount();
+    await ready();
+    expect(screen.getByRole("combobox", { name: "画质" })).toHaveValue("max");
+    expect(screen.getByRole("combobox", { name: "尺寸或比例" })).toHaveValue(
+      "3840x2160",
+    );
+    expect(screen.getByRole("textbox", { name: "画面描述" })).toHaveValue("");
+  });
+  it("keeps changed group parameters isolated and allows removal of incompatible references", async () => {
+    setup();
+    mocks.groups.mockResolvedValue({
+      ...catalog,
+      groups: [...catalog.groups, { id: "images2", description: "", ratio: 1 }],
+      modelsByGroup: { ...catalog.modelsByGroup, images2: [enhanced] },
+    });
+    mount();
+    await ready();
+    fireEvent.change(screen.getByRole("combobox", { name: "画质" }), {
+      target: { value: "max" },
+    });
+    fireEvent.change(screen.getByRole("combobox", { name: "模型分组" }), {
+      target: { value: "images2" },
+    });
+    await waitFor(() =>
+      expect(screen.getByRole("combobox", { name: "模型分组" })).toHaveValue(
+        "images2",
+      ),
+    );
+    expect(screen.getByRole("combobox", { name: "画质" })).toHaveValue("auto");
+    fireEvent.change(screen.getByRole("combobox", { name: "模型分组" }), {
+      target: { value: "images" },
+    });
+    await waitFor(() =>
+      expect(screen.getByRole("combobox", { name: "画质" })).toHaveValue("max"),
+    );
+  });
+  it("does not choose another group for a type with no saved selection", async () => {
+    setup();
+    mocks.groups.mockResolvedValue({
+      ...catalog,
+      selectedGroups: { image: "images", video: null },
+    });
+    mount();
+    await ready();
+    fireEvent.click(screen.getByRole("tab", { name: "视频生成" }));
+    expect(screen.getByRole("combobox", { name: "模型分组" })).toHaveValue("");
+    expect(screen.getByRole("button", { name: "生成" })).toBeDisabled();
+    expect(mocks.selectGroup).not.toHaveBeenCalled();
+  });
+  it("sends selected parameters with explicit local prompt consent", async () => {
+    setup();
+    mount();
+    await ready();
+    fireEvent.change(screen.getByRole("textbox", { name: "画面描述" }), {
+      target: { value: "private scene" },
+    });
+    expect(
+      screen.getByRole("checkbox", { name: "保存描述到本机以便再次编辑" }),
+    ).not.toBeChecked();
+    fireEvent.click(
+      screen.getByRole("checkbox", { name: "保存描述到本机以便再次编辑" }),
+    );
+    fireEvent.change(screen.getByRole("combobox", { name: "画质" }), {
+      target: { value: "high" },
+    });
+    fireEvent.change(screen.getByRole("combobox", { name: "输出格式" }), {
+      target: { value: "webp" },
+    });
+    fireEvent.change(
+      screen.getByRole("spinbutton", { name: "压缩质量（0–100）" }),
+      { target: { value: "85" } },
+    );
+    fireEvent.click(screen.getByRole("button", { name: "生成" }));
+    await waitFor(() => expect(mocks.submit).toHaveBeenCalledTimes(1));
+    expect(mocks.submit.mock.calls[0][0]).toMatchObject({
+      group: "images",
+      quality: "high",
+      outputFormat: "webp",
+      outputCompression: 85,
+      savePrompt: true,
+    });
+    expect(Object.values(localStorage).join("")).not.toContain("private scene");
+  });
+  it("restores history settings and prompt but requires references and never submits", async () => {
+    setup();
+    mocks.history.mockResolvedValue([
+      item({
+        kind: "image",
+        model: enhanced.id,
+        group: "images",
+        status: "completed",
+        draft: {
+          size: "3840x2160",
+          duration: null,
+          quality: "max",
+          outputFormat: "webp",
+          prompt: "saved scene",
+          needsReference: true,
+        },
+      }),
+    ]);
+    mount();
+    await ready();
+    fireEvent.click(await screen.findByRole("button", { name: "再次编辑" }));
+    expect(screen.getByRole("textbox", { name: "画面描述" })).toHaveValue(
+      "saved scene",
+    );
+    expect(screen.getByRole("combobox", { name: "尺寸或比例" })).toHaveValue(
+      "3840x2160",
+    );
+    expect(screen.getByRole("combobox", { name: "画质" })).toHaveValue("max");
+    expect(screen.getByRole("button", { name: "生成" })).toBeDisabled();
+    expect(mocks.submit).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "删除描述" }));
+    await waitFor(() =>
+      expect(mocks.forgetPrompt).toHaveBeenCalledWith(item().id),
+    );
+  });
+  it("keeps unavailable history selections blocked instead of falling back", async () => {
+    setup();
+    mocks.history.mockResolvedValue([
+      item({
+        group: "removed",
+        status: "completed",
+        draft: { size: "1280x720", duration: 4, prompt: "scene" },
+      }),
+    ]);
+    mount();
+    await ready();
+    fireEvent.click(await screen.findByRole("button", { name: "再次编辑" }));
+    expect(screen.getByRole("combobox", { name: "模型分组" })).toHaveValue("");
+    expect(screen.getByRole("textbox", { name: "画面描述" })).toHaveValue(
+      "scene",
+    );
+    expect(screen.getByRole("button", { name: "生成" })).toBeDisabled();
     expect(mocks.submit).not.toHaveBeenCalled();
   });
 });
@@ -603,8 +885,7 @@ describe("reference image paste", () => {
       ),
     );
     expect(screen.getByRole("img", { name: "参考图 16" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "生成" })).toBeDisabled();
-    expect(screen.getByRole("alert")).toHaveTextContent("原图已保留");
+    expect(screen.getByRole("button", { name: "生成" })).toBeEnabled();
     fireEvent.click(screen.getByRole("tab", { name: "图片生成" }));
     await screen.findByRole("button", { name: "上传参考图（可选）" });
     fireEvent.click(screen.getAllByRole("button", { name: "前移" })[0]);
@@ -651,8 +932,8 @@ describe("reference image paste", () => {
       screen.queryByRole("img", { name: "参考图 4" }),
     ).not.toBeInTheDocument();
     const excess = clipboardImage("excess");
-    pasteImages([excess, excess]);
-    expect(screen.getByRole("status")).toHaveTextContent("最多支持 4 张");
+    pasteImages(Array(14).fill(excess));
+    expect(screen.getByRole("status")).toHaveTextContent("最多读取 16 张");
     expect(excess.arrayBuffer).not.toHaveBeenCalled();
     fireEvent.change(screen.getByRole("textbox"), {
       target: { value: "move" },
@@ -822,12 +1103,12 @@ describe("media creation workflow", () => {
     await screen.findByRole("option", { name: "gpt-image-2.5-sunburst" });
     fireEvent.click(screen.getByRole("tab", { name: "视频生成" }));
     await screen.findByRole("option", { name: "muse-video" });
-    fireEvent.click(screen.getByText("更多设置"));
+
     fireEvent.change(screen.getByRole("textbox"), {
       target: { value: "a".repeat(4001) },
     });
     fireEvent.change(
-      screen.getByRole("spinbutton", { name: "Muse时长（秒）" }),
+      await screen.findByRole("spinbutton", { name: "Muse时长（秒）" }),
       { target: { value: "180" } },
     );
     expect(screen.getByRole("button", { name: "生成" })).toBeDisabled();
@@ -840,7 +1121,7 @@ describe("media creation workflow", () => {
     );
     expect(screen.getByRole("button", { name: "生成" })).toBeDisabled();
     fireEvent.change(
-      screen.getByRole("spinbutton", { name: "Muse时长（秒）" }),
+      await screen.findByRole("spinbutton", { name: "Muse时长（秒）" }),
       { target: { value: "180" } },
     );
     fireEvent.click(screen.getByRole("button", { name: "生成" }));
@@ -901,15 +1182,15 @@ describe("media creation workflow", () => {
     const file = new File(["x"], "image.png", { type: "image/png" });
     Object.defineProperty(file, "arrayBuffer", { value: read });
     fireEvent.change(screen.getByLabelText("选择参考图"), {
-      target: { files: Array(5).fill(file) },
+      target: { files: Array(17).fill(file) },
     });
-    expect(screen.getByRole("status")).toHaveTextContent("最多支持 4 张");
+    expect(screen.getByRole("status")).toHaveTextContent("最多读取 16 张");
     expect(read).not.toHaveBeenCalled();
     Object.defineProperty(file, "size", { value: 9 * 1024 * 1024 });
     fireEvent.change(screen.getByLabelText("选择参考图"), {
-      target: { files: Array(3).fill(file) },
+      target: { files: Array(8).fill(file) },
     });
-    expect(screen.getByRole("status")).toHaveTextContent("总计最多24MB");
+    expect(screen.getByRole("status")).toHaveTextContent("合计64MB");
     expect(read).not.toHaveBeenCalled();
   });
   it("prepares an image-to-video draft without a paid submission", async () => {
@@ -988,10 +1269,9 @@ describe("media creation workflow", () => {
     fireEvent.change(screen.getByRole("combobox", { name: "生成模型" }), {
       target: { value: "grok-imagine-video" },
     });
-    expect(
-      screen.queryByRole("img", { name: "参考图" }),
-    ).not.toBeInTheDocument();
-    expect(screen.getByRole("status")).toHaveTextContent("已移除图片");
+    expect(screen.getByRole("img", { name: "参考图" })).toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveTextContent("原图已保留");
+    expect(screen.getByRole("button", { name: "生成" })).toBeDisabled();
     expect(mocks.submit).not.toHaveBeenCalled();
   });
   it("drops a prepared private image if the account changes during conversion", async () => {
@@ -1051,6 +1331,94 @@ describe("media creation workflow", () => {
     expect(mocks.preview.mock.calls).toEqual([[item().id], [item().id]]);
     expect(mocks.submit).not.toHaveBeenCalled();
   });
+  it("refreshes the authorized catalog on focus without submitting", async () => {
+    mount();
+    await screen.findByRole("option", { name: "gpt-image-2.5-sunburst" });
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "刷新模型" })).toBeEnabled(),
+    );
+    const count = mocks.groups.mock.calls.length;
+    await act(async () => {
+      focusManager.setFocused(false);
+      focusManager.setFocused(true);
+    });
+    await waitFor(() =>
+      expect(mocks.groups.mock.calls.length).toBeGreaterThan(count),
+    );
+    expect(mocks.submit).not.toHaveBeenCalled();
+    focusManager.setFocused(undefined);
+  });
+  it("updates pixels with video resolution and sends consistent dimensions once", async () => {
+    mount();
+    await screen.findByRole("option", { name: "gpt-image-2.5-sunburst" });
+    fireEvent.click(screen.getByRole("tab", { name: "视频生成" }));
+    await screen.findByRole("spinbutton", { name: "Muse时长（秒）" });
+    fireEvent.change(screen.getByRole("textbox", { name: "画面描述" }), {
+      target: { value: "scene" },
+    });
+    fireEvent.change(screen.getByRole("combobox", { name: "分辨率" }), {
+      target: { value: "1080p" },
+    });
+    expect(screen.getByRole("combobox", { name: "尺寸或比例" })).toHaveValue(
+      "1920x1080",
+    );
+    fireEvent.click(screen.getByRole("button", { name: "生成" }));
+    await waitFor(() => expect(mocks.submit).toHaveBeenCalledTimes(1));
+    expect(mocks.submit.mock.calls[0][0]).toMatchObject({
+      model: "muse-video",
+      size: "1920x1080",
+      resolution: "1080p",
+    });
+  });
+  it("refreshes a new Seedance model and sends user parameters without replacing the existing draft", async () => {
+    mount();
+    await screen.findByRole("option", { name: "gpt-image-2.5-sunburst" });
+    fireEvent.click(screen.getByRole("tab", { name: "视频生成" }));
+    await screen.findByRole("spinbutton", { name: "Muse时长（秒）" });
+    fireEvent.change(screen.getByRole("textbox", { name: "画面描述" }), {
+      target: { value: "paper boat" },
+    });
+    const seedance = {
+      id: "doubao-seedance-2-5-260628",
+      kind: "video",
+      reference: "optional",
+      sizes: ["16:9", "9:16"],
+      durations: [4],
+      resolutions: ["720p", "1080p"],
+      customSize: true,
+    };
+    mocks.models.mockResolvedValue([...profiles, seedance]);
+    fireEvent.click(screen.getByRole("button", { name: "刷新模型" }));
+    await screen.findByRole("option", { name: seedance.id });
+    expect(screen.getByRole("combobox", { name: "生成模型" })).toHaveValue(
+      "muse-video",
+    );
+    expect(screen.getByRole("textbox", { name: "画面描述" })).toHaveValue(
+      "paper boat",
+    );
+    fireEvent.change(screen.getByRole("combobox", { name: "生成模型" }), {
+      target: { value: seedance.id },
+    });
+    fireEvent.change(screen.getByRole("combobox", { name: "尺寸或比例" }), {
+      target: { value: "21:9" },
+    });
+    fireEvent.change(screen.getByRole("combobox", { name: "分辨率" }), {
+      target: { value: "1080p" },
+    });
+    fireEvent.change(
+      screen.getByRole("spinbutton", { name: "请求时长（秒）" }),
+      { target: { value: "30" } },
+    );
+    fireEvent.click(screen.getByRole("button", { name: "生成" }));
+    await waitFor(() => expect(mocks.submit).toHaveBeenCalledTimes(1));
+    expect(mocks.submit.mock.calls[0][0]).toMatchObject({
+      model: seedance.id,
+      size: "21:9",
+      resolution: "1080p",
+      duration: 30,
+      prompt: "paper boat",
+    });
+  });
   it("never replaces an explicit model when a refreshed catalog removes it", async () => {
     mount();
     await screen.findByRole("option", { name: "gpt-image-2.5-sunburst" });
@@ -1075,7 +1443,9 @@ describe("media creation workflow", () => {
     expect(
       await screen.findByRole("option", { name: "gpt-image-2.5-sunburst" }),
     ).toBeInTheDocument();
-    expect(screen.getByText("当前分组：生图和视频")).toBeInTheDocument();
+    expect(screen.getByRole("combobox", { name: "模型分组" })).toHaveValue(
+      "生图和视频",
+    );
     expect(mocks.submit).not.toHaveBeenCalled();
     expect(
       screen.queryByRole("option", { name: "muse-video" }),
@@ -1135,11 +1505,6 @@ describe("media creation workflow", () => {
     mount();
     await screen.findByRole("option", { name: "gpt-image-2.5-sunburst" });
     fireEvent.click(screen.getByRole("tab", { name: "视频生成" }));
-    expect(
-      screen.getByText(
-        "Muse提交最长等待30分钟。返回任务编号后继续查询；超时不会自动重发。",
-      ),
-    ).toBeInTheDocument();
     await screen.findByRole("option", { name: "muse-video" });
     fireEvent.change(screen.getByRole("combobox", { name: "生成模型" }), {
       target: { value: "synthetic-required-reference-profile" },

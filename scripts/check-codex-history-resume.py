@@ -10,6 +10,7 @@ import json
 import os
 from pathlib import Path
 import queue
+import re
 import subprocess
 import tempfile
 import threading
@@ -18,6 +19,11 @@ import threading
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--codex", default="codex")
+    parser.add_argument(
+        "--preserve-provider",
+        choices=["yuanheng", "custom", "yuanheng-switch-official"],
+        help="Exercise an upgraded installation retaining its existing provider ID",
+    )
     args = parser.parse_args()
     fixtures = Path(__file__).resolve().parents[1] / "tests/fixtures/codex-history"
     aliases = ["yuanheng", "custom", "yuanheng-switch-official"]
@@ -27,9 +33,15 @@ def main():
 
         class Server:
             def __init__(self, phase):
+                config = (fixtures / f"{phase}.toml").read_text()
+                if args.preserve_provider and phase != "broken":
+                    config = re.sub(
+                        r'^model_provider = "[^"]+"',
+                        f'model_provider = "{args.preserve_provider}"',
+                        config, count=1, flags=re.M,
+                    )
                 (root / "config.toml").write_text(
-                    (fixtures / f"{phase}.toml").read_text()
-                    + "\n[analytics]\nenabled = false\n", encoding="utf-8"
+                    config + "\n[analytics]\nenabled = false\n", encoding="utf-8"
                 )
                 env = dict(os.environ)
                 env["CODEX_HOME"] = str(root)
@@ -128,8 +140,11 @@ def main():
                     })
                     if phase == "broken" and alias != "yuanheng-switch-official":
                         expected = f"Model provider `{alias}` not found"
-                        assert expected in result.get("error", {}).get("message", ""), result
+                        assert result.get("error", {}).get("data", {}).get("type") == "modelProviderNotConfigured", result
                         print(f"{phase}: {alias}: reproduced missing provider")
+                    elif phase != "broken" and alias != (args.preserve_provider or "custom"):
+                        assert result.get("error", {}).get("data", {}).get("type") == "modelProviderMismatch", result
+                        print(f"{phase}: {alias}: legacy mixed bucket requires explicit migration")
                     else:
                         assert "result" in result, result
                         assert result["result"]["thread"]["id"] == thread["id"]
