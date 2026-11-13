@@ -121,10 +121,10 @@ async function scenario(options = {}) {
     const routes =
       target === "codex"
         ? {
-            codex: `${origin}/codex/v1`,
-            "chatgpt-desktop": `${origin}/chatgpt-desktop/v1`,
+            codex: `${origin}/imagegen/codex/v1`,
+            "chatgpt-desktop": `${origin}/imagegen/chatgpt-desktop/v1`,
           }
-        : { [target]: `${origin}/${target}/v1` };
+        : { [target]: `${origin}/imagegen/${target}/v1` };
     const v2 = {
       owner: "yuanheng-imagegen",
       version: 2,
@@ -278,9 +278,9 @@ test("namespaced model IDs preserve the authorized ID and latest quality orderin
         models,
         check: (result) => {
           successful(result);
-          assert.equal(result.calls[0].path, "/dsh/v1/images/models");
+          assert.equal(result.calls[0].path, "/imagegen/dsh/v1/images/models");
           assert.equal(posts(result.calls).length, 1);
-          assert.equal(result.calls[1].path, "/dsh/v1/images/generations");
+          assert.equal(result.calls[1].path, "/imagegen/dsh/v1/images/generations");
           assert.equal(JSON.parse(result.calls[1].body).model, expected);
         },
       }),
@@ -297,7 +297,7 @@ test("editing preserves the full namespaced model ID in multipart", async () => 
     check: (result) => {
       successful(result);
       assert.equal(result.calls.length, 2);
-      assert.equal(result.calls[1].path, "/dsh/v1/images/edits");
+      assert.equal(result.calls[1].path, "/imagegen/dsh/v1/images/edits");
       assert(result.calls[1].body.includes(`name="model"\r\n\r\n${model}\r\n`));
     },
   });
@@ -917,10 +917,13 @@ test("bound applications independently use their own image catalog and route", a
         check: (result) => {
           successful(result);
           const surface = target === "codex" ? "chatgpt-desktop" : target;
-          assert.equal(result.calls[0].path, `/${surface}/v1/images/models`);
+          assert.equal(
+            result.calls[0].path,
+            `/imagegen/${surface}/v1/images/models`,
+          );
           assert.equal(
             result.calls[1].path,
-            `/${surface}/v1/images/generations`,
+            `/imagegen/${surface}/v1/images/generations`,
           );
           assert(result.calls.every((call) => !call.headers.authorization));
         },
@@ -934,7 +937,7 @@ test("non-Codex bound tools ignore inherited Codex surface environment", async (
     env: { YUANHENG_IMAGEGEN_SURFACE: "codex" },
     check: (result) => {
       successful(result);
-      assert.equal(result.calls[0].path, "/dsh/v1/images/models");
+      assert.equal(result.calls[0].path, "/imagegen/dsh/v1/images/models");
     },
   });
   await scenario({
@@ -942,7 +945,7 @@ test("non-Codex bound tools ignore inherited Codex surface environment", async (
     env: { YUANHENG_IMAGEGEN_SURFACE: "codex" },
     check: (result) => {
       successful(result);
-      assert.equal(result.calls[0].path, "/codex/v1/images/models");
+      assert.equal(result.calls[0].path, "/imagegen/codex/v1/images/models");
     },
   });
 });
@@ -1018,39 +1021,24 @@ test("dedicated Codex image routes cannot use the chat fallback despite missing 
   }
 });
 
-test("a separate desktop image group does not change the selected legacy Codex route", async () => {
-  await scenario({
-    projectedTarget: "codex",
-    env: { YUANHENG_IMAGEGEN_SURFACE: "codex" },
-    setup: async ({ runtimePath, origin }) => {
-      const runtime = JSON.parse(await readFile(runtimePath));
-      runtime.routes["chatgpt-desktop"] =
-        `${origin}/imagegen/chatgpt-desktop/v1`;
-      await writeFile(runtimePath, JSON.stringify(runtime));
-    },
-    handler: (call, res) => {
-      if (call.path === "/codex/v1/images/generations") {
-        json(res, 404, { error: { code: "unsupported_endpoint" } });
-        return true;
-      }
-      if (call.path === "/codex/v1/responses") {
-        res.writeHead(200, { "Content-Type": "text/event-stream" });
-        res.end(sse(finalEvent));
-        return true;
-      }
-    },
-    check: (result) => {
-      successful(result);
-      assert.deepEqual(
-        result.calls.map((call) => call.path),
-        [
-          "/codex/v1/images/models",
-          "/codex/v1/images/generations",
-          "/codex/v1/responses",
-        ],
-      );
-    },
-  });
+test("legacy bound image routes require reconnection before any request", async (t) => {
+  for (const target of ["claude", "codex", "workbuddy", "dsh"])
+    await t.test(target, () =>
+      scenario({
+        projectedTarget: target,
+        setup: async ({ runtimePath, origin }) => {
+          const runtime = JSON.parse(await readFile(runtimePath));
+          runtime.routes[runtime.defaultSurface] =
+            origin + "/" + runtime.defaultSurface + "/v1";
+          await writeFile(runtimePath, JSON.stringify(runtime));
+        },
+        check: (result) => {
+          failed(result);
+          assert.equal(result.calls.length, 0);
+          assert.match(result.stderr, /Configure.*image group/);
+        },
+      }),
+    );
 });
 
 test("dedicated image route validation rejects cross-tool and nonlocal paths", async (t) => {
@@ -1112,8 +1100,11 @@ test("OpenCode uses its own binding despite inherited Codex surface", async () =
     env: { OPENCODE: "1", YUANHENG_IMAGEGEN_SURFACE: "codex" },
     check: (result) => {
       successful(result);
-      assert.equal(result.calls[0].path, "/opencode/v1/images/models");
-      assert.equal(result.calls[1].path, "/opencode/v1/images/generations");
+      assert.equal(result.calls[0].path, "/imagegen/opencode/v1/images/models");
+      assert.equal(
+        result.calls[1].path,
+        "/imagegen/opencode/v1/images/generations",
+      );
     },
   });
 });
@@ -1146,8 +1137,11 @@ test("an unverified OpenCode client name does not guess or change the host", asy
     },
     check: (result) => {
       successful(result);
-      assert.equal(result.calls[0].path, "/codex/v1/images/models");
-      assert.equal(result.calls[1].path, "/codex/v1/images/generations");
+      assert.equal(result.calls[0].path, "/imagegen/codex/v1/images/models");
+      assert.equal(
+        result.calls[1].path,
+        "/imagegen/codex/v1/images/generations",
+      );
     },
   });
 });
@@ -1279,7 +1273,7 @@ test("imported ZIP copy follows a changed Core port through its stable runtime",
         context.restarted.listen(0, "127.0.0.1", done),
       );
       const runtime = JSON.parse(await readFile(context.runtimePath));
-      runtime.routes.workbuddy = `http://127.0.0.1:${context.restarted.address().port}/workbuddy/v1`;
+      runtime.routes.workbuddy = `http://127.0.0.1:${context.restarted.address().port}/imagegen/workbuddy/v1`;
       await writeFile(context.runtimePath, JSON.stringify(runtime));
     },
     check: async (result) => {
@@ -1287,8 +1281,8 @@ test("imported ZIP copy follows a changed Core port through its stable runtime",
         successful(result);
         assert.equal(result.calls.length, 0);
         assert.deepEqual(result.restartedCalls, [
-          "/workbuddy/v1/images/models",
-          "/workbuddy/v1/images/generations",
+          "/imagegen/workbuddy/v1/images/models",
+          "/imagegen/workbuddy/v1/images/generations",
         ]);
         assert.match(result.stdout, /SELECTED_IMAGE_MODEL=gpt-image-3/);
       } finally {

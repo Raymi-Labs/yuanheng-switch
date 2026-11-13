@@ -488,6 +488,9 @@ pub async fn install_builtin_imagegen_skill(
     let app_type = parse_app_type(&current_app)?;
     let skill = SkillService::install_builtin_imagegen(&app_state.db, &app_type)
         .map_err(|e| e.to_string())?;
+    super::yuanheng::ensure_imagegen_default(&app_state, app_type.as_str())
+        .await
+        .map_err(|error| format!("技能已安装，但图片连接未完成：{error}"))?;
     {
         super::yuanheng::sync_yuanheng_imagegen_tool(&app_state, app_type.as_str(), false)
             .await

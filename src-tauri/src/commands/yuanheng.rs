@@ -14,6 +14,7 @@ mod dsh;
 mod imagegen;
 mod imagegen_connection;
 mod imagegen_credentials;
+mod imagegen_token;
 mod media_studio;
 mod model_catalog;
 mod reasoning;
@@ -32,9 +33,10 @@ pub(crate) use imagegen::{
 #[cfg(test)]
 pub(crate) use imagegen_connection::test_support as imagegen_connection_test_support;
 pub(crate) use imagegen_connection::{
-    configure as configure_imagegen_connection, core_provider as imagegen_core_provider,
+    active_reference as imagegen_connection_reference, configure as configure_imagegen_connection,
+    core_provider as imagegen_core_provider, core_providers as imagegen_core_providers,
     credential_refs as imagegen_credential_refs,
-    credential_snapshot as imagegen_credential_snapshot,
+    credential_snapshot as imagegen_credential_snapshot, ensure_default as ensure_imagegen_default,
     has_connection as has_explicit_imagegen_connection,
     list_groups as list_imagegen_connection_groups,
     validate_core_entry as validate_imagegen_core_entry,
@@ -7211,6 +7213,20 @@ mod tests {
         .unwrap();
         assert!(!state.proxy_service.is_running().await);
         sync_yuanheng_imagegen(&state, true).await.unwrap();
+        assert!(
+            !state.proxy_service.is_running().await,
+            "chat configuration alone does not start image routing"
+        );
+        imagegen_connection::test_support::account(&state.db, "fixture-account", false);
+        for surface in ["dsh", "workbuddy"] {
+            imagegen_connection::test_support::install(
+                &state.db,
+                surface,
+                "生图和视频",
+                &format!("sk-image-{surface}"),
+            );
+        }
+        sync_yuanheng_imagegen(&state, true).await.unwrap();
         assert!(state.proxy_service.is_running().await);
         for target in [ImagegenTarget::Dsh, ImagegenTarget::WorkBuddy] {
             let status = serde_json::to_value(
@@ -7252,7 +7268,10 @@ mod tests {
         let workbuddy: Value =
             crate::config::read_json_file(&ImagegenTarget::WorkBuddy.runtime_path().unwrap())
                 .unwrap();
-        assert_eq!(workbuddy["enabled"], false);
+        assert_eq!(
+            workbuddy["enabled"], true,
+            "independent image connection survives chat restore"
+        );
         assert_eq!(
             serde_json::to_value(
                 imagegen::tool_status_with_catalog(&state, "workbuddy", || async {
@@ -7262,7 +7281,7 @@ mod tests {
                 .unwrap(),
             )
             .unwrap()["configured"],
-            false
+            true
         );
         assert_eq!(
             serde_json::to_value(
@@ -8852,16 +8871,17 @@ mod tests {
             assert!(image_skill.apps.codex);
             let image_runtime_path =
                 crate::codex_config::get_codex_config_dir().join("yuanheng-imagegen.json");
-            let image_runtime: Value = crate::config::read_json_file(&image_runtime_path).unwrap();
-            assert_eq!(image_runtime["enabled"], true);
-            assert_eq!(
-                image_runtime["baseUrl"],
-                format!(
-                    "http://127.0.0.1:{}/{}/v1",
-                    proxy.port,
-                    surface.route_prefix()
-                )
+            assert!(
+                !image_runtime_path.exists(),
+                "no legacy chat-backed image runtime before explicit image connection"
             );
+            let skill_runtime_path = crate::services::skill::ImagegenTarget::Codex
+                .runtime_path()
+                .unwrap();
+            let runtime: Value = crate::config::read_json_file(&skill_runtime_path).unwrap();
+            assert_eq!(runtime["enabled"], false);
+            assert_eq!(runtime["routes"], json!({}));
+            assert!(proxy.port > 0);
             // A subsequent startup must respect the user's disabled choice.
             crate::services::SkillService::toggle_app(
                 &state.db,
@@ -8871,7 +8891,7 @@ mod tests {
             )
             .unwrap();
             sync_yuanheng_imagegen(&state, true).await.unwrap();
-            let disabled: Value = crate::config::read_json_file(&image_runtime_path).unwrap();
+            let disabled: Value = crate::config::read_json_file(&skill_runtime_path).unwrap();
             assert_eq!(disabled["enabled"], false);
             state.proxy_service.stop().await.unwrap();
             let connection = YuanhengConnectionStatus {

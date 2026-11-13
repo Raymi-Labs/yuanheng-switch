@@ -89,7 +89,7 @@ function mount(tool: YuanhengToolId, center = false) {
         onOpen={vi.fn()}
       />
     ) : (
-      <ImagegenCapabilityCard tool={current} onOpenTools={vi.fn()} />
+      <ImagegenCapabilityCard tool={current} />
     );
   const view = render(
     <QueryClientProvider client={client}>{content(tool)}</QueryClientProvider>,
@@ -130,6 +130,63 @@ beforeEach(() => {
 });
 
 describe("tool-scoped image capability", () => {
+  it("shows the fallback policy only when the connection reports an enabled fallback", async () => {
+    api.getStatus.mockResolvedValue(
+      status("claude", {
+        imageGroup: "生图和视频",
+        fallbackImageGroup: "福利",
+      }),
+    );
+    const view = mount("claude");
+    const info = await screen.findByRole("button", { name: "图片分组规则" });
+    fireEvent.focus(info);
+    expect(await screen.findByRole("tooltip")).toHaveTextContent(
+      "所选组没有该模型时使用「福利」",
+    );
+    view.unmount();
+    api.getStatus.mockResolvedValue(
+      status("claude", {
+        imageGroup: "custom-images",
+        fallbackImageGroup: null,
+      }),
+    );
+    mount("claude");
+    await screen.findByText("图像能力已就绪");
+    fireEvent.focus(screen.getByRole("button", { name: "图片分组规则" }));
+    expect(await screen.findByRole("tooltip")).toHaveTextContent(
+      "仅图片 Skill 使用此分组",
+    );
+    expect(screen.getByRole("tooltip")).not.toHaveTextContent("福利");
+  });
+
+  it("connects the default group only on an explicit action and does not fall back on failure", async () => {
+    api.getStatus.mockResolvedValue(
+      status("claude", {
+        ready: false,
+        configured: false,
+        imageGroup: null,
+        imageModels: [],
+        selectedImageModel: null,
+      }),
+    );
+    api.configureGroup.mockRejectedValue(new Error("默认图片分组不可用"));
+    const view = mount("claude");
+    const button = await screen.findByRole("button", {
+      name: "连接生图和视频",
+    });
+    expect(api.configureGroup).not.toHaveBeenCalled();
+    fireEvent.click(button);
+    await waitFor(() => expect(state.error).toHaveBeenCalled());
+    expect(api.configureGroup).toHaveBeenCalledTimes(1);
+    expect(api.configureGroup).toHaveBeenCalledWith("claude", "生图和视频");
+    expect(state.success).not.toHaveBeenCalled();
+    expect(
+      screen.getByRole("combobox", { name: "Claude 图片分组" }),
+    ).toHaveTextContent("请选择图片分组");
+    view.unmount();
+    view.client.clear();
+  });
+
   it("keeps a DSH chat connection without image models unready until an image group is explicitly selected", async () => {
     let current = status("dsh", {
       ready: false,
@@ -147,7 +204,7 @@ describe("tool-scoped image capability", () => {
     expect(api.configureGroup).not.toHaveBeenCalled();
     expect(
       screen.getByRole("combobox", { name: "DSH 图片分组" }),
-    ).toHaveTextContent("使用聊天连接");
+    ).toHaveTextContent("请选择图片分组");
     await waitFor(() => expect(api.listGroups).toHaveBeenCalledWith("dsh"));
     fireEvent.click(screen.getByRole("combobox", { name: "DSH 图片分组" }));
     fireEvent.click(
@@ -160,12 +217,15 @@ describe("tool-scoped image capability", () => {
     expect(
       screen.getByText("当前自动选择：gpt-image-2.5-sunburst"),
     ).toBeInTheDocument();
-    expect(screen.getByText(/图片与聊天共用账号统一令牌/)).toBeInTheDocument();
+    fireEvent.focus(screen.getByRole("button", { name: "图片分组规则" }));
+    expect(await screen.findByRole("tooltip")).toHaveTextContent(
+      "仅图片 Skill 使用此分组",
+    );
     view.unmount();
     view.client.clear();
   });
 
-  it("resets the independent image group to the chat connection explicitly", async () => {
+  it("does not offer chat credentials as the image group", async () => {
     let current = status("dsh", { imageGroup: "image-standard" });
     api.getStatus.mockImplementation(async () => current);
     api.configureGroup.mockImplementation(async (tool, group) => {
@@ -180,31 +240,29 @@ describe("tool-scoped image capability", () => {
       ).toBeEnabled(),
     );
     fireEvent.click(screen.getByRole("combobox", { name: "DSH 图片分组" }));
-    fireEvent.click(
-      await screen.findByRole("option", { name: "使用聊天连接" }),
-    );
-    await waitFor(() =>
-      expect(api.configureGroup).toHaveBeenCalledWith("dsh", null),
-    );
+    expect(
+      screen.queryByRole("option", { name: "使用聊天连接" }),
+    ).not.toBeInTheDocument();
+    expect(api.configureGroup).not.toHaveBeenCalled();
     expect(api.install).not.toHaveBeenCalled();
     view.unmount();
     view.client.clear();
   });
 
-  it("can reset an existing image group even when listing groups fails", async () => {
+  it("can update a stale group without falling back to chat when listing fails", async () => {
     api.getStatus.mockResolvedValue(
-      status("dsh", { imageGroup: "saved-image-group" }),
+      status("dsh", { imageGroup: "saved-image-group", ready: false }),
     );
     api.listGroups.mockRejectedValue(new Error("Group catalog unavailable"));
     api.configureGroup.mockResolvedValue(status("dsh"));
     const view = mount("dsh");
     await screen.findByText("无法读取图片分组，请重新检查图像能力。");
-    fireEvent.click(screen.getByRole("combobox", { name: "DSH 图片分组" }));
-    fireEvent.click(
-      await screen.findByRole("option", { name: "使用聊天连接" }),
-    );
+    fireEvent.click(screen.getByRole("button", { name: "更新图片连接" }));
     await waitFor(() =>
-      expect(api.configureGroup).toHaveBeenCalledWith("dsh", null),
+      expect(api.configureGroup).toHaveBeenCalledWith(
+        "dsh",
+        "saved-image-group",
+      ),
     );
     view.unmount();
     view.client.clear();
@@ -251,7 +309,7 @@ describe("tool-scoped image capability", () => {
     expect(state.success).not.toHaveBeenCalled();
     expect(
       screen.getByRole("combobox", { name: "DSH 图片分组" }),
-    ).toHaveTextContent("使用聊天连接");
+    ).toHaveTextContent("请选择图片分组");
     expect(screen.queryByText("图像能力已就绪")).not.toBeInTheDocument();
     view.unmount();
     view.client.clear();

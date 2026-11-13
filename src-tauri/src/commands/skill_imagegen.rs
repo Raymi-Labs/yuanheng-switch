@@ -38,6 +38,9 @@ pub async fn install_imagegen_for_tool(
 ) -> Result<ImagegenToolStatus, String> {
     let target = ImagegenTarget::parse(&tool).map_err(|e| e.to_string())?;
     SkillService::install_builtin_imagegen_for(&app_state.db, target).map_err(|e| e.to_string())?;
+    super::yuanheng::ensure_imagegen_default(&app_state, &tool)
+        .await
+        .map_err(|error| format!("技能已安装，但图片连接未完成：{error}"))?;
     sync_yuanheng_imagegen_tool(&app_state, &tool, false)
         .await
         .map_err(|error| format!("技能已安装，但图像连接同步未完成：{error}"))?;
@@ -53,6 +56,11 @@ pub async fn set_imagegen_tool_enabled(
     let target = ImagegenTarget::parse(&tool).map_err(|e| e.to_string())?;
     SkillService::toggle_builtin_imagegen_for(&app_state.db, target, enabled)
         .map_err(|e| e.to_string())?;
+    if enabled {
+        super::yuanheng::ensure_imagegen_default(&app_state, &tool)
+            .await
+            .map_err(|error| format!("技能开关已保存，但图片连接未完成：{error}"))?;
+    }
     sync_yuanheng_imagegen_tool(&app_state, &tool, false)
         .await
         .map_err(|error| format!("技能开关已保存，但图像连接同步未完成：{error}"))?;

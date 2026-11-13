@@ -42,8 +42,21 @@ A wait timeout is not a failed generation and must not start a new command.
 Each installed copy has a credential-free `yuanheng-binding.json` pointing to
 that tool's runtime file managed by YuanHeng. The helper uses this binding to
 reach the local Core and the image connection configured for that tool in
-YuanHeng. Its image group can differ from the tool's chat group. Keep the
-YuanHeng client open so it can restore an independent image connection if Core
+YuanHeng. On installation or explicit reconnection, an existing image group is
+preserved; otherwise YuanHeng uses the authorized “生图和视频” group by default.
+Users can change the image group in YuanHeng. Each image credential is restricted
+to one group; chat credentials and routing stay unchanged. For “生图和视频”, Core
+also configures “福利” when the account has access. Its model directory includes
+both groups. Before submitting an image request, Core checks the exact model ID:
+use the primary group when it lists that model; only a successful catalog showing
+its absence permits using the authorized welfare group. Billing follows the group
+used. Directory, authorization, quota, or generation failures stop the request;
+they do not trigger another group or a replay. A user-selected different image
+group remains single-group. A missing or unauthorized primary group requires the
+user to choose another group explicitly.
+Update old connections in YuanHeng before generating; the installed launcher
+requires the dedicated image route and never falls back to chat credentials.
+Keep the YuanHeng client open so it can restore an independent image connection if Core
 restarts; a missing credential sync requires reopening YuanHeng.
 Missing, invalid, or disabled bindings/routes require reconfiguration in
 YuanHeng. Do not borrow another application's route or read Codex credentials
@@ -95,8 +108,9 @@ older Codex integrations; do not bypass this skill's binding by invoking it.
 When the image directory has no eligible model, relay that error and direct the
 user to choose a group with GPT Image access in YuanHeng's Image Generation
 capability. The current chat group may only provide text models. Do not assume
-the whole account lacks image access, guess model IDs, or try another group's
-credential. `--image-model` selects a model; it does not grant permission. A
+the whole account lacks image access or guess model IDs. Let Core perform the
+configured pre-submission group selection; the agent must not substitute a
+credential or retry another group. `--image-model` selects a model; it does not grant permission. A
 directory failure occurs before generation and must not trigger guessed image
 requests.
 

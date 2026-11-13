@@ -100,6 +100,20 @@ fn active_route(state: &AppState, surface: CodexSurface) -> bool {
         })
 }
 
+// Chat configuration permits installing the skill, but never supplies its image credential.
+fn has_installation_target(state: &AppState, target: ImagegenTarget) -> bool {
+    if target == ImagegenTarget::Codex {
+        [CodexSurface::Terminal, CodexSurface::Desktop]
+            .into_iter()
+            .any(|surface| active_route(state, surface))
+    } else {
+        imagegen_provider(&state.db, target.as_str())
+            .ok()
+            .flatten()
+            .is_some()
+    }
+}
+
 fn configured_surfaces(
     state: &AppState,
     target: ImagegenTarget,
@@ -115,7 +129,7 @@ fn configured_surfaces(
                             .flatten()
                             .is_some()
                     }
-                    Ok(None) => active_route(state, *surface),
+                    Ok(None) => false,
                     Err(_) => false,
                 },
             )
@@ -126,7 +140,7 @@ fn configured_surfaces(
             if (if imagegen_connection::group(&state.db, target.as_str())?.is_some() {
                 imagegen_connection::active_reference(&state.db, target.as_str())?.map(|_| ())
             } else {
-                imagegen_provider(&state.db, target.as_str())?.map(|_| ())
+                None
             })
             .is_some()
             {
@@ -386,12 +400,12 @@ async fn sync_targets(
     let mut needs_core = false;
     for &target in targets {
         let result = (|| {
-            if configured_surfaces(state, target)?.is_empty() {
-                return Ok(());
-            }
-            if auto_install {
+            if auto_install && has_installation_target(state, target) {
                 SkillService::ensure_builtin_imagegen_for(&state.db, target)
                     .map_err(|e| e.to_string())?;
+            }
+            if configured_surfaces(state, target)?.is_empty() {
+                return Ok(());
             }
             needs_core |= enabled(state, target)?;
             Ok::<_, String>(())
@@ -479,6 +493,7 @@ pub struct ImagegenToolStatus {
     error: Option<String>,
     scope: String,
     image_group: Option<String>,
+    fallback_image_group: Option<String>,
     image_models: Vec<String>,
     selected_image_model: Option<String>,
     catalog_checked: bool,
@@ -532,6 +547,7 @@ where
         error: None,
         scope: "unsupported".into(),
         image_group: None,
+        fallback_image_group: None,
         image_models: Vec::new(),
         selected_image_model: None,
         catalog_checked: false,
@@ -555,6 +571,10 @@ where
             None
         }
     };
+    result.fallback_image_group = imagegen_connection::fallback_group(&state.db, tool)?;
+    if result.image_group.is_none() && result.error.is_none() {
+        result.error = Some("请选择图片分组并连接；默认使用生图和视频，不使用聊天令牌".into());
+    }
     result.enabled = enabled(state, target)?;
     let surfaces = match configured_surfaces(state, target) {
         Ok(surfaces) => surfaces,

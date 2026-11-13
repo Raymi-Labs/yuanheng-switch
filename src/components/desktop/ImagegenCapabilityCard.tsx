@@ -4,6 +4,7 @@ import {
   CheckCircle2,
   Download,
   ImageIcon,
+  Info,
   Loader2,
   RefreshCw,
   Sparkles,
@@ -14,16 +15,16 @@ import { toolLabel } from "@/config/desktopTools";
 import { useImagegen } from "@/hooks/useImagegen";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { CompactSelectPicker } from "./CompactSelectPicker";
 import { dt } from "./desktopI18n";
 
-export function ImagegenCapabilityCard({
-  tool,
-  onOpenTools,
-}: {
-  tool: YuanhengToolId;
-  onOpenTools: () => void;
-}) {
+export function ImagegenCapabilityCard({ tool }: { tool: YuanhengToolId }) {
   const capability = useImagegen(tool);
   const [saving, setSaving] = useState(false);
   const alive = useRef(true);
@@ -46,7 +47,7 @@ export function ImagegenCapabilityCard({
       : null;
   const ready = Boolean(status?.ready && selectedModel && !status.error);
   const groupOptions = [
-    { value: "", label: dt("使用聊天连接") },
+    { value: "", label: dt("请选择图片分组"), disabled: true },
     ...(capability.groups.isError ? [] : (capability.groups.data ?? [])).map(
       (group) => ({
         value: group.id,
@@ -77,7 +78,7 @@ export function ImagegenCapabilityCard({
     }
   };
   const configureGroup = async (group: string) => {
-    if ((status?.imageGroup ?? "") === group) return;
+    if ((status?.imageGroup ?? "") === group && ready) return;
     const context = capability.contextKey;
     try {
       await capability.configureGroup(group || null);
@@ -127,9 +128,6 @@ export function ImagegenCapabilityCard({
             <h2 className="font-display text-sm font-semibold">
               {dt("YuanHeng 图像生成")}
             </h2>
-            <span className="rounded bg-muted px-2 py-0.5 text-[10px]">
-              {label}
-            </span>
             <span className="rounded bg-emerald-500/10 px-2 py-0.5 text-[10px] font-semibold text-emerald-700 dark:text-emerald-300">
               {dt("最新可用版本 · 质量优先")}
             </span>
@@ -186,7 +184,30 @@ export function ImagegenCapabilityCard({
               </div>
               <div className="mt-3 space-y-2 rounded-md border bg-background/50 p-3">
                 <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-                  <span className="text-xs font-medium">{dt("图片分组")}</span>
+                  <span className="inline-flex items-center gap-1 text-xs font-medium">
+                    {dt("图片分组")}
+                    <TooltipProvider>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <button
+                            type="button"
+                            aria-label={dt("图片分组规则")}
+                            className="inline-flex h-6 w-6 items-center justify-center rounded text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                          >
+                            <Info className="h-3.5 w-3.5" aria-hidden="true" />
+                          </button>
+                        </TooltipTrigger>
+                        <TooltipContent className="max-w-64">
+                          {status?.fallbackImageGroup
+                            ? dt(
+                                "所选组没有该模型时使用「{{group}}」，按实际使用的分组计费；请求失败不自动换组重发。",
+                                { group: status.fallbackImageGroup },
+                              )
+                            : dt("仅图片 Skill 使用此分组；聊天配置不变。")}
+                        </TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
+                  </span>
                   <CompactSelectPicker
                     label={dt("{{tool}} 图片分组", { tool: label })}
                     value={status?.imageGroup ?? ""}
@@ -195,12 +216,21 @@ export function ImagegenCapabilityCard({
                     triggerClassName="w-full sm:w-72 text-xs"
                     onChange={(group) => void configureGroup(group)}
                   />
-                </div>
-                <p className="text-xs leading-5 text-muted-foreground">
-                  {dt(
-                    "图片与聊天共用账号统一令牌；此处选择用于检查图片目录，实际分组及费用以平台路由和用量记录为准。",
+                  {!ready && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={busy}
+                      onClick={() =>
+                        void configureGroup(status?.imageGroup || "生图和视频")
+                      }
+                    >
+                      {dt(
+                        status?.imageGroup ? "更新图片连接" : "连接生图和视频",
+                      )}
+                    </Button>
                   )}
-                </p>
+                </div>
                 {capability.groups.isLoading && (
                   <p role="status" className="text-xs text-muted-foreground">
                     {dt("正在读取可选图片分组…")}
@@ -233,16 +263,6 @@ export function ImagegenCapabilityCard({
                 >
                   {status.error}
                 </p>
-              )}
-              {!status?.configured && (
-                <Button
-                  variant="link"
-                  size="sm"
-                  className="mt-1 h-auto p-0"
-                  onClick={onOpenTools}
-                >
-                  {dt("前往工具管理配置连接")}
-                </Button>
               )}
               {tool === "workbuddy" && (
                 <p className="mt-2 text-xs leading-5 text-muted-foreground">

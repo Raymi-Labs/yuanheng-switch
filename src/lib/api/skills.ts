@@ -22,6 +22,7 @@ export interface ImagegenToolStatus {
   configured: boolean;
   ready: boolean;
   imageGroup: string | null;
+  fallbackImageGroup?: string | null;
   imageModels: string[];
   selectedImageModel: string | null;
   catalogChecked: boolean;
