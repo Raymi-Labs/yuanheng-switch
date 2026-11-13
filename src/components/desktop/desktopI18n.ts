@@ -1,5 +1,6 @@
 import { PLUGIN_EN } from "./nativePluginTranslations";
 import i18n from "@/i18n";
+import { COMMERCE_EN } from "./accioCommerceTranslations";
 import { BROWSER_LOGIN_EN } from "./browserLoginTranslations";
 import { MEDIA_EN } from "./mediaStudioTranslations";
 import { DESKTOP_JA } from "./desktopI18n.ja";
@@ -9,6 +10,7 @@ import { DESKTOP_ZH_TW } from "./desktopI18n.zhTW";
 type Values = Record<string, string | number | null | undefined>;
 
 export const DESKTOP_EN: Record<string, string> = {
+  ...COMMERCE_EN,
   "最近启动：{{tier}}": "Last launch: {{tier}}",
   已切回标准: "Switched back to Standard",
   速度: "Speed",

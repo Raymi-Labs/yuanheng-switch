@@ -1,8 +1,10 @@
 import { PLUGIN_ZH_TW } from "./nativePluginTranslations";
 // Generated from the desktop Simplified Chinese source strings, then normalized for Taiwan terminology.
 import { MEDIA_ZH_TW } from "./mediaStudioTranslations";
+import { COMMERCE_ZH_TW } from "./accioCommerceTranslations";
 import { BROWSER_LOGIN_ZH_TW } from "./browserLoginTranslations";
 export const DESKTOP_ZH_TW: Record<string, string> = {
+  ...COMMERCE_ZH_TW,
   "最近启动：{{tier}}": "最近啟動：{{tier}}",
   已切回标准: "已切回標準",
   速度: "速度",

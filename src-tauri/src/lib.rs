@@ -1664,6 +1664,8 @@ pub fn run() {
             commands::get_yuanheng_connection,
             commands::restore_yuanheng_keychain_access,
             commands::generate_yuanheng_voice_clone,
+            commands::prepare_accio_commerce,
+            commands::check_accio_commerce,
             commands::get_native_plugins,
             commands::plan_native_plugin,
             commands::install_native_plugin,

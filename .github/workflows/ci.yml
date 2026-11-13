@@ -60,6 +60,10 @@ jobs:
 
       - name: Test bundled image skill
         run: node --test scripts/test-imagegen-skill.mjs
+      - name: Test Accio commerce file workflow
+        run: |
+          node scripts/generate-accio-commerce-assets.mjs --check
+          node --test scripts/test-accio-commerce.mjs scripts/test-accio-commerce-workflow.mjs
 
       - name: Test desktop mirror resume
         run: |

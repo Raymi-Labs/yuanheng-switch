@@ -223,6 +223,10 @@ Claude diagnostic persistence uses a bounded background writer, not disk I/O on 
 
 ## Accio Work 实验接入
 
+商品示例客户端入口：[AccioConnectionNotice](../src/components/desktop/AccioConnectionNotice.tsx)在工作台/工具管理共用[向导](../src/components/desktop/AccioCommerceGuide.tsx) → [类型化IPC](../src/lib/api/accio-commerce.ts) → [原生固定文件创建/校验](../src-tauri/src/commands/accio_commerce.rs)。显式目录picker、唯一新目录、指令复制、初稿检查/不可覆盖基线/修订检查；静态内嵌模板不调用模型、不执行脚本。仅受支持Accio显示，其他Agent配置不变。边界及回归见[决定](../.agents/notes/implemented/feature/2026-11-04-accio-commerce-entry.md)。
+
+批量电商文件流程：[六商品指南](guides/accio-batch-commerce.md) → [准备/初稿/快照/修订检查](../scripts/accio-commerce-workflow.mjs) → 独立原始副本和精确预览。保护全部源字段，覆盖相似SKU、false/零值、缺失参数和夹带指令备注；Mac系统Ruby与Node预览输出一致。15项离线回归通过；2026-11-04用户在Accio0.37.2/Apple Silicon候选环境提交两阶段任务，独立文件核对确认原资料不变、六SKU齐全、修订仅一个标题变化，最近实际请求匹配Astra/原分组。其他平台、模型和正式包升级范围不由此推断，见[决定](../.agents/notes/implemented/testing/2026-11-03-accio-batch-commerce.md)。
+
 本地商品资料工作流：提供[双语商品草稿指南](guides/accio-product-copy.md)与[两条合成商品样例](examples/accio-commerce/products.json)，通过原生文件工具生成JSON/Markdown、读回并定点修订。离线校验器`scripts/check-accio-commerce.mjs`核对SKU/事实字段/语言与预览一致性，始终要求人工审稿。0.37.1配合已验证Core及Astra在Apple Silicon QA完成两阶段19条成功模型请求，原文件不变，定点修改仅影响目标标题；应用退出重开保留同会话显式模型选择及元衡业务配置，补充专用macOS虚拟机冷启动后登录/原会话/Astra/文件保留，未测试物理Mac重启、官方升级或另一模型推理。证据见[工作流验收](../.agents/notes/implemented/testing/2026-10-31-accio-commerce-workflow.md)和[TRAE/Accio收尾范围](reviews/2026-11-01-agent-acceptance-closeout.md)。该收尾时官方0.37.2尚待验证；后续取消门禁及0.37.2签名候选回归见下文。本地指南与样例不等于官方云端电商工具或店铺发布能力。
 
 启动前Core版本核对：Accio已运行时拒绝升级；复用CoreSupervisor空闲升级，正式构建仅在协议及二进制身份与随包Core一致时发送启动POST。升级延后时提示等待，不静默使用旧Core；profile版本在升级后读取。见[修复与回归边界](../.agents/notes/implemented/bug-fix/2026-10-30-accio-core-upgrade-before-launch.md)。本地回归及签名候选的Apple Silicon原生空闲升级通过；原生取消与钥匙串跨重启恢复仍未完成验收。

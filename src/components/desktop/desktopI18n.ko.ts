@@ -1,8 +1,10 @@
 import { PLUGIN_KO } from "./nativePluginTranslations";
 // ko translations for the desktop Simplified Chinese source strings.
 import { MEDIA_KO } from "./mediaStudioTranslations";
+import { COMMERCE_KO } from "./accioCommerceTranslations";
 import { BROWSER_LOGIN_KO } from "./browserLoginTranslations";
 export const DESKTOP_KO: Record<string, string> = {
+  ...COMMERCE_KO,
   "最近启动：{{tier}}": "최근 실행: {{tier}}",
   已切回标准: "표준으로 전환했습니다",
   速度: "속도",

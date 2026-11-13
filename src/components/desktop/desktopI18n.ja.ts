@@ -1,8 +1,10 @@
 import { PLUGIN_JA } from "./nativePluginTranslations";
 // Japanese translations for the desktop Simplified Chinese source strings.
 import { MEDIA_JA } from "./mediaStudioTranslations";
+import { COMMERCE_JA } from "./accioCommerceTranslations";
 import { BROWSER_LOGIN_JA } from "./browserLoginTranslations";
 export const DESKTOP_JA: Record<string, string> = {
+  ...COMMERCE_JA,
   "最近启动：{{tier}}": "直近の起動：{{tier}}",
   已切回标准: "標準に戻しました",
   速度: "速度",

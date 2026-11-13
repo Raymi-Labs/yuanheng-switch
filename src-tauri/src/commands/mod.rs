@@ -1,6 +1,8 @@
 #![allow(non_snake_case)]
 
+mod accio_commerce;
 mod auth;
+pub use accio_commerce::*;
 mod balance;
 mod claude_desktop_diagnostics;
 mod claude_workspace_setup;
