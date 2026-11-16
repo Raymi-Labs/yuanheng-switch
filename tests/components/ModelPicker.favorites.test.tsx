@@ -266,3 +266,35 @@ describe("local model favorites", () => {
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 });
+
+it("migrates merged Google favorites on toggle without reviving old cloud ids", () => {
+  localStorage.setItem(
+    MODEL_FAVORITES_KEY,
+    JSON.stringify({ models: [], vendors: ["cloud:19", "google"] }),
+  );
+  const change = vi.fn();
+  render(
+    <ModelPicker
+      label="模型"
+      models={["gemini-local", "custom-google"]}
+      modelVendors={{ "custom-google": { id: "19", name: "Google" } }}
+      onChange={change}
+    />,
+  );
+  const dialog = open();
+  expect(
+    within(dialog).getAllByRole("button", { name: "Google" }),
+  ).toHaveLength(1);
+  fireEvent.click(
+    within(dialog).getByRole("button", { name: "取消收藏厂商 Google" }),
+  );
+  expect(
+    JSON.parse(localStorage.getItem(MODEL_FAVORITES_KEY)!).vendors,
+  ).toEqual([]);
+  expect(
+    within(dialog).getByRole("button", { name: "收藏厂商 Google" }),
+  ).toHaveAttribute("aria-pressed", "false");
+  fireEvent.click(within(dialog).getByRole("button", { name: "Google" }));
+  expect(within(dialog).getAllByRole("option")).toHaveLength(2);
+  expect(change).not.toHaveBeenCalled();
+});

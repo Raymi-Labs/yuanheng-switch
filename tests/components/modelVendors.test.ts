@@ -152,3 +152,39 @@ it("keeps partial legacy favorites independent and expands completely migrated g
     ).sort(),
   ).toEqual(["absent", "cloud:16", "cloud:42"]);
 });
+
+it("unifies Google cloud and inferred entries without losing model ids", () => {
+  const groups = groupModelsByVendor(
+    ["gemini-known", "gemini-unmapped", "custom-google-model"],
+    {
+      "gemini-known": { id: "7", name: "Google" },
+      "custom-google-model": { id: "19", name: "Google" },
+    },
+  );
+  expect(groups).toHaveLength(1);
+  expect(groups[0]).toMatchObject({
+    id: "google",
+    label: "Google",
+    icon: "gemini",
+  });
+  expect(new Set(groups[0].models)).toEqual(
+    new Set(["gemini-known", "gemini-unmapped", "custom-google-model"]),
+  );
+  expect(
+    resolveVendorFavorites(["cloud:7", "cloud:19", "google", "absent"], groups),
+  ).toEqual(["google", "absent"]);
+});
+
+it("normalizes exact known vendor names but retains arbitrary cloud identities", () => {
+  expect(
+    modelVendorOf("custom", { custom: { id: "7", name: "  GOOGLE  " } }),
+  ).toMatchObject({ id: "google", label: "Google", icon: "gemini" });
+  expect(
+    modelVendorOf("custom", { custom: { id: "8", name: "谷歌" } }).id,
+  ).toBe("google");
+  expect(
+    modelVendorOf("gemini-known", {
+      "gemini-known": { id: "9", name: "Google代理" },
+    }).id,
+  ).toBe("cloud:9");
+});

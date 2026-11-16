@@ -7,6 +7,7 @@ export interface ModelVendorGroup {
   icon: string;
   models: string[];
   legacyId?: string;
+  sourceIds?: string[];
 }
 
 interface ModelVendorDefinition {
@@ -149,6 +150,17 @@ const MODEL_VENDOR_DEFINITIONS: ModelVendorDefinition[] = [
 const VENDOR_BY_ALIAS = new Map(
   MODEL_VENDOR_DEFINITIONS.flatMap((vendor) =>
     vendor.aliases.map((alias) => [alias, vendor] as const),
+  ),
+);
+// Exact display-name matches only. Cloud identity remains authoritative for
+// unknown/custom names; substrings such as "Google代理" never become Google.
+const VENDOR_BY_DISPLAY_NAME = new Map(
+  MODEL_VENDOR_DEFINITIONS.flatMap((vendor) =>
+    [
+      vendor.label,
+      ...vendor.aliases,
+      ...(vendor.id === "google" ? ["谷歌"] : []),
+    ].map((name) => [name.trim().toLowerCase(), vendor] as const),
   ),
 );
 const VENDOR_ORDER = new Map(
@@ -320,7 +332,16 @@ export function modelVendorOf(
 ): Omit<ModelVendorGroup, "models"> {
   const cloud = catalog?.[model];
   if (cloud?.id && cloud.name.trim()) {
-    // Cloud names are content, not translation keys or remote icon URLs.
+    const known = VENDOR_BY_DISPLAY_NAME.get(cloud.name.trim().toLowerCase());
+    if (known) {
+      return {
+        id: known.id,
+        label: dt(known.label),
+        icon: known.icon,
+        sourceIds: [`cloud:${cloud.id}`],
+      };
+    }
+    // Custom cloud names are content, not translation keys or remote icon URLs.
     return { id: `cloud:${cloud.id}`, label: cloud.name, icon: "models" };
   }
   const normalized = model.trim().toLowerCase();
@@ -348,11 +369,16 @@ export function groupModelsByVendor(
   catalog?: ModelVendorCatalog,
 ): ModelVendorGroup[] {
   const grouped = new Map<string, ModelVendorGroup>();
-  for (const model of models) {
+  for (const model of new Set(models)) {
     const vendor = modelVendorOf(model, catalog);
     const group = grouped.get(vendor.id);
     if (group) {
       group.models.push(model);
+      if (vendor.sourceIds) {
+        group.sourceIds = [
+          ...new Set([...(group.sourceIds ?? []), ...vendor.sourceIds]),
+        ];
+      }
     } else {
       grouped.set(vendor.id, { ...vendor, models: [model] });
     }
@@ -395,7 +421,9 @@ export function resolveVendorFavorites(
         // A partial directory may still contain the old fallback group. Keep
         // its favorite separate until that group can be fully migrated.
         if (vendors.some((vendor) => vendor.id === id)) return [id];
-        const matches = vendors.filter((vendor) => vendor.legacyId === id);
+        const matches = vendors.filter(
+          (vendor) => vendor.legacyId === id || vendor.sourceIds?.includes(id),
+        );
         return matches.length ? matches.map((vendor) => vendor.id) : [id];
       }),
     ),

@@ -323,3 +323,7 @@ Codex 升级身份保留：[配置投影](../src-tauri/src/codex_history_routes.
 `sync_yuanheng_reasoning_catalogs` 在启动及账号刷新后运行，使用既有模式锁与工具配置锁，只处理当前账号拥有、当前使用且仍指向本机元衡路由的 CLI/Desktop 目录。保留 auth、模型、强度、上下文及其他 TOML；新目录按内容生成文件名，读回校验后换指针。跨端失败恢复已提交配置与记录；检测到外部变更不覆盖。非法目录、符号链接及不兼容的已选强度保留原配置，继续使用现有诊断/重新同步入口。没有推理请求、强杀外部应用或提高默认强度。
 
 范围：本地客户端修复；平台能力下发、真实上游 Ultra 执行与 Windows 真机均未作为已验收。既有 Codex 会话可能需重开。见[决策与验证](../.agents/notes/implemented/bug-fix/2026-11-16-managed-reasoning-catalog.md)。
+
+## 已知厂商重复入口（2026-11-16，本地）
+
+`modelVendors.ts` 将精确匹配的已知云端品牌及本机识别结果归一到相同展示键；Google/谷歌与本地 Gemini 模型只显示一个 Google 和统一图标。未知同名厂商仍保留 cloud:id，非完整名称不猜归属。源 ID 用于收藏和刷新中的筛选迁移，合并展示不改模型 ID、权限、分组及路由。`ToolModelPicker` 和 `ModelPicker` 共用结果；回归覆盖模型/分组选择、未知厂商、旧收藏取消和云端改名。见[决策记录](../.agents/notes/implemented/bug-fix/2026-11-16-vendor-display-identity.md)。
