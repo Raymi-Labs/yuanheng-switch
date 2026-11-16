@@ -59,10 +59,7 @@ use toml_edit::DocumentMut;
 
 use crate::app_config::AppType;
 use crate::model_capabilities::{is_image_generation_only_model, yuanheng_model_api_format};
-use crate::model_reasoning::{
-    fallback_reasoning_profile, load_local_reasoning_profiles, reasoning_profile_for_model,
-    REASONING_LEVELS,
-};
+use crate::model_reasoning::{fallback_reasoning_profile, REASONING_LEVELS};
 use crate::provider::{
     ClaudeDesktopMode, ClaudeDesktopModelRoute, LocalProxyRequestOverrides, Provider, ProviderMeta,
 };
@@ -1293,11 +1290,10 @@ fn fallback_reasoning_levels(model: &str) -> Vec<String> {
 fn reasoning_profiles_for_models(
     models: &[String],
 ) -> (HashMap<String, Vec<String>>, HashMap<String, String>) {
-    let catalog = load_local_reasoning_profiles();
     let mut levels = HashMap::new();
     let mut defaults = HashMap::new();
     for model in models {
-        let Some(profile) = reasoning_profile_for_model(model, &catalog) else {
+        let Some(profile) = crate::model_reasoning::managed_reasoning_profile(model) else {
             continue;
         };
         if profile.supported_levels.is_empty() {
@@ -1549,6 +1545,9 @@ async fn finish_authenticated_session(
         &status,
         &group,
     )?;
+    if let Err(error) = sync_yuanheng_reasoning_catalogs(state).await {
+        log::warn!("模型档位目录更新未完成，可重新同步：{error}");
+    }
     #[cfg(any(target_os = "macos", test))]
     {
         read_cached_status(state)
@@ -2466,6 +2465,174 @@ fn save_managed_codex_provider(
         .map_err(|error| error.to_string())
 }
 
+/// Startup and explicit account refresh share this bounded local migration.
+/// No inference, account switch, token rotation or tool launch is performed.
+pub(crate) async fn sync_yuanheng_reasoning_catalogs(state: &AppState) -> Result<bool, String> {
+    let _guard = codex_account_mode_switch_lock().lock().await;
+    let _configuration = reasoning::configuration_lock()?;
+    let connection = read_cached_status(state)?;
+    if !connection.connected {
+        return Ok(false);
+    }
+    let Some(owner) = connection.user_id.as_deref() else {
+        return Ok(false);
+    };
+    if get_yuanheng_secret(state, USER_ID_KEY)?.as_deref() != Some(owner) {
+        return Ok(false);
+    }
+    sync_managed_reasoning_catalogs_at(state, owner)
+}
+
+fn sync_managed_reasoning_catalogs_at(state: &AppState, owner: &str) -> Result<bool, String> {
+    let mut updates = Vec::new();
+    for surface in [CodexSurface::Terminal, CodexSurface::Desktop] {
+        if state
+            .db
+            .get_current_provider(surface.namespace())
+            .map_err(|e| e.to_string())?
+            .as_deref()
+            != Some(MANAGED_PROVIDER_ID)
+        {
+            continue;
+        }
+        let Some(provider) = managed_codex_provider_for_namespace(state, surface.namespace())?
+        else {
+            continue;
+        };
+        if provider.category.as_deref() != Some("managed")
+            || provider.settings_config["yuanhengLoginGuideOwner"].as_str() != Some(owner)
+            || provider.settings_config["yuanhengSurface"].as_str() != Some(surface.marker())
+        {
+            continue;
+        }
+        let path = match surface {
+            CodexSurface::Terminal => codex_terminal_profile_path(),
+            CodexSurface::Desktop => crate::codex_config::get_codex_config_path(),
+        };
+        let before = match std::fs::read_to_string(&path) {
+            Ok(text) => text,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(_) => return Err("读取托管配置失败，原配置已保留".into()),
+        };
+        if std::fs::symlink_metadata(&path).is_ok_and(|meta| meta.file_type().is_symlink()) {
+            continue;
+        }
+        let owned = crate::codex_config::extract_codex_base_url(&before)
+            .and_then(|base| url::Url::parse(&base).ok())
+            .is_some_and(|url| {
+                url.scheme() == "http"
+                    && matches!(url.host_str(), Some("127.0.0.1" | "localhost" | "[::1]"))
+                    && url.path().trim_end_matches('/') == format!("/{}/v1", surface.route_prefix())
+                    && url.username().is_empty()
+                    && url.password().is_none()
+                    && url.query().is_none()
+                    && url.fragment().is_none()
+            });
+        if !owned
+            || crate::codex_config::resolve_cc_switch_catalog_path(
+                &before,
+                &crate::codex_config::get_codex_model_catalog_path(),
+            )
+            .is_none()
+        {
+            continue;
+        }
+        let mut updated = provider.clone();
+        let Some(models) = updated
+            .settings_config
+            .pointer_mut("/modelCatalog/models")
+            .and_then(Value::as_array_mut)
+        else {
+            continue;
+        };
+        for model in models.iter_mut() {
+            crate::model_reasoning::apply_managed_reasoning_profile(model);
+        }
+        let after = crate::codex_config::refresh_managed_reasoning_catalog(
+            &before,
+            surface.catalog_filename(),
+            models,
+        )
+        .map_err(|e| e.to_string())?
+        .unwrap_or_else(|| before.clone());
+        if before != after || updated.settings_config != provider.settings_config {
+            updates.push((surface, path, before, after, provider, updated));
+        }
+    }
+    let mut committed = Vec::new();
+    let result = (|| -> Result<(), String> {
+        for (surface, path, before, after, provider, updated) in &updates {
+            if get_yuanheng_secret(state, USER_ID_KEY)?.as_deref() != Some(owner) {
+                return Err("同步期间账号发生变化，请重新同步".into());
+            }
+            if std::fs::read_to_string(path).ok().as_deref() != Some(before.as_str())
+                || state
+                    .db
+                    .get_provider_by_id(MANAGED_PROVIDER_ID, surface.namespace())
+                    .map_err(|e| e.to_string())?
+                    .as_ref()
+                    .map(|p| &p.settings_config)
+                    != Some(&provider.settings_config)
+                || state
+                    .db
+                    .get_current_provider(surface.namespace())
+                    .map_err(|e| e.to_string())?
+                    .as_deref()
+                    != Some(MANAGED_PROVIDER_ID)
+            {
+                return Err("模型配置已被其他操作修改，请重新同步".into());
+            }
+            if before != after {
+                crate::config::write_text_file(path, after).map_err(|e| e.to_string())?;
+            }
+            committed.push((surface, path, before, after, provider, updated));
+            state
+                .db
+                .save_provider(surface.namespace(), updated)
+                .map_err(|e| e.to_string())?;
+        }
+        if !updates.is_empty() && get_yuanheng_secret(state, USER_ID_KEY)?.as_deref() != Some(owner)
+        {
+            return Err("同步期间账号发生变化，请重新同步".into());
+        }
+        Ok(())
+    })();
+    if let Err(error) = result {
+        let mut failures = Vec::new();
+        for (surface, path, before, after, provider, updated) in committed.into_iter().rev() {
+            if std::fs::read_to_string(path).ok().as_deref() == Some(after.as_str()) {
+                if crate::config::write_text_file(path, before).is_err() {
+                    failures.push("配置恢复失败");
+                }
+            } else {
+                failures.push("配置已被其他程序修改，未覆盖");
+            }
+            match state
+                .db
+                .get_provider_by_id(MANAGED_PROVIDER_ID, surface.namespace())
+            {
+                Ok(Some(current)) if current.settings_config == updated.settings_config => {
+                    if state
+                        .db
+                        .save_provider(surface.namespace(), provider)
+                        .is_err()
+                    {
+                        failures.push("记录恢复失败");
+                    }
+                }
+                Ok(Some(current)) if current.settings_config == provider.settings_config => {}
+                _ => failures.push("记录已被其他操作修改，未覆盖"),
+            }
+        }
+        return Err(if failures.is_empty() {
+            error
+        } else {
+            format!("{error}；{}", failures.join("；"))
+        });
+    }
+    Ok(!updates.is_empty())
+}
+
 fn codex_provider_catalog_settings(provider: &Provider) -> Value {
     let mut settings = json!({
         "modelCatalog": provider
@@ -2531,6 +2698,7 @@ fn codex_provider_catalog_settings(provider: &Provider) -> Value {
                     entry["contextWindowSource"] = json!("config");
                 }
             }
+            crate::model_reasoning::apply_managed_reasoning_profile(entry);
         }
     }
     settings
@@ -2547,13 +2715,15 @@ fn managed_codex_context_default(model: &str) -> u64 {
 }
 
 fn managed_codex_catalog_entry(model: &str) -> Value {
-    json!({
+    let mut entry = json!({
         "model": model,
         "displayName": model,
         "contextWindow": managed_codex_context_default(model),
         "contextWindowSource": "yuanheng-default",
         "apiFormat": yuanheng_model_api_format(model)
-    })
+    });
+    crate::model_reasoning::apply_managed_reasoning_profile(&mut entry);
+    entry
 }
 
 fn remove_managed_global_context_default(doc: &mut DocumentMut) {
@@ -3936,10 +4106,9 @@ fn configure_workbuddy_reasoning(
     let _reasoning_guard = reasoning::configuration_lock()?;
     remember_workbuddy_state(state)?;
     let catalog_models = terminal_catalog_models(model, available_models);
-    let profiles = load_local_reasoning_profiles();
     let config = json!({
         "models":catalog_models.iter().map(|id| {
-            let mut entry=reasoning::workbuddy_model(id,model,reasoning,&profiles);
+            let mut entry=reasoning::workbuddy_model(id,model,reasoning);
             entry["apiKey"]=json!(token); entry
         }).collect::<Vec<_>>(),
         "availableModels":catalog_models
@@ -4316,7 +4485,7 @@ fn resolve_reasoning_level(
         Err(format!("模型 {model} 未声明可调推理等级，请使用自动"))
     } else {
         Err(format!(
-            "模型 {model} 不支持 {level}，可选：{}",
+            "当前目录未声明模型 {model} 的 {level} 档位，请同步模型目录；当前可选：{}",
             levels.join("、")
         ))
     }
@@ -6247,6 +6416,221 @@ mod tests {
     use crate::database::Database;
     use serial_test::serial;
     use std::sync::Arc;
+
+    fn install_stale_reasoning_fixture(
+        state: &AppState,
+        surface: CodexSurface,
+    ) -> std::path::PathBuf {
+        crate::secure_storage::set_secret(USER_ID_KEY, "synthetic-owner").unwrap();
+        let mut provider = managed_provider(
+            &AppType::Codex,
+            "synthetic-key",
+            "gpt-6.1-sol",
+            "default",
+            "high",
+        )
+        .unwrap();
+        provider.settings_config["yuanhengSurface"] = json!(surface.marker());
+        provider.settings_config["yuanhengLoginGuideOwner"] = json!("synthetic-owner");
+        provider.settings_config["modelCatalog"] =
+            json!({"models":[{"model":"gpt-6.1-sol", "apiFormat":"openai_responses"}]});
+        save_managed_codex_provider(state, surface.namespace(), &provider).unwrap();
+        let catalog_path =
+            crate::codex_config::get_codex_named_model_catalog_path(surface.catalog_filename());
+        crate::config::write_json_file(&catalog_path, &json!({"models":[{
+            "slug":"gpt-6.1-sol", "context_window":64000,
+            "default_reasoning_level":"medium", "supported_reasoning_levels":[{"effort":"low"},{"effort":"medium"},{"effort":"high"},{"effort":"xhigh"}]
+        }]})).unwrap();
+        let path = match surface {
+            CodexSurface::Terminal => codex_terminal_profile_path(),
+            CodexSurface::Desktop => crate::codex_config::get_codex_config_path(),
+        };
+        crate::config::write_text_file(&path, &format!("# preserve\nmodel = \"gpt-6.1-sol\"\nmodel_reasoning_effort = \"high\"\nmodel_provider = \"custom\"\nmodel_catalog_json = \"{}\"\n[model_providers.custom]\nbase_url = \"http://127.0.0.1:15721/{}/v1\"\nwire_api = \"responses\"\n",surface.catalog_filename(),surface.route_prefix())).unwrap();
+        path
+    }
+
+    #[test]
+    #[serial]
+    fn managed_reasoning_migration_updates_both_surfaces_and_preserves_choices() {
+        let (_home, state) = isolated_state();
+        let paths = [
+            install_stale_reasoning_fixture(&state, CodexSurface::Terminal),
+            install_stale_reasoning_fixture(&state, CodexSurface::Desktop),
+        ];
+        let auth = crate::codex_config::get_codex_auth_path();
+        crate::config::write_text_file(&auth, "synthetic auth untouched").unwrap();
+        let before: Vec<String> = paths
+            .iter()
+            .map(|p| std::fs::read_to_string(p).unwrap())
+            .collect();
+        assert!(sync_managed_reasoning_catalogs_at(&state, "synthetic-owner").unwrap());
+        for (path, original) in paths.iter().zip(before) {
+            let after = std::fs::read_to_string(path).unwrap();
+            let mut a: toml::Value = after.parse().unwrap();
+            let mut b: toml::Value = original.parse().unwrap();
+            let catalog = a["model_catalog_json"].as_str().unwrap().to_string();
+            assert_ne!(a["model_catalog_json"], b["model_catalog_json"]);
+            a.as_table_mut().unwrap().remove("model_catalog_json");
+            b.as_table_mut().unwrap().remove("model_catalog_json");
+            assert_eq!(a, b);
+            assert!(after.starts_with("# preserve"));
+            let json: Value = crate::config::read_json_file(
+                &crate::codex_config::get_codex_named_model_catalog_path(&catalog),
+            )
+            .unwrap();
+            assert_eq!(json["models"][0]["context_window"], 64000);
+            assert!(json["models"][0]["supported_reasoning_levels"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|v| v["effort"] == "ultra"));
+        }
+        assert_eq!(
+            std::fs::read_to_string(auth).unwrap(),
+            "synthetic auth untouched"
+        );
+        assert!(!sync_managed_reasoning_catalogs_at(&state, "synthetic-owner").unwrap());
+    }
+
+    #[test]
+    #[serial]
+    fn managed_reasoning_migration_skips_other_owner_and_external_route() {
+        let (_home, state) = isolated_state();
+        let path = install_stale_reasoning_fixture(&state, CodexSurface::Desktop);
+        let before = std::fs::read_to_string(&path).unwrap();
+        assert!(!sync_managed_reasoning_catalogs_at(&state, "another-owner").unwrap());
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), before);
+        let foreign = before.replace(
+            "http://127.0.0.1:15721/chatgpt-desktop/v1",
+            "https://example.com/v1",
+        );
+        crate::config::write_text_file(&path, &foreign).unwrap();
+        assert!(!sync_managed_reasoning_catalogs_at(&state, "synthetic-owner").unwrap());
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), foreign);
+    }
+
+    #[test]
+    #[serial]
+    fn managed_reasoning_migration_does_not_publish_partial_refresh() {
+        let (_home, state) = isolated_state();
+        let terminal = install_stale_reasoning_fixture(&state, CodexSurface::Terminal);
+        let desktop = install_stale_reasoning_fixture(&state, CodexSurface::Desktop);
+        let before = [
+            std::fs::read_to_string(&terminal).unwrap(),
+            std::fs::read_to_string(&desktop).unwrap(),
+        ];
+        crate::config::write_text_file(
+            &crate::codex_config::get_codex_named_model_catalog_path(
+                CodexSurface::Desktop.catalog_filename(),
+            ),
+            "invalid json",
+        )
+        .unwrap();
+        assert!(sync_managed_reasoning_catalogs_at(&state, "synthetic-owner").is_err());
+        assert_eq!(std::fs::read_to_string(&terminal).unwrap(), before[0]);
+        assert_eq!(std::fs::read_to_string(&desktop).unwrap(), before[1]);
+    }
+
+    #[test]
+    #[serial]
+    fn managed_reasoning_migration_rolls_back_after_database_failure() {
+        let (_home, state) = isolated_state();
+        let terminal = install_stale_reasoning_fixture(&state, CodexSurface::Terminal);
+        let desktop = install_stale_reasoning_fixture(&state, CodexSurface::Desktop);
+        let before = [
+            std::fs::read_to_string(&terminal).unwrap(),
+            std::fs::read_to_string(&desktop).unwrap(),
+        ];
+        let old_provider = managed_codex_provider_for_namespace(&state, "codex")
+            .unwrap()
+            .unwrap();
+        state.db.conn.lock().unwrap().execute_batch(
+            "CREATE TRIGGER fail_reasoning_update BEFORE UPDATE ON providers WHEN NEW.app_type = 'chatgpt-desktop' BEGIN SELECT RAISE(FAIL, 'synthetic failure'); END;"
+        ).unwrap();
+        assert!(sync_managed_reasoning_catalogs_at(&state, "synthetic-owner").is_err());
+        assert_eq!(std::fs::read_to_string(&terminal).unwrap(), before[0]);
+        assert_eq!(std::fs::read_to_string(&desktop).unwrap(), before[1]);
+        assert_eq!(
+            managed_codex_provider_for_namespace(&state, "codex")
+                .unwrap()
+                .unwrap()
+                .settings_config,
+            old_provider.settings_config
+        );
+    }
+
+    #[test]
+    #[serial]
+    fn managed_reasoning_generation_ignores_conflicting_cache() {
+        let (_home, _state) = isolated_state();
+        crate::config::write_json_file(&crate::config::get_home_dir().join(".codex/models_cache.json"), &json!({"models":[{"slug":"gpt-6.1-sol","supported_reasoning_levels":[{"effort":"high"}],"default_reasoning_level":"high"}]})).unwrap();
+        let (levels, _) = reasoning_profiles_for_models(&["gpt-6.1-sol".into()]);
+        assert!(levels["gpt-6.1-sol"].contains(&"ultra".into()));
+        let provider = managed_provider(
+            &AppType::Codex,
+            "synthetic-key",
+            "gpt-6.1-sol",
+            "default",
+            "high",
+        )
+        .unwrap();
+        let settings = codex_provider_catalog_settings(&provider);
+        for surface in [CodexSurface::Terminal, CodexSurface::Desktop] {
+            let config = codex_surface_route_config(
+                &provider,
+                &format!("http://127.0.0.1:15721/{}/v1", surface.route_prefix()),
+                &settings,
+                surface,
+            )
+            .unwrap();
+            let doc: toml::Value = config.parse().unwrap();
+            let catalog: Value = crate::config::read_json_file(
+                &crate::codex_config::get_codex_named_model_catalog_path(
+                    doc["model_catalog_json"].as_str().unwrap(),
+                ),
+            )
+            .unwrap();
+            assert!(catalog["models"][0]["supported_reasoning_levels"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|item| item["effort"] == "ultra"));
+            assert_eq!(doc["model_reasoning_effort"].as_str(), Some("high"));
+        }
+    }
+
+    #[test]
+    #[serial]
+    fn managed_reasoning_migration_preserves_unrecognized_selected_effort() {
+        let (_home, state) = isolated_state();
+        let path = install_stale_reasoning_fixture(&state, CodexSurface::Desktop);
+        let before = std::fs::read_to_string(&path).unwrap().replace(
+            "model_reasoning_effort = \"high\"",
+            "model_reasoning_effort = \"future-level\"",
+        );
+        crate::config::write_text_file(&path, &before).unwrap();
+        assert!(sync_managed_reasoning_catalogs_at(&state, "synthetic-owner").is_err());
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), before);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    #[serial]
+    fn managed_reasoning_migration_rejects_catalog_symlink() {
+        let (_home, state) = isolated_state();
+        let path = install_stale_reasoning_fixture(&state, CodexSurface::Desktop);
+        let before = std::fs::read_to_string(&path).unwrap();
+        let catalog = crate::codex_config::get_codex_named_model_catalog_path(
+            CodexSurface::Desktop.catalog_filename(),
+        );
+        let outside = crate::config::get_home_dir().join("external.json");
+        std::fs::rename(&catalog, &outside).unwrap();
+        std::os::unix::fs::symlink(&outside, &catalog).unwrap();
+        let original = std::fs::read(&outside).unwrap();
+        assert!(sync_managed_reasoning_catalogs_at(&state, "synthetic-owner").is_err());
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), before);
+        assert_eq!(std::fs::read(&outside).unwrap(), original);
+    }
 
     #[test]
     fn managed_codex_context_migration_preserves_custom_and_foreign_limits() {

@@ -265,7 +265,6 @@ fn profile_body(original: &str, model: &str, models: &[String]) -> Result<String
     let providers = config["providers"]
         .as_object_mut()
         .ok_or("DSH providers 不是对象")?;
-    let reasoning_profiles = load_local_reasoning_profiles();
     for (name, protocol) in [
         ("yuanheng-chat", "openai-completions"),
         ("yuanheng-responses", "openai-responses"),
@@ -279,7 +278,7 @@ fn profile_body(original: &str, model: &str, models: &[String]) -> Result<String
             .filter(|id| route(id).0 == name)
             .map(|id| {
                 let mut entry = json!({"id":id,"name":id,"input":["text"]});
-                if let Some(profile) = reasoning_profile_for_model(id, &reasoning_profiles) {
+                if let Some(profile) = crate::model_reasoning::managed_reasoning_profile(id) {
                     let levels =
                         super::reasoning::tool_levels("dsh", id, &profile.supported_levels);
                     let efforts: Map<String, Value> = levels

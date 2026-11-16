@@ -42,7 +42,7 @@ fn profile(levels: &[&str], default: &str) -> ReasoningProfile {
 
 pub fn fallback_reasoning_profile(model: &str) -> Option<ReasoningProfile> {
     let model = model.trim().to_ascii_lowercase();
-    if model == "gpt-5.6-sol" {
+    if matches!(model.as_str(), "gpt-5.6-sol" | "gpt-6.1-sol") {
         return Some(profile(
             &["low", "medium", "high", "xhigh", "max", "ultra"],
             "low",
@@ -64,6 +64,37 @@ pub fn fallback_reasoning_profile(model: &str) -> Option<ReasoningProfile> {
         return Some(profile(&["low", "medium", "high"], "medium"));
     }
     None
+}
+
+/// Managed metadata must not depend on another application's cache.
+/// Exact model matches above never grant Ultra to unknown GPT aliases.
+pub fn managed_reasoning_profile(model: &str) -> Option<ReasoningProfile> {
+    fallback_reasoning_profile(model)
+}
+
+pub fn apply_managed_reasoning_profile(entry: &mut Value) {
+    let Some(model) = entry.get("model").and_then(Value::as_str) else {
+        return;
+    };
+    // Unmarked explicit values may belong to a user or imported provider.
+    // Only defaults emitted by us may be replaced automatically.
+    if !entry
+        .get("reasoningProfileSource")
+        .and_then(Value::as_str)
+        .is_some_and(|source| source.starts_with("yuanheng-managed-v"))
+        && (entry.get("supportedReasoningLevels").is_some()
+            || entry.get("supported_reasoning_levels").is_some())
+    {
+        return;
+    }
+    let profile = managed_reasoning_profile(model).unwrap_or_else(|| profile(&["none"], "none"));
+    entry["supportedReasoningLevels"] = serde_json::json!(profile.supported_levels);
+    entry["defaultReasoningLevel"] = serde_json::json!(profile.default_level);
+    entry["reasoningProfileSource"] = serde_json::json!("yuanheng-managed-v1");
+    if let Some(object) = entry.as_object_mut() {
+        object.remove("supported_reasoning_levels");
+        object.remove("default_reasoning_level");
+    }
 }
 
 fn profile_from_catalog_entry(entry: &Value) -> Option<(String, ReasoningProfile)> {
@@ -164,13 +195,42 @@ pub fn effective_reasoning_level(model: &str, selected: &str) -> Option<String> 
     if selected.trim() != "auto" && !selected.trim().is_empty() {
         return normalize_reasoning_level(selected);
     }
-    let catalog = load_local_reasoning_profiles();
-    reasoning_profile_for_model(model, &catalog)?.default_level
+    managed_reasoning_profile(model)?.default_level
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn managed_projection_is_deterministic_and_preserves_explicit_overrides() {
+        let mut old = serde_json::json!({"model":"gpt-6.1-sol", "reasoningProfileSource":"yuanheng-managed-v0", "supportedReasoningLevels":["high"]});
+        apply_managed_reasoning_profile(&mut old);
+        assert_eq!(
+            old["supportedReasoningLevels"],
+            serde_json::json!(["low", "medium", "high", "xhigh", "max", "ultra"])
+        );
+        let once = old.clone();
+        apply_managed_reasoning_profile(&mut old);
+        assert_eq!(old, once);
+        let mut explicit = serde_json::json!({"model":"gpt-6.1-sol", "supported_reasoning_levels":["high"], "default_reasoning_level":"high"});
+        let original = explicit.clone();
+        apply_managed_reasoning_profile(&mut explicit);
+        assert_eq!(explicit, original);
+        assert!(!managed_reasoning_profile("gpt-future")
+            .unwrap()
+            .supported_levels
+            .contains(&"ultra".into()));
+    }
+
+    #[test]
+    fn fresh_install_sol_61_has_complete_reasoning_levels() {
+        let profile = managed_reasoning_profile("gpt-6.1-sol").unwrap();
+        assert_eq!(
+            profile.supported_levels,
+            vec!["low", "medium", "high", "xhigh", "max", "ultra"]
+        );
+    }
 
     #[test]
     fn preserves_canonical_level_order() {

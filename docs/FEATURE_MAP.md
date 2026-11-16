@@ -315,3 +315,11 @@ Codex 升级身份保留：[配置投影](../src-tauri/src/codex_history_routes.
 | Dynamic media catalog and video parameters | [Native catalog](../src-tauri/src/commands/yuanheng/media_studio.rs), [UI](../src/components/desktop/MediaStudioPage.tsx) | Authorized group models use media-family recognition; entry, group switch, focus and manual refresh preserve user drafts | Seedance metadata/resolution/images and compatible/xAI reference fields; text and retired Veo excluded; no paid verification. [Decision](../.agents/notes/implemented/bug-fix/2026-11-11-media-dynamic-catalog.md) |
 
 | 视频参数与任务号一致性 | [参数联动](../src/lib/mediaPreferences.ts)、[原生请求](../src-tauri/src/commands/yuanheng/media_studio.rs) | Omni1080p默认对应像素；尺寸/分辨率联动，未知规格保留比例，矛盾IPC拒绝；id/task_id兼容且冲突停止 | 不重新生成，不改报价与原记录归属。见[决定](../.agents/notes/implemented/bug-fix/2026-11-11-video-dimension-task-contract.md) |
+
+## 托管模型推理档位与目录更新（2026-11-16，本地）
+
+`model_reasoning::managed_reasoning_profile` 为元衡托管模型提供确定档位，不读取其他应用缓存；明确补齐 gpt-6.1-sol 的 max/ultra，未知型号不按 GPT 前缀开放 Ultra。工作台、配置校验、Codex 目录及相关工具投影复用该规则；自定义供应商仍沿用显式声明和原缓存策略。旧托管条目未标记来源的显式档位保留，不能把用户声明误判成旧默认。
+
+`sync_yuanheng_reasoning_catalogs` 在启动及账号刷新后运行，使用既有模式锁与工具配置锁，只处理当前账号拥有、当前使用且仍指向本机元衡路由的 CLI/Desktop 目录。保留 auth、模型、强度、上下文及其他 TOML；新目录按内容生成文件名，读回校验后换指针。跨端失败恢复已提交配置与记录；检测到外部变更不覆盖。非法目录、符号链接及不兼容的已选强度保留原配置，继续使用现有诊断/重新同步入口。没有推理请求、强杀外部应用或提高默认强度。
+
+范围：本地客户端修复；平台能力下发、真实上游 Ultra 执行与 Windows 真机均未作为已验收。既有 Codex 会话可能需重开。见[决策与验证](../.agents/notes/implemented/bug-fix/2026-11-16-managed-reasoning-catalog.md)。
