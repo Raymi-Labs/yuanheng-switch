@@ -394,3 +394,41 @@ describe("cloud vendor cascade", () => {
     expect(onChange).not.toHaveBeenCalled();
   });
 });
+
+it("shows one Google entry and retains model/group permissions across both sources", async () => {
+  const data: YuanhengConnectionStatus = {
+    ...catalog(),
+    models: ["gemini-local", "custom-google", "gemini-unavailable"],
+    modelVendors: { "custom-google": { id: "19", name: "Google" } },
+    modelGroups: {
+      "gemini-local": ["Grok 标准"],
+      "custom-google": ["企业专属"],
+    },
+  };
+  const { onChange } = setup({
+    connection: data,
+    models: data.models,
+    model: undefined,
+    group: undefined,
+  });
+  fireEvent.click(screen.getByLabelText("DSH 模型供应商"));
+  expect(await screen.findAllByRole("option", { name: "Google" })).toHaveLength(
+    1,
+  );
+  fireEvent.click(screen.getByRole("option", { name: "Google" }));
+  expect(onChange).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByLabelText("DSH 分组与模型"));
+  await branch("企业专属");
+  expect(
+    screen.queryByRole("option", { name: "gemini-local" }),
+  ).not.toBeInTheDocument();
+  expect(
+    screen.queryByRole("option", { name: "gemini-unavailable" }),
+  ).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole("option", { name: "custom-google" }));
+  expect(onChange).toHaveBeenCalledTimes(1);
+  expect(onChange).toHaveBeenCalledWith({
+    model: "custom-google",
+    group: "企业专属",
+  });
+});

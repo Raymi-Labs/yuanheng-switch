@@ -154,3 +154,34 @@ it("uses the same cloud vendor catalog for standalone search and filtering", () 
   fireEvent.click(within(dialog).getByRole("option", { name: /custom-chat/ }));
   expect(change).toHaveBeenCalledWith("custom-chat");
 });
+
+it("retains the active vendor filter when a cloud name becomes a known brand", () => {
+  const props = {
+    label: "模型",
+    models: ["custom-google", "gemini-local", "gpt-other"],
+    onChange: vi.fn(),
+  };
+  const view = render(
+    <ModelPicker
+      {...props}
+      modelVendors={{ "custom-google": { id: "19", name: "旧云端名称" } }}
+    />,
+  );
+  const dialog = open();
+  fireEvent.click(within(dialog).getByRole("button", { name: "旧云端名称" }));
+  expect(within(dialog).getAllByRole("option")).toHaveLength(1);
+  view.rerender(
+    <ModelPicker
+      {...props}
+      modelVendors={{ "custom-google": { id: "19", name: "Google" } }}
+    />,
+  );
+  expect(
+    within(dialog).getByRole("button", { name: "Google" }),
+  ).toHaveAttribute("aria-pressed", "true");
+  expect(within(dialog).getAllByRole("option")).toHaveLength(2);
+  expect(
+    within(dialog).queryByRole("option", { name: /gpt-other/ }),
+  ).not.toBeInTheDocument();
+  expect(props.onChange).not.toHaveBeenCalled();
+});

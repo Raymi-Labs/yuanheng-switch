@@ -99,7 +99,11 @@ export function ToolModelPicker({
     : undefined;
   const vendorId =
     vendorChoice?.model === model ? vendorChoice?.id : currentVendor;
-  const legacyMatches = vendors.filter((item) => item.legacyId === vendorId);
+  const legacyMatches = vendors.filter(
+    (item) =>
+      item.legacyId === vendorId ||
+      (vendorId != null && item.sourceIds?.includes(vendorId)),
+  );
   const vendor =
     vendors.find((item) => item.id === vendorId) ??
     (legacyMatches.length === 1 ? legacyMatches[0] : undefined) ??

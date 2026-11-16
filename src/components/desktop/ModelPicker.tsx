@@ -85,9 +85,10 @@ export function ModelPicker({
     Number(favorites.vendors.includes(b.id)) -
     Number(favorites.vendors.includes(a.id));
   vendors.sort(favoriteVendorFirst);
-  const activeVendor = vendors.some((vendor) => vendor.id === vendorFilter)
-    ? vendorFilter
-    : "all";
+  const activeVendor =
+    vendors.find((vendor) => vendor.id === vendorFilter)?.id ??
+    vendors.find((vendor) => vendor.sourceIds?.includes(vendorFilter))?.id ??
+    "all";
   const terms = search.trim().toLowerCase().split(/\s+/).filter(Boolean);
   const visibleModels = orderedModels.filter((model) => {
     const vendor = modelVendorOf(model, modelVendors);
