@@ -1362,7 +1362,25 @@ fn codex_model_catalog_from_settings(
         return Ok(None);
     }
 
-    Ok(Some(codex_model_catalog_from_mixed_specs(&specs, profile)?))
+    let mut catalog = codex_model_catalog_from_mixed_specs(&specs, profile)?;
+    if let (Some(rows), Some(declarations)) = (
+        catalog.get_mut("models").and_then(Value::as_array_mut),
+        settings
+            .pointer("/modelCatalog/models")
+            .and_then(Value::as_array),
+    ) {
+        for row in rows {
+            let source = declarations
+                .iter()
+                .find(|entry| entry["model"].as_str() == row["slug"].as_str())
+                .and_then(|entry| entry["reasoningProfileSource"].as_str())
+                .filter(|source| source.starts_with("yuanheng-managed-v"));
+            if let Some(source) = source {
+                row["yuanheng_reasoning_profile_source"] = json!(source);
+            }
+        }
+    }
+    Ok(Some(catalog))
 }
 
 fn set_codex_model_catalog_json_field(
@@ -1531,6 +1549,115 @@ pub fn prepare_codex_config_text_with_named_model_catalog(
         let disable_web_search = profile == CodexCatalogToolProfile::Anthropic;
         set_codex_native_web_search_field(&config_text, disable_web_search)
     }
+}
+
+/// Refresh only reasoning metadata in an existing managed catalog. The caller
+/// commits the returned TOML inside its transaction; the old catalog stays valid.
+pub(crate) fn refresh_managed_reasoning_catalog(
+    config_text: &str,
+    base_filename: &str,
+    declared_models: &[Value],
+) -> Result<Option<String>, AppError> {
+    let Some(path) = resolve_cc_switch_catalog_path(config_text, &get_codex_model_catalog_path())
+    else {
+        return Ok(None);
+    };
+    // A familiar filename alone is not ownership. Never follow external paths
+    // or symlinks while performing an unattended migration.
+    if path.parent() != Some(get_codex_config_dir().as_path())
+        || fs::symlink_metadata(&path)
+            .map_err(|e| AppError::io(&path, e))?
+            .file_type()
+            .is_symlink()
+    {
+        return Err(AppError::Message(
+            "模型目录不在元衡管理范围，原配置已保留".into(),
+        ));
+    }
+    let text = fs::read_to_string(&path).map_err(|e| AppError::io(&path, e))?;
+    let mut catalog: Value = serde_json::from_str(&text)
+        .map_err(|_| AppError::Message("模型目录无法解析，原配置已保留".into()))?;
+    let original = catalog.clone();
+    let models = catalog
+        .get_mut("models")
+        .and_then(Value::as_array_mut)
+        .ok_or_else(|| AppError::Message("模型目录缺少模型列表，原配置已保留".into()))?;
+    for entry in models {
+        let Some(slug) = entry.get("slug").and_then(Value::as_str) else {
+            continue;
+        };
+        let Some(declared) = declared_models
+            .iter()
+            .find(|item| item.get("model").and_then(Value::as_str) == Some(slug))
+        else {
+            continue;
+        };
+        let Some(profile) = model_config_reasoning_profile(declared) else {
+            continue;
+        };
+        entry["supported_reasoning_levels"] = json!(profile
+            .supported_levels
+            .iter()
+            .map(|effort| json!({
+                "effort": effort, "description": reasoning_level_description(effort)
+            }))
+            .collect::<Vec<_>>());
+        entry["default_reasoning_level"] = json!(profile.default_level);
+        if let Some(source) = declared["reasoningProfileSource"]
+            .as_str()
+            .filter(|source| source.starts_with("yuanheng-managed-v"))
+        {
+            entry["yuanheng_reasoning_profile_source"] = json!(source);
+        } else if let Some(object) = entry.as_object_mut() {
+            object.remove("yuanheng_reasoning_profile_source");
+        }
+    }
+    if original == catalog {
+        return Ok(None);
+    }
+    let config = config_text
+        .parse::<DocumentMut>()
+        .map_err(|_| AppError::Message("模型配置无法解析，原配置已保留".into()))?;
+    if let (Some(model), Some(effort)) = (
+        config.get("model").and_then(|item| item.as_str()),
+        config
+            .get("model_reasoning_effort")
+            .and_then(|item| item.as_str()),
+    ) {
+        if let Some(entry) = catalog["models"]
+            .as_array()
+            .and_then(|rows| rows.iter().find(|row| row["slug"].as_str() == Some(model)))
+        {
+            if !entry["supported_reasoning_levels"]
+                .as_array()
+                .is_some_and(|levels| {
+                    levels
+                        .iter()
+                        .any(|level| level["effort"].as_str() == Some(effort))
+                })
+            {
+                return Err(AppError::Message(
+                    "当前推理选择与新目录不一致，请重新选择档位；原配置已保留".into(),
+                ));
+            }
+        }
+    }
+    let filename = versioned_catalog_filename(base_filename, &catalog);
+    let next_path = get_codex_named_model_catalog_path(&filename);
+    if fs::symlink_metadata(&next_path).is_ok_and(|meta| meta.file_type().is_symlink()) {
+        return Err(AppError::Message(
+            "新模型目录路径不可安全写入，原配置已保留".into(),
+        ));
+    }
+    write_json_file(&next_path, &catalog)?;
+    // Read back before publishing the new pointer. No unrelated TOML is rebuilt.
+    let checked: Value =
+        serde_json::from_slice(&fs::read(&next_path).map_err(|e| AppError::io(&next_path, e))?)
+            .map_err(|_| AppError::Message("新模型目录验证失败".into()))?;
+    if checked != catalog {
+        return Err(AppError::Message("新模型目录验证失败".into()));
+    }
+    set_codex_model_catalog_json_field(config_text, Some(&next_path)).map(Some)
 }
 
 fn is_yuanheng_managed_catalog_filename(filename: &str) -> bool {
@@ -1709,6 +1836,12 @@ fn build_simplified_catalog_from_texts(config_text: &str, catalog_text: &str) ->
             }
         }
 
+        if let Some(source) = entry["yuanheng_reasoning_profile_source"]
+            .as_str()
+            .filter(|source| source.starts_with("yuanheng-managed-v"))
+        {
+            obj.insert("reasoningProfileSource".into(), json!(source));
+        }
         entries.push(Value::Object(obj));
     }
 
@@ -2444,6 +2577,30 @@ pub fn remove_codex_toml_base_url_if(toml_str: &str, predicate: impl Fn(&str) ->
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn managed_reasoning_source_survives_catalog_round_trip() {
+        let mut declaration = json!({"model":"gpt-6.1-sol", "apiFormat":"openai_responses"});
+        crate::model_reasoning::apply_managed_reasoning_profile(&mut declaration);
+        let settings = json!({"modelCatalog":{"models":[declaration]}});
+        let config = "model = \"gpt-6.1-sol\"\n";
+        let catalog = codex_model_catalog_from_settings(
+            &settings,
+            config,
+            CodexCatalogToolProfile::NativeResponses,
+        )
+        .unwrap()
+        .unwrap();
+        let rebuilt = build_simplified_catalog_from_texts(config, &catalog.to_string()).unwrap();
+        assert_eq!(
+            rebuilt["models"][0]["reasoningProfileSource"],
+            "yuanheng-managed-v1"
+        );
+        assert_eq!(
+            rebuilt["models"][0]["supportedReasoningLevels"],
+            settings["modelCatalog"]["models"][0]["supportedReasoningLevels"]
+        );
+    }
 
     #[test]
     fn obsolete_mcp_type_cleanup_preserves_server_settings() {

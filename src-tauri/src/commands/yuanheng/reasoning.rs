@@ -66,11 +66,10 @@ pub(super) fn project(app: &AppType, model: &str, level: &str, settings: &mut Va
             settings["models"][model]["options"] = json!({"reasoningEffort":level});
         }
         AppType::OpenClaw => {
-            let catalog = load_local_reasoning_profiles();
             if let Some(models) = settings["models"].as_array_mut() {
                 for entry in models {
                     let id = entry["id"].as_str().unwrap_or_default();
-                    let supported = reasoning_profile_for_model(id, &catalog)
+                    let supported = crate::model_reasoning::managed_reasoning_profile(id)
                         .map(|p| p.supported_levels)
                         .unwrap_or_default();
                     if !supported.is_empty() {
@@ -87,16 +86,11 @@ pub(super) fn project(app: &AppType, model: &str, level: &str, settings: &mut Va
     }
 }
 
-pub(super) fn workbuddy_model(
-    model: &str,
-    selected: &str,
-    level: &str,
-    catalog: &HashMap<String, crate::model_reasoning::ReasoningProfile>,
-) -> Value {
+pub(super) fn workbuddy_model(model: &str, selected: &str, level: &str) -> Value {
     let mut value = json!({"id":model,"name":model,"vendor":MANAGED_PROVIDER_DISPLAY_NAME,
         "url":format!("{OPENAI_BASE_URL}/chat/completions"),"maxInputTokens":200000,
         "maxOutputTokens":8192,"supportsToolCall":true,"supportsImages":true});
-    let levels = reasoning_profile_for_model(model, catalog)
+    let levels = crate::model_reasoning::managed_reasoning_profile(model)
         .map(|p| tool_levels("workbuddy", model, &p.supported_levels))
         .unwrap_or_default();
     value["supportsReasoning"] = json!(!levels.is_empty());
@@ -429,17 +423,16 @@ mod tests {
     }
     #[test]
     fn workbuddy_consumed_fields_are_per_model_and_auto_omits_effort() {
-        let catalog = HashMap::new();
-        let high = workbuddy_model("gpt-6-astra", "gpt-6-astra", "high", &catalog);
+        let high = workbuddy_model("gpt-6-astra", "gpt-6-astra", "high");
         assert_eq!(high["reasoning"]["defaultEffort"], "high");
         assert_eq!(high["supportsReasoning"], true);
         assert!(
-            workbuddy_model("gpt-6-sol", "gpt-6-astra", "high", &catalog)["reasoning"]
+            workbuddy_model("gpt-6-sol", "gpt-6-astra", "high")["reasoning"]
                 .get("defaultEffort")
                 .is_none()
         );
         assert!(
-            workbuddy_model("gpt-6-astra", "gpt-6-astra", "auto", &catalog)["reasoning"]
+            workbuddy_model("gpt-6-astra", "gpt-6-astra", "auto")["reasoning"]
                 .get("defaultEffort")
                 .is_none()
         );
