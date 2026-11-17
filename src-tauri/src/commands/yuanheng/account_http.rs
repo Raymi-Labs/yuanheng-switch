@@ -10,6 +10,7 @@ use crate::proxy::transport_error::{account_error, is_retryable_account_read};
 pub(super) enum ReadError {
     Transport(reqwest::Error),
     Response(String),
+    Http(reqwest::StatusCode, String),
 }
 
 impl ReadError {
@@ -17,6 +18,7 @@ impl ReadError {
         match self {
             Self::Transport(error) => format!("{context}：{}", account_error(error)),
             Self::Response(message) => message.clone(),
+            Self::Http(code, label) => format!("{label}（HTTP {}）", code.as_u16()),
         }
     }
 }
@@ -28,10 +30,7 @@ pub(super) async fn parse_response(
     let status = response.status();
     if let Some(context) = http_error.filter(|_| !status.is_success()) {
         // Token catalog errors must never echo an upstream credential/error page.
-        return Err(ReadError::Response(format!(
-            "{context}（HTTP {}）",
-            status.as_u16()
-        )));
+        return Err(ReadError::Http(status, context.into()));
     }
     let headers = response.headers().clone();
     let body = response.text().await.map_err(|error| {
@@ -58,15 +57,26 @@ pub(super) async fn get_json(
     context: &str,
     http_error: Option<&str>,
 ) -> Result<(Value, HeaderMap), String> {
+    get_json_typed(builder, http_error)
+        .await
+        .map_err(|error| error.message(context))
+}
+
+pub(super) async fn get_json_typed(
+    builder: RequestBuilder,
+    http_error: Option<&str>,
+) -> Result<(Value, HeaderMap), ReadError> {
     let (client, request) = builder.build_split();
-    let request = request.map_err(|error| format!("{context}：{}", account_error(&error)))?;
+    let request = request.map_err(ReadError::Transport)?;
     if request.method() != Method::GET || request.body().is_some() {
-        return Err("账号读取恢复仅支持无正文的 GET 请求".to_string());
+        return Err(ReadError::Response(
+            "账号读取恢复仅支持无正文的 GET 请求".into(),
+        ));
     }
     for attempt in 0..2 {
         let next = request
             .try_clone()
-            .ok_or_else(|| "无法重新构建账号读取请求".to_string())?;
+            .ok_or_else(|| ReadError::Response("无法重新构建账号读取请求".into()))?;
         let result = match client.execute(next).await {
             Ok(response) => parse_response(response, http_error).await,
             Err(error) => Err(ReadError::Transport(error)),
@@ -78,7 +88,7 @@ pub(super) async fn get_json(
             {
                 tokio::time::sleep(Duration::from_millis(200)).await;
             }
-            Err(error) => return Err(error.message(context)),
+            Err(error) => return Err(error),
         }
     }
     unreachable!("the final attempt always returns")

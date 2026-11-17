@@ -611,6 +611,14 @@ fn effective_matches(path: &Path, owned: &str) -> bool {
     })
 }
 
+pub(super) fn replace_credential(state: &AppState, old: &str, new: &str) -> Result<(), String> {
+    let r = record(state).ok_or("找不到 DSH 配置")?;
+    if credential(&state.db, &r.group)?.as_deref() != Some(old) {
+        return Err("DSH 凭据已变化".into());
+    }
+    configure_reasoning(state, new, &r.model, &r.models, &r.group, &r.reasoning).map(|_| ())
+}
+
 pub(super) fn credential(
     db: &crate::database::Database,
     group: &str,

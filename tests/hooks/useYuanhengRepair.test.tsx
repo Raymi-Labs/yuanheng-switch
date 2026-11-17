@@ -97,14 +97,14 @@ describe("Yuanheng credential repair", () => {
     const status = await yuanhengApi.refresh();
     const rotate = vi
       .spyOn(yuanhengApi, "rotateDeviceToken")
-      .mockResolvedValue(status);
+      .mockResolvedValue({ connection: status, failedTools: [] });
     const { result } = renderHook(() => useRotateYuanhengCredential(), {
       wrapper,
     });
     await act(async () => {
       await result.current.mutateAsync({ group: "premium", userId: "test" });
     });
-    expect(rotate).toHaveBeenCalledWith("premium", "test");
+    expect(rotate).toHaveBeenCalledWith("premium", "test", undefined);
     expect(yuanhengApi.configureTools).not.toHaveBeenCalled();
     expect(yuanhengApi.getToolStatuses).not.toHaveBeenCalled();
   });

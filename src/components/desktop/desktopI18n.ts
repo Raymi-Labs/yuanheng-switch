@@ -11,6 +11,26 @@ type Values = Record<string, string | number | null | undefined>;
 
 export const DESKTOP_EN: Record<string, string> = {
   ...COMMERCE_EN,
+  恢复统一令牌: "Restore shared token",
+  "令牌列表已变化，请重新检查": "The token list changed. Run the check again.",
+  "令牌分页记录重复，请重新检查":
+    "The token list contained duplicate records. Run the check again.",
+  "令牌列表不完整，未创建凭据":
+    "The token list was incomplete. No credential was created.",
+  确认恢复: "Confirm recovery",
+  "同时恢复：{{v0}}": "Also restore: {{v0}}",
+  "已有令牌会复用。若已删除，新令牌使用当前授权分组和账号余额，无独立额度、有效期或模型限制。":
+    "An existing token will be reused. If deleted, the new token uses authorized groups and account balance, with no separate spending cap, expiry or model restriction.",
+  "仅恢复通用凭据，工具请重新体检。":
+    "Only general credentials will be restored. Check tools again afterward.",
+  "统一令牌已恢复，以下工具需单独配置：{{tools}}":
+    "Shared token restored. Configure these tools individually: {{tools}}",
+  "工具配置无法读取，请单独检查此工具。":
+    "This tool’s configuration could not be read. Check it individually.",
+  "凭据已保存，部分检查尚未通过，请查看详情":
+    "Credentials saved. Some checks still need attention; see details.",
+  "这个工具的元衡凭据已失效，可在客户端恢复统一令牌。":
+    "This tool’s YuanHeng credential was rejected. Restore the shared token in the desktop app.",
   "最近启动：{{tier}}": "Last launch: {{tier}}",
   已切回标准: "Switched back to Standard",
   速度: "Speed",

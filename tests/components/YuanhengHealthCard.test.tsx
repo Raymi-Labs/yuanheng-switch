@@ -78,7 +78,7 @@ describe("diagnostic snapshots", () => {
       userId: "user-one",
       groups: [{ id: "premium", description: "优质" }],
     });
-    rotate.mockResolvedValue({ connection: account });
+    rotate.mockResolvedValue({ connection: account, failedTools: [] });
   });
   it("the nearby diagnostic entry never presents repair/rotation/rollback actions", async () => {
     diagnostics.data.status = "error";
@@ -151,23 +151,59 @@ describe("diagnostic snapshots", () => {
     const select = await screen.findByRole("combobox", {
       name: "通用凭据分组",
     });
-    expect(
-      screen.getByRole("button", { name: "验证并保存通用凭据" }),
-    ).toBeDisabled();
+    expect(screen.getByRole("button", { name: "确认恢复" })).toBeDisabled();
     expect(
       screen.queryByRole("option", { name: /default/ }),
     ).not.toBeInTheDocument();
     fireEvent.change(select, { target: { value: "premium" } });
-    fireEvent.click(screen.getByRole("button", { name: "验证并保存通用凭据" }));
+    fireEvent.click(screen.getByRole("button", { name: "确认恢复" }));
     await waitFor(() =>
       expect(rotate).toHaveBeenCalledWith({
         group: "premium",
         userId: "user-one",
+        affectedTools: [],
       }),
     );
     await waitFor(() => expect(toast.warning).toHaveBeenCalled());
     expect(toast.success).not.toHaveBeenCalled();
     expect(repair).not.toHaveBeenCalled();
+  });
+
+  it("recovers just the named rejected tools on one confirmation and verifies them", async () => {
+    const before = {
+      status: "error",
+      checks: [
+        { id: "credential", status: "ok", action: null },
+        {
+          id: "tool_credential:codex",
+          status: "error",
+          action: "repair_credentials",
+        },
+        { id: "tool_credential:gemini", status: "ok", action: null },
+      ],
+    };
+    diagnostics.data = { ...diagnostics.data, ...before };
+    diagnostics.refetch
+      .mockResolvedValueOnce({ data: before })
+      .mockResolvedValueOnce({
+        data: { checks: before.checks.map((c) => ({ ...c, status: "ok" })) },
+      });
+    render(<YuanhengHealthCard initiallyExpanded />);
+    fireEvent.click(screen.getByRole("button", { name: "配置或修复通用凭据" }));
+    const confirm = await screen.findByRole("button", { name: "确认恢复" });
+    expect(screen.getByText(/同时恢复：codex/)).toBeInTheDocument();
+    expect(rotate).not.toHaveBeenCalled();
+    fireEvent.click(confirm);
+    await waitFor(() =>
+      expect(rotate).toHaveBeenCalledWith({
+        userId: "user-one",
+        group: "premium",
+        affectedTools: ["codex"],
+      }),
+    );
+    await waitFor(() =>
+      expect(toast.success).toHaveBeenCalledWith("连接与凭据已恢复"),
+    );
   });
 
   it("failed group refresh does not use cached groups or create a credential", async () => {
@@ -177,6 +213,50 @@ describe("diagnostic snapshots", () => {
     await waitFor(() => expect(toast.error).toHaveBeenCalled());
     expect(screen.queryByRole("combobox")).not.toBeInTheDocument();
     expect(rotate).not.toHaveBeenCalled();
+  });
+
+  it("can restore just general credentials when a diagnostic failed", async () => {
+    diagnostics.data = undefined;
+    diagnostics.isError = true;
+    diagnostics.refetch.mockResolvedValue({ isError: true });
+    render(<YuanhengHealthCard initiallyExpanded />);
+    fireEvent.click(screen.getByRole("button", { name: "配置或修复通用凭据" }));
+    const choice = await screen.findByRole("combobox", {
+      name: "通用凭据分组",
+    });
+    expect(
+      screen.getByText("仅恢复通用凭据，工具请重新体检。"),
+    ).toBeInTheDocument();
+    fireEvent.change(choice, { target: { value: "premium" } });
+    fireEvent.click(screen.getByRole("button", { name: "确认恢复" }));
+    await waitFor(() =>
+      expect(rotate).toHaveBeenCalledWith({
+        group: "premium",
+        userId: "user-one",
+        affectedTools: [],
+      }),
+    );
+    expect(toast.success).not.toHaveBeenCalled();
+  });
+
+  it("reports partial repair through translated text without raw backend errors", async () => {
+    rotate.mockResolvedValue({
+      connection: account,
+      failedTools: ["workbuddy"],
+    });
+    render(<YuanhengHealthCard initiallyExpanded />);
+    fireEvent.click(screen.getByRole("button", { name: "配置或修复通用凭据" }));
+    const choice = await screen.findByRole("combobox", {
+      name: "通用凭据分组",
+    });
+    fireEvent.change(choice, { target: { value: "premium" } });
+    fireEvent.click(screen.getByRole("button", { name: "确认恢复" }));
+    await waitFor(() =>
+      expect(toast.warning).toHaveBeenCalledWith(
+        "统一令牌已恢复，以下工具需单独配置：workbuddy",
+      ),
+    );
+    expect(toast.success).not.toHaveBeenCalled();
   });
 
   it("discard group choices when the account changes while loading", async () => {

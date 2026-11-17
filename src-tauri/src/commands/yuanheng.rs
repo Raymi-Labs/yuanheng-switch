@@ -866,18 +866,23 @@ async fn fetch_api_models_at(
     origin: &str,
     api_token: &str,
 ) -> Result<Vec<String>, String> {
+    catalog_at(client, origin, api_token)
+        .await
+        .map_err(|error| error.message("连接元衡模型接口失败"))
+}
+
+async fn catalog_at(
+    client: &reqwest::Client,
+    origin: &str,
+    api_token: &str,
+) -> Result<Vec<String>, account_http::ReadError> {
     let request = client
         .get(format!("{origin}/v1/models"))
         .header("Accept", "application/json")
         .header("User-Agent", "yuanheng-desktop/0.1")
         .bearer_auth(api_token);
-    let (value, _) = account_http::get_json(
-        request,
-        "连接元衡模型接口失败",
-        Some("模型目录鉴权检查失败"),
-    )
-    .await?;
-    parse_api_models(&value)
+    let (value, _) = account_http::get_json_typed(request, Some("模型目录鉴权检查失败")).await?;
+    parse_api_models(&value).map_err(account_http::ReadError::Response)
 }
 
 async fn verify_api_token(client: &reqwest::Client, api_token: &str) -> Result<(), String> {
@@ -5173,23 +5178,52 @@ async fn diagnose_yuanheng_inner(state: &AppState) -> Result<YuanhengDiagnosticR
 
     let tool_statuses = all_tool_statuses(state, &connection);
     // 体检验证每个托管工具的真实分组 key。按 key 复用响应，防止同一分组重复请求。
-    let mut credential_results: HashMap<String, Result<Vec<String>, String>> = HashMap::new();
+    let mut credential_results: HashMap<String, Result<Vec<String>, Option<reqwest::StatusCode>>> =
+        HashMap::new();
     let mut credential_attention = BTreeSet::new();
     for tool in tool_statuses.iter().filter(|tool| tool.configured) {
         let Some(group) = tool.group.as_deref() else {
             continue;
         };
-        let token = stored_tool_credential(state, &tool.app, group, tool.model.as_deref())?;
+        let token = match stored_tool_credential(state, &tool.app, group, tool.model.as_deref()) {
+            Ok(value) => value,
+            Err(_) => {
+                credential_attention.insert(tool.app.clone());
+                checks.push(YuanhengDiagnosticCheck {
+                    id: format!("tool_credential:{}", tool.app),
+                    status: "warning".into(),
+                    title: format!("{} · {} 分组凭据", tool.app, group),
+                    message: "工具配置无法读取，请单独检查此工具。".into(),
+                    action: None,
+                });
+                continue;
+            }
+        };
         let result = if let Some(token) = token {
             if let Some(result) = credential_results.get(&token) {
                 result.clone()
             } else {
-                let result = fetch_api_models(&client, &token).await;
+                let result =
+                    catalog_at(&client, BASE_URL, &token)
+                        .await
+                        .map_err(|error| match error {
+                            account_http::ReadError::Http(status, _) => Some(status),
+                            _ => None,
+                        });
                 credential_results.insert(token, result.clone());
                 result
             }
         } else {
-            Err("工具凭据缺失（HTTP 401）".to_string())
+            checks.push(YuanhengDiagnosticCheck {
+                id: format!("tool_credential:{}", tool.app),
+                status: "error".into(),
+                title: format!("{} · {} 分组凭据", tool.app, group),
+                message: "该工具实际使用的分组令牌被拒绝；账号登录正常并不代表工具令牌有效。"
+                    .into(),
+                action: Some("repair_tools".into()),
+            });
+            credential_attention.insert(tool.app.clone());
+            continue;
         };
         let (status, message, action) = match result {
             Ok(models)
@@ -5205,7 +5239,12 @@ async fn diagnose_yuanheng_inner(state: &AppState) -> Result<YuanhengDiagnosticR
                 "该工具凭据无法访问所选模型，请重新配置该工具。",
                 Some("repair_tools"),
             ),
-            Err(error) if is_token_rejected(&error) => (
+            Err(Some(reqwest::StatusCode::UNAUTHORIZED)) => (
+                "error",
+                "这个工具的元衡凭据已失效，可在客户端恢复统一令牌。",
+                Some("repair_credentials"),
+            ),
+            Err(Some(reqwest::StatusCode::FORBIDDEN)) => (
                 "error",
                 "该工具实际使用的分组令牌被拒绝；账号登录正常并不代表工具令牌有效。",
                 Some("repair_tools"),
@@ -6176,12 +6215,24 @@ pub async fn refresh_yuanheng_connection(
     }
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct YuanhengCredentialRepairResult {
+    connection: YuanhengConnectionStatus,
+    failed_tools: Vec<String>,
+}
+
 #[tauri::command]
 pub async fn rotate_yuanheng_device_token(
     state: State<'_, AppState>,
     group: String,
     expected_user_id: String,
-) -> Result<YuanhengConnectionStatus, String> {
+    affected_tools: Option<Vec<String>>,
+) -> Result<YuanhengCredentialRepairResult, String> {
+    let apps = affected_tools.unwrap_or_default();
+    if apps.len() > 12 {
+        return Err("工具数量异常，请重新体检".into());
+    }
     let session_cookie = get_yuanheng_secret(&state, SESSION_COOKIE_KEY)?
         .filter(|value| !value.is_empty())
         .ok_or_else(|| "元衡尚未连接".to_string())?;
@@ -6193,7 +6244,7 @@ pub async fn rotate_yuanheng_device_token(
     }
     let client = yuanheng_client()?;
     let status = sync_connection(&state, &client, &session_cookie, &user_id).await?;
-    device_credentials::repair_at(
+    let (verified, models) = device_credentials::repair_at(
         &state,
         &client,
         BASE_URL,
@@ -6203,17 +6254,44 @@ pub async fn rotate_yuanheng_device_token(
     )
     .await?;
 
+    let mut failed = Vec::new();
+    if !apps.is_empty() {
+        device_credentials::check_owner(&state, &session_cookie, &user_id)?;
+        for app in apps.into_iter().collect::<BTreeSet<_>>() {
+            if device_credentials::restore_tool_at(
+                &state,
+                &client,
+                BASE_URL,
+                (&session_cookie, &user_id),
+                &app,
+                (&verified, &models),
+            )
+            .await
+            .is_err()
+            {
+                failed.push(app);
+            }
+        }
+        device_credentials::check_owner(&state, &session_cookie, &user_id)?;
+    }
+
     // 旧 key 可能仍被 CLI、其他分组配置或离线设备引用。在所有消费者确认
     // 切换之前禁止撤销；不能依赖前端随后发起的重配命令充当跨端事务。
     // 用户需要撤销时可在平台令牌管理中显式处理。
 
     #[cfg(any(target_os = "macos", test))]
     {
-        read_cached_status(&state)
+        Ok(YuanhengCredentialRepairResult {
+            connection: read_cached_status(&state)?,
+            failed_tools: failed,
+        })
     }
     #[cfg(not(any(target_os = "macos", test)))]
     {
-        Ok(status)
+        Ok(YuanhengCredentialRepairResult {
+            connection: status,
+            failed_tools: failed,
+        })
     }
 }
 
