@@ -98,6 +98,8 @@ export function YuanhengHealthCard({
   const [credentialChoice, setCredentialChoice] = useState<{
     userId: string;
     groups: { id: string; description: string }[];
+    apps: string[];
+    generalOnly: boolean;
   } | null>(null);
   const [credentialGroup, setCredentialGroup] = useState("");
   const [credentialLoading, setCredentialLoading] = useState(false);
@@ -218,8 +220,24 @@ export function YuanhengHealthCard({
         return;
       if (!fresh.groups.length)
         throw new Error(dt("当前没有可用分组，未创建凭据，请联系管理员"));
-      setCredentialGroup("");
-      setCredentialChoice({ userId, groups: fresh.groups });
+      const latest = await diagnostics.refetch();
+      if (currentUser.current !== userId) return;
+      const generalOnly = latest.isError || !latest.data;
+      const checks = generalOnly ? [] : (latest.data?.checks ?? []);
+      const apps = checks
+        .filter(
+          (c) =>
+            c.id.startsWith("tool_credential:") &&
+            c.action === "repair_credentials",
+        )
+        .map((c) => c.id.slice("tool_credential:".length));
+      const recovery = checks.some((c) => c.action === "repair_credentials");
+      setCredentialGroup(
+        recovery
+          ? (fresh.groups.find((g) => g.id === "auto") ?? fresh.groups[0]).id
+          : "",
+      );
+      setCredentialChoice({ userId, groups: fresh.groups, apps, generalOnly });
     } catch (error) {
       toast.error(
         extractErrorMessage(error) || dt("读取可用分组失败，未创建凭据"),
@@ -238,32 +256,50 @@ export function YuanhengHealthCard({
       currentUser.current !== credentialChoice.userId
     )
       return;
-    if (
-      !window.confirm(
-        `${dt("将为通用功能复用账号统一令牌；首次创建以所选分组优先，后续路由按平台令牌配置执行。是否继续？")}\n${credentialGroup}`,
-      )
-    ) {
-      return;
-    }
     credentialBusy.current = true;
     try {
-      await rotateCredential.mutateAsync({
+      const outcome = await rotateCredential.mutateAsync({
         group: credentialGroup,
         userId: credentialChoice.userId,
+        affectedTools: credentialChoice.apps,
       });
       if (currentUser.current !== credentialChoice.userId) return;
       setCredentialChoice(null);
       const checked = await diagnostics.refetch();
+      if (currentUser.current !== credentialChoice.userId) return;
+      if (outcome.failedTools.length) {
+        toast.warning(
+          dt("统一令牌已恢复，以下工具需单独配置：{{tools}}", {
+            tools: outcome.failedTools.join("、"),
+          }),
+        );
+        return;
+      }
       const credential = checked.data?.checks?.find(
         (check) => check.id === "credential",
       );
-      if (checked.isError || credential?.status !== "ok") {
-        toast.warning(dt("凭据保存后复验未通过，请查看详情；未修改工具配置"));
+      if (
+        checked.isError ||
+        credential?.status !== "ok" ||
+        credentialChoice.apps.some(
+          (app) =>
+            !checked.data?.checks?.some(
+              (c) => c.id === `tool_credential:${app}` && c.status === "ok",
+            ),
+        )
+      ) {
+        toast.warning(dt("凭据已保存，部分检查尚未通过，请查看详情"));
       } else {
-        toast.success(dt("通用凭据验证通过，工具配置保持不变"));
+        toast.success(
+          dt(
+            credentialChoice.generalOnly
+              ? "仅恢复通用凭据，工具请重新体检。"
+              : "连接与凭据已恢复",
+          ),
+        );
       }
     } catch (error) {
-      toast.error(extractErrorMessage(error) || dt("重新生成凭据失败"));
+      toast.error(dt(extractErrorMessage(error) || "重新生成凭据失败"));
     } finally {
       credentialBusy.current = false;
     }
@@ -365,7 +401,12 @@ export function YuanhengHealthCard({
           <Button
             size="sm"
             onClick={() => void handlePrimaryAction()}
-            disabled={repair.isPending || diagnostics.isFetching}
+            disabled={
+              repair.isPending ||
+              diagnostics.isFetching ||
+              credentialLoading ||
+              rotateCredential.isPending
+            }
           >
             {repair.isPending || diagnostics.isFetching ? (
               <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -380,6 +421,23 @@ export function YuanhengHealthCard({
             )}
             {primaryLabel}
           </Button>
+          {!report &&
+            diagnostics.isError &&
+            !checkOnly &&
+            connection?.connected && (
+              <Button
+                size="sm"
+                variant="ghost"
+                disabled={
+                  credentialLoading ||
+                  rotateCredential.isPending ||
+                  diagnostics.isFetching
+                }
+                onClick={() => void openCredentialChoice()}
+              >
+                {dt("配置或修复通用凭据")}
+              </Button>
+            )}
           {report && (
             <Button
               variant="ghost"
@@ -510,13 +568,21 @@ export function YuanhengHealthCard({
       >
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>{dt("选择通用凭据分组")}</DialogTitle>
+            <DialogTitle>{dt("恢复统一令牌")}</DialogTitle>
             <DialogDescription>
               {dt(
-                "声音克隆等通用功能与工具共用账号统一令牌。所选分组仅决定首次创建的优先顺序，已有路由规则请在平台管理。",
+                "已有令牌会复用。若已删除，新令牌使用当前授权分组和账号余额，无独立额度、有效期或模型限制。",
               )}
             </DialogDescription>
           </DialogHeader>
+          {credentialChoice?.generalOnly && (
+            <p>{dt("仅恢复通用凭据，工具请重新体检。")}</p>
+          )}
+          {!!credentialChoice?.apps.length && (
+            <p>
+              {dt("同时恢复：{{v0}}", { v0: credentialChoice.apps.join("、") })}
+            </p>
+          )}
           <select
             aria-label={dt("通用凭据分组")}
             className="w-full rounded-md border bg-background p-2"
@@ -535,7 +601,7 @@ export function YuanhengHealthCard({
             disabled={!credentialGroup || rotateCredential.isPending}
             onClick={() => void rotateDeviceCredential()}
           >
-            {dt("验证并保存通用凭据")}
+            {dt("确认恢复")}
           </Button>
         </DialogContent>
       </Dialog>

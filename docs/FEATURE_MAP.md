@@ -283,6 +283,8 @@ QA人工启动入口按2026-10-21用户授权启用剪贴板共享，并在guest
 
 ## 桌面端统一令牌（2026-11-08）
 
+智能体检提供主动恢复误删统一令牌：账号列表完整检查→复用或补建→目录验证→更新确认范围内的失效工具凭据。正常凭据、官方模式和独立图片Skill保持原状。见[误删恢复](../.agents/notes/implemented/feature/2026-11-17-deleted-token-recovery.md)。
+
 工具聊天配置、图片视频创作页和通用凭据修复共用 [device_credentials](../src-tauri/src/commands/yuanheng/device_credentials.rs) 的账号统一令牌。首次配置以所选真实分组优先，其他授权真实组按名称排序，auto 不作为 routing_config 成员；后续保留平台分组顺序、模型规则、额度和限制。以上入口的目录分组只筛选模型，实际路由及收费由平台决定。新 Provider 标记 routing=token，本地用量显示自动路由并不猜测分组报价。既有配置在重新应用前保持旧凭据；旧视频仍按记录 token_id 查询，升级不自动删除令牌。详见[决定与边界](../.agents/notes/implemented/architecture/2026-11-08-account-shared-token.md)。
 
 内置图片Skill为独立例外：[图片令牌](../src-tauri/src/commands/yuanheng/imagegen_token.rs)按账号/图片组复用专用单组凭据，[连接](../src-tauri/src/commands/yuanheng/imagegen_connection.rs)与[脚本](../src-tauri/src/resources/builtin_skills/meta-api-imagegen/scripts/meta_api_imagegen.mjs)只使用该工具独立图片路由。首次显式连接默认“生图和视频”，可在既有选择器换组，旧连接须更新；不修改聊天自动路由或客户端创作页。范围与验收见[指南](guides/image-skill-group.md)及[决定](../.agents/notes/implemented/bug-fix/2026-11-13-image-skill-group.md)。

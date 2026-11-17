@@ -412,14 +412,15 @@ export function useRotateYuanhengCredential() {
     mutationFn: async ({
       group,
       userId,
+      affectedTools,
     }: {
       group: string;
       userId: string;
+      affectedTools?: string[];
     }) => {
-      const connection = await yuanhengApi.rotateDeviceToken(group, userId);
-      return { connection };
+      return yuanhengApi.rotateDeviceToken(group, userId, affectedTools);
     },
-    onSuccess: () => {
+    onSettled: () => {
       queryClient.invalidateQueries({ queryKey: platformPricingKey });
       queryClient.invalidateQueries({ queryKey: usageKeys.all });
       // A reply from an earlier account must not repopulate the current cache.
