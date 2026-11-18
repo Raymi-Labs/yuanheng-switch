@@ -188,6 +188,8 @@ export function MediaStudioContent({ scope }: { scope: string }) {
     outputCompression,
   };
   const preferenceKey = mediaPreferenceKey(scope, kind, group);
+  const targetParametersKey = JSON.stringify([kind, group, model]);
+  const parametersReady = parametersKey === targetParametersKey;
   const [prompt, setPrompt] = useState("");
   const [reference, setReference] = useState<string | null>(null);
   const [extraReferences, setExtraReferences] = useState<string[]>([]);
@@ -272,7 +274,7 @@ export function MediaStudioContent({ scope }: { scope: string }) {
           ? remembered.parameters
           : defaultMediaParameters(selected));
       pendingParameters.current = null;
-      setParametersKey(JSON.stringify([kind, group, model]));
+      setParametersKey(targetParametersKey);
       setSize(next.size);
       setDuration(next.duration);
       setQuality(next.quality);
@@ -312,11 +314,12 @@ export function MediaStudioContent({ scope }: { scope: string }) {
 
   useEffect(() => {
     if (
-      parametersKey === JSON.stringify([kind, group, model]) &&
+      parametersReady &&
       selected &&
-      groupReady &&
       mediaParametersValid(selected, parameters)
     ) {
+      // Local preferences can be saved during a catalog refetch. This is not
+      // permission to submit: generate() still requires a fresh group/model.
       saveMediaPreference(preferenceKey, model, parameters);
     }
   }, [
@@ -328,7 +331,9 @@ export function MediaStudioContent({ scope }: { scope: string }) {
     background,
     outputCompression,
     model,
-    parametersKey,
+    parametersReady,
+    preferenceKey,
+    selected,
   ]);
   const applyParameters = (p: MediaParameters) => {
     setSize(p.size);
@@ -522,6 +527,7 @@ export function MediaStudioContent({ scope }: { scope: string }) {
       submitLock.current ||
       actionLock.current ||
       !selected ||
+      !parametersReady ||
       !mediaParametersValid(selected, parameters) ||
       (needsReference && referenceList.length === 0) ||
       !prompt.trim() ||
@@ -1261,7 +1267,7 @@ export function MediaStudioContent({ scope }: { scope: string }) {
                   </p>
                 </div>
               )}
-            {selected && (
+            {selected && parametersReady && (
               <MediaParameterFields
                 model={selected}
                 value={parameters}
@@ -1323,6 +1329,7 @@ export function MediaStudioContent({ scope }: { scope: string }) {
                 !prompt.trim() ||
                 Array.from(prompt).length > promptLimit ||
                 models.isError ||
+                !parametersReady ||
                 !mediaParametersValid(selected, parameters) ||
                 (needsReference && !referenceList.length) ||
                 (selected.reference === "required" && !reference)
