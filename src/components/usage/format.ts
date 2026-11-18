@@ -31,6 +31,32 @@ export function fmtUsd(
   return `$${num.toFixed(digits)}`;
 }
 
+/** Preserve the native decimal string; never round a settlement into a charge. */
+export function fmtSettlementAmount(
+  amount: string | null | undefined,
+  symbol: string | null | undefined,
+  locale: string,
+): string | null {
+  if (
+    amount == null ||
+    symbol == null ||
+    amount.length > 96 ||
+    !/^-?\d+(?:\.\d+)?$/.test(amount)
+  )
+    return null;
+  const [whole, fraction = ""] = amount.split(".");
+  const integer = BigInt(whole);
+  const negativeFraction = whole.startsWith("-") && /[1-9]/.test(fraction);
+  const grouped = new Intl.NumberFormat(locale, {
+    maximumFractionDigits: 0,
+  }).format(integer === BigInt(0) && negativeFraction ? -0 : integer);
+  const decimal = fraction.replace(/0+$/, "").padEnd(symbol ? 2 : 0, "0");
+  const separator = new Intl.NumberFormat(locale)
+    .formatToParts(1.1)
+    .find((part) => part.type === "decimal")!.value;
+  return `${symbol}${grouped}${decimal ? separator + decimal : ""}`;
+}
+
 function normalizeLanguageTag(language: string): string {
   return language.toLowerCase().replace(/_/g, "-");
 }

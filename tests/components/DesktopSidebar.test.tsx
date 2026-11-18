@@ -19,6 +19,41 @@ vi.mock("@/lib/api", () => ({
 }));
 
 describe("DesktopSidebar", () => {
+  it.each([undefined, null, NaN, 0, -1, 10])(
+    "余额 %s 不将未知值显示为零",
+    (remainingUsd) => {
+      render(
+        <DesktopSidebar
+          view="home"
+          onNavigate={vi.fn()}
+          proxyRunning={false}
+          helpOpen={false}
+          onHelpOpenChange={vi.fn()}
+          connection={
+            {
+              connected: true,
+              userId: "1",
+              account:
+                remainingUsd === undefined
+                  ? undefined
+                  : { username: "test", remainingUsd },
+              baseUrl: "https://example.test",
+              models: [],
+              groups: [],
+            } as any
+          }
+        />,
+      );
+      if (typeof remainingUsd === "number" && Number.isFinite(remainingUsd))
+        expect(
+          screen.getByText(`$${remainingUsd.toFixed(2)}`),
+        ).toBeInTheDocument();
+      else {
+        expect(screen.getByText("余额暂未同步")).toBeInTheDocument();
+        expect(screen.queryByText("$0.00")).not.toBeInTheDocument();
+      }
+    },
+  );
   beforeEach(() => {
     openExternalMock.mockReset().mockResolvedValue(undefined);
     openTopupMock.mockReset().mockResolvedValue(true);

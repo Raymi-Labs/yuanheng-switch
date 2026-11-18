@@ -1515,6 +1515,27 @@
     "noSearchResults": "No provider presets match your search."
   },
   "usage": {
+    "localStatus": {
+      "failed": "Could not read local data. Please retry.",
+      "stale": "Refresh failed. Showing data last read at {{time}}.",
+      "retry": "Retry"
+    },
+    "platformSummary": {
+      "stale": "Refresh failed. Showing data last synced at {{time}}.",
+      "partial": "Available platform data is shown. Some statistics could not be retrieved.",
+      "notSynced": "Not synced yet",
+      "title": "Platform usage",
+      "charged": "Net spend",
+      "requests": "Requests",
+      "tokens": "Tokens",
+      "local": "Local requests",
+      "refresh": "Sync platform usage",
+      "scope": "Uses the web overview’s retained settlement records for this account across all devices: charges minus refunds by each event’s time, including the start and excluding the end. Local filters do not apply. Compare the same period and unit; web log charge totals exclude refunds, and display precision or refresh times may differ.",
+      "login": "Sign in to YuanHeng to sync platform usage.",
+      "range": "Select a period of at most 30 days.",
+      "invalid": "Platform totals are unavailable. Check the website or try again later.",
+      "unavailable": "Could not sync platform usage. Refresh to retry."
+    },
     "title": "Usage Statistics",
     "subtitle": "View AI model usage and cost statistics",
     "today": "24 Hours",

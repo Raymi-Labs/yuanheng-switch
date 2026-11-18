@@ -4,6 +4,7 @@ import { MEDIA_JA } from "./mediaStudioTranslations";
 import { COMMERCE_JA } from "./accioCommerceTranslations";
 import { BROWSER_LOGIN_JA } from "./browserLoginTranslations";
 export const DESKTOP_JA: Record<string, string> = {
+  余额暂未同步: "残高は未同期です",
   ...COMMERCE_JA,
   恢复统一令牌: "共通トークンを復旧",
   "令牌列表已变化，请重新检查":

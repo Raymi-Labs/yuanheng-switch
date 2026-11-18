@@ -1,0 +1,147 @@
+{
+  "accountId": "417",
+  "status": {
+    "success": true,
+    "data": {
+      "quota_per_unit": 500000,
+      "quota_display_type": "CUSTOM",
+      "custom_currency_exchange_rate": 7,
+      "custom_currency_symbol": "⚡"
+    }
+  },
+  "events": [
+    {
+      "user_id": 417,
+      "created_at": 1699999999,
+      "type": 2,
+      "quota": 999999,
+      "group": "prior-day"
+    },
+    {
+      "user_id": 417,
+      "created_at": 1700000000,
+      "type": 2,
+      "quota": 1000000,
+      "prompt_tokens": 80,
+      "completion_tokens": 20,
+      "group": "auto",
+      "other": "{\"model_ratio\":1,\"cache_tokens\":20,\"prompt_tokens_semantic\":\"inclusive\"}"
+    },
+    {
+      "user_id": 417,
+      "created_at": 1700000100,
+      "type": 2,
+      "quota": 125,
+      "prompt_tokens": 4,
+      "completion_tokens": 1,
+      "group": "fixture-fallback",
+      "other": "{\"model_ratio\":100}"
+    },
+    {
+      "user_id": 417,
+      "created_at": 1700000200,
+      "type": 2,
+      "quota": 250000,
+      "group": "fixture-media",
+      "other": "{\"task_id\":\"fixture-adjustment\"}"
+    },
+    {
+      "user_id": 417,
+      "created_at": 1700000300,
+      "type": 6,
+      "quota": 500000,
+      "group": "fixture-media",
+      "other": "{\"task_id\":\"fixture-refund\"}"
+    },
+    {
+      "user_id": 417,
+      "created_at": 1700086400,
+      "type": 6,
+      "quota": 1000000,
+      "group": "auto"
+    },
+    { "user_id": 418, "created_at": 1700000100, "type": 2, "quota": 999999 }
+  ],
+  "cases": [
+    {
+      "name": "charges-and-refund",
+      "response": {
+        "success": true,
+        "summary": {
+          "source": "retained_settlement_logs_v1",
+          "start_timestamp": 1700000000,
+          "end_timestamp": 1700086400,
+          "quota": 750125,
+          "requests": 2,
+          "tokens": 105
+        }
+      },
+      "amount": "10.50175",
+      "display": "⚡10.50175"
+    },
+    {
+      "name": "next-day-refund",
+      "response": {
+        "success": true,
+        "summary": {
+          "source": "retained_settlement_logs_v1",
+          "start_timestamp": 1700086400,
+          "end_timestamp": 1700172800,
+          "quota": -1000000,
+          "requests": 0,
+          "tokens": 0
+        }
+      },
+      "amount": "-14",
+      "display": "⚡-14.00"
+    },
+    {
+      "name": "both-days",
+      "response": {
+        "success": true,
+        "summary": {
+          "source": "retained_settlement_logs_v1",
+          "start_timestamp": 1700000000,
+          "end_timestamp": 1700172800,
+          "quota": -249875,
+          "requests": 2,
+          "tokens": 105
+        }
+      },
+      "amount": "-3.49825",
+      "display": "⚡-3.49825"
+    },
+    {
+      "name": "tiny-charge",
+      "response": {
+        "success": true,
+        "summary": {
+          "source": "retained_settlement_logs_v1",
+          "start_timestamp": 1700000100,
+          "end_timestamp": 1700000101,
+          "quota": 125,
+          "requests": 1,
+          "tokens": 5
+        }
+      },
+      "amount": "0.00175",
+      "display": "⚡0.00175"
+    },
+    {
+      "name": "real-empty-period",
+      "response": {
+        "success": true,
+        "summary": {
+          "source": "retained_settlement_logs_v1",
+          "start_timestamp": 1700172800,
+          "end_timestamp": 1700259200,
+          "quota": 0,
+          "requests": 0,
+          "tokens": 0
+        }
+      },
+      "amount": "0",
+      "display": "⚡0.00"
+    }
+  ]
+}

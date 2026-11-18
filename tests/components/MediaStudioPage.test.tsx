@@ -1,4 +1,5 @@
 import { MEDIA_INSPIRATION } from "@/lib/mediaInspiration";
+import { Profiler } from "react";
 import {
   act,
   cleanup,
@@ -81,11 +82,17 @@ const profiles = [
   },
 ];
 let client: ReturnType<typeof createTestQueryClient>;
-function mount(explore = false) {
+function mount(explore = false, onCommit?: () => void) {
   client = createTestQueryClient();
   const view = render(
     <QueryClientProvider client={client}>
-      <MediaStudioPage />
+      {onCommit ? (
+        <Profiler id="media-preferences" onRender={onCommit}>
+          <MediaStudioPage />
+        </Profiler>
+      ) : (
+        <MediaStudioPage />
+      )}
     </QueryClientProvider>,
   );
   if (!explore)
@@ -488,6 +495,7 @@ describe("P1/P2 media studio", () => {
         enhanced.id,
       ),
     );
+    await screen.findByRole("combobox", { name: "画质" });
   };
   it("refreshes the group model catalog on entry and filters groups by type", async () => {
     setup();
@@ -551,13 +559,49 @@ describe("P1/P2 media studio", () => {
     });
     view.unmount();
     client.clear();
-    mount();
+    // Capture each committed, editable form, not just the eventual value.
+    const editableQualities: string[] = [];
+    mount(false, () => {
+      const field = screen.queryByRole<HTMLSelectElement>("combobox", {
+        name: "画质",
+      });
+      if (field && !field.matches(":disabled"))
+        editableQualities.push(field.value);
+    });
     await ready();
+    expect(new Set(editableQualities)).toEqual(new Set(["max"]));
     expect(screen.getByRole("combobox", { name: "画质" })).toHaveValue("max");
     expect(screen.getByRole("combobox", { name: "尺寸或比例" })).toHaveValue(
       "3840x2160",
     );
     expect(screen.getByRole("textbox", { name: "画面描述" })).toHaveValue("");
+  });
+  it("keeps a local edit made while the group catalog is refreshing across reopen", async () => {
+    setup();
+    const view = mount();
+    await ready();
+    const quality = () => screen.getByRole("combobox", { name: "画质" });
+    const refresh = screen.getByRole("button", { name: "刷新分组" });
+    let finish!: (value: typeof catalog) => void;
+    mocks.groups.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+    );
+    fireEvent.click(refresh);
+    await waitFor(() =>
+      expect(screen.getByRole("combobox", { name: "生成模型" })).toBeDisabled(),
+    );
+    expect(quality()).toBeEnabled();
+    fireEvent.change(quality(), { target: { value: "max" } });
+    view.unmount();
+    client.clear();
+    await act(async () => finish(catalog));
+    mount();
+    await ready();
+    await waitFor(() => expect(quality()).toHaveValue("max"));
+    expect(mocks.submit).not.toHaveBeenCalled();
   });
   it("keeps changed group parameters isolated and allows removal of incompatible references", async () => {
     setup();

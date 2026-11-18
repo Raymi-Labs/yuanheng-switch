@@ -4,6 +4,7 @@ import { MEDIA_KO } from "./mediaStudioTranslations";
 import { COMMERCE_KO } from "./accioCommerceTranslations";
 import { BROWSER_LOGIN_KO } from "./browserLoginTranslations";
 export const DESKTOP_KO: Record<string, string> = {
+  余额暂未同步: "잔액이 아직 동기화되지 않음",
   ...COMMERCE_KO,
   恢复统一令牌: "공용 토큰 복구",
   "令牌列表已变化，请重新检查": "토큰 목록이 변경되었습니다. 다시 확인하세요.",

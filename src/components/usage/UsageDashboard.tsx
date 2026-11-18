@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { PlatformPricingPanel } from "./PlatformPricingPanel";
 import { UsageHero } from "./UsageHero";
 import { UsageTrendChart } from "./UsageTrendChart";
 import { RequestLogTable } from "./RequestLogTable";
@@ -280,6 +279,15 @@ export function UsageDashboard({
       transition={{ duration: 0.4 }}
       className="space-y-8 pb-8"
     >
+      <UsageCostSummary
+        range={range}
+        rangeLabel={rangeLabel}
+        refreshIntervalMs={refreshIntervalMs}
+        onRangeChange={setRange}
+      />
+      <h2 className="text-sm font-semibold">
+        {t("usage.platformSummary.local")}
+      </h2>
       <div className="flex flex-col lg:flex-row lg:items-end justify-end gap-4 mb-2">
         <div className="flex flex-wrap items-center gap-2">
           <div className="flex items-center p-1 bg-muted/30 rounded-lg border border-border/50">
@@ -391,20 +399,6 @@ export function UsageDashboard({
           </div>
         </div>
       </div>
-
-      <UsageCostSummary
-        range={range}
-        rangeLabel={rangeLabel}
-        filters={{
-          appType: appType === "all" ? undefined : appType,
-          providerName,
-          model,
-        }}
-        refreshIntervalMs={refreshIntervalMs}
-        onRangeChange={setRange}
-      />
-
-      <PlatformPricingPanel />
 
       <UsageHero
         range={range}

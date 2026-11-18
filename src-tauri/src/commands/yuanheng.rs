@@ -16,6 +16,8 @@ mod imagegen_connection;
 mod imagegen_credentials;
 mod imagegen_token;
 mod media_studio;
+mod platform_usage;
+pub use platform_usage::*;
 mod model_catalog;
 mod reasoning;
 pub(crate) mod service_tiers;
@@ -219,8 +221,8 @@ pub struct YuanhengAccount {
     pub username: String,
     pub display_name: String,
     pub group: String,
-    pub remaining_usd: f64,
-    pub used_usd: f64,
+    pub remaining_usd: Option<f64>,
+    pub used_usd: Option<f64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -651,8 +653,11 @@ fn invalidate_yuanheng_session(state: &AppState) -> Result<(), String> {
     Ok(())
 }
 
-fn quota_to_usd(value: Option<&Value>) -> f64 {
-    value.and_then(Value::as_f64).unwrap_or_default() / 500_000.0
+fn quota_to_usd(value: Option<&Value>) -> Option<f64> {
+    value
+        .and_then(Value::as_f64)
+        .filter(|v| v.is_finite())
+        .map(|v| v / 500_000.0)
 }
 
 fn parse_account(value: &Value) -> Result<YuanhengAccount, String> {
@@ -8327,8 +8332,8 @@ mod tests {
         }))
         .unwrap();
         assert_eq!(account.group, "vip");
-        assert_eq!(account.remaining_usd, 2.0);
-        assert_eq!(account.used_usd, 0.5);
+        assert_eq!(account.remaining_usd, Some(2.0));
+        assert_eq!(account.used_usd, Some(0.5));
     }
 
     #[test]

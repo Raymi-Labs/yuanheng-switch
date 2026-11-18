@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { motion } from "framer-motion";
 import { Card, CardContent } from "@/components/ui/card";
 import { useUsageSummaryByApp } from "@/lib/query/usage";
+import { UsageQueryNotice } from "./UsageQueryNotice";
 import { cn } from "@/lib/utils";
 import { APP_ICON_MAP } from "@/config/appConfig";
 import type { AppId } from "@/lib/api/types";
@@ -180,13 +181,14 @@ export function UsageHero({
   const { t, i18n } = useTranslation();
   const lang = getResolvedLang(i18n);
 
-  const { data, isLoading } = useUsageSummaryByApp(
-    range,
-    { providerName, model },
-    {
-      refetchInterval: refreshIntervalMs > 0 ? refreshIntervalMs : false,
-    },
-  );
+  const { data, isLoading, isError, dataUpdatedAt, refetch, isFetching } =
+    useUsageSummaryByApp(
+      range,
+      { providerName, model },
+      {
+        refetchInterval: refreshIntervalMs > 0 ? refreshIntervalMs : false,
+      },
+    );
 
   // No client-side filtering: Hero's totals must match the Trend/Logs/Stats
   // below, which all go through the backend's full set of app_types. The
@@ -244,6 +246,15 @@ export function UsageHero({
   const hitPercent = Math.max(0, Math.min(100, hitRate * 100));
   const hitPercentLabel = hitPercent.toFixed(hitPercent >= 99.95 ? 0 : 1);
 
+  const notice = isError ? (
+    <UsageQueryNotice
+      hasData={data != null}
+      updatedAt={dataUpdatedAt}
+      retry={refetch}
+      busy={isFetching}
+    />
+  ) : null;
+  if (isError && data == null) return notice;
   return (
     <motion.div
       initial={{ opacity: 0, y: 5 }}
@@ -252,6 +263,7 @@ export function UsageHero({
     >
       <Card className="relative overflow-hidden border border-border/50 bg-card/60 backdrop-blur-xl shadow-sm">
         <CardContent className="p-4 md:p-5">
+          {notice}
           <div className="flex flex-col gap-4">
             {/* Top row: Main Token Count, Requests, Cost */}
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">

@@ -20,6 +20,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useRequestLogs } from "@/lib/query/usage";
+import { UsageQueryNotice } from "./UsageQueryNotice";
 import {
   getFreshInputTokens,
   type LogFilters,
@@ -67,7 +68,14 @@ export function RequestLogTable({
     statusCode,
   };
 
-  const { data: result, isLoading } = useRequestLogs({
+  const {
+    data: result,
+    isLoading,
+    isError,
+    dataUpdatedAt,
+    refetch,
+    isFetching,
+  } = useRequestLogs({
     filters: effectiveFilters,
     range,
     page,
@@ -142,7 +150,15 @@ export function RequestLogTable({
         </div>
       </div>
 
-      {isLoading ? (
+      {isError && (
+        <UsageQueryNotice
+          hasData={result != null}
+          updatedAt={dataUpdatedAt}
+          retry={refetch}
+          busy={isFetching}
+        />
+      )}
+      {isError && result == null ? null : isLoading ? (
         <div className="h-[400px] animate-pulse rounded bg-gray-100" />
       ) : (
         <>
