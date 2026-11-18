@@ -35,8 +35,8 @@ export interface YuanhengAccount {
   username: string;
   displayName: string;
   group: string;
-  remainingUsd: number;
-  usedUsd: number;
+  remainingUsd: number | null;
+  usedUsd: number | null;
 }
 
 export interface YuanhengGroupOption {

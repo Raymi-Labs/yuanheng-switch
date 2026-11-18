@@ -8,6 +8,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { useProviderStats } from "@/lib/query/usage";
+import { UsageQueryNotice } from "./UsageQueryNotice";
 import { fmtCredits } from "./format";
 import type { UsageRangeSelection } from "@/types/usage";
 
@@ -27,7 +28,14 @@ export function ProviderStatsTable({
   refreshIntervalMs,
 }: ProviderStatsTableProps) {
   const { t } = useTranslation();
-  const { data: stats, isLoading } = useProviderStats(
+  const {
+    data: stats,
+    isLoading,
+    isError,
+    dataUpdatedAt,
+    refetch,
+    isFetching,
+  } = useProviderStats(
     range,
     { appType, providerName, model },
     {
@@ -39,8 +47,18 @@ export function ProviderStatsTable({
     return <div className="h-[400px] animate-pulse rounded bg-gray-100" />;
   }
 
+  const notice = isError ? (
+    <UsageQueryNotice
+      hasData={stats != null}
+      updatedAt={dataUpdatedAt}
+      retry={refetch}
+      busy={isFetching}
+    />
+  ) : null;
+  if (isError && stats == null) return notice;
   return (
     <div className="rounded-lg border border-border/50 bg-card/40 backdrop-blur-sm overflow-hidden">
+      {notice}
       <Table>
         <TableHeader>
           <TableRow>

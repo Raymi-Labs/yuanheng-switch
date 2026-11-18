@@ -68,7 +68,7 @@ export function DesktopSidebar({
     (connection?.userId
       ? dt("用户 {{id}}", { id: connection.userId })
       : dt("元衡用户"));
-  const balance = connection?.account?.remainingUsd ?? 0;
+  const balance = connection?.account?.remainingUsd;
   const { isOpening, openTopup } = useYuanhengTopup();
 
   const handleOpenWebsite = () => {
@@ -170,7 +170,9 @@ export function DesktopSidebar({
                 <WalletCards className="h-3 w-3" /> {dt("可用余额")}
               </span>
               <strong className="mt-0.5 block pr-16 font-display text-[17px] font-semibold tracking-[-0.02em] text-white">
-                ${balance.toFixed(2)}
+                {typeof balance === "number" && Number.isFinite(balance)
+                  ? `$${balance.toFixed(2)}`
+                  : dt("余额暂未同步")}
               </strong>
             </span>
           </button>

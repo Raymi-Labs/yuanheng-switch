@@ -1666,6 +1666,7 @@ pub fn run() {
             loopback_proxy::set_loopback_proxy_compatibility,
             commands::get_codex_session_bridge_status,
             commands::get_yuanheng_connection,
+            commands::get_yuanheng_platform_usage,
             commands::restore_yuanheng_keychain_access,
             commands::generate_yuanheng_voice_clone,
             commands::prepare_accio_commerce,

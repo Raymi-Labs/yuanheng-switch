@@ -10,6 +10,7 @@ import { DESKTOP_ZH_TW } from "./desktopI18n.zhTW";
 type Values = Record<string, string | number | null | undefined>;
 
 export const DESKTOP_EN: Record<string, string> = {
+  余额暂未同步: "Balance not synced yet",
   ...COMMERCE_EN,
   恢复统一令牌: "Restore shared token",
   "令牌列表已变化，请重新检查": "The token list changed. Run the check again.",

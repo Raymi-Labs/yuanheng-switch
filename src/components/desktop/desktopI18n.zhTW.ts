@@ -4,6 +4,7 @@ import { MEDIA_ZH_TW } from "./mediaStudioTranslations";
 import { COMMERCE_ZH_TW } from "./accioCommerceTranslations";
 import { BROWSER_LOGIN_ZH_TW } from "./browserLoginTranslations";
 export const DESKTOP_ZH_TW: Record<string, string> = {
+  余额暂未同步: "餘額尚未同步",
   ...COMMERCE_ZH_TW,
   恢复统一令牌: "還原統一權杖",
   "令牌列表已变化，请重新检查": "權杖清單已變更，請重新檢查。",

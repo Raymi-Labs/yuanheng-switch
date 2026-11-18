@@ -50,6 +50,7 @@ export function UsageCenter({
   const { data: connection } = useYuanhengConnection();
   const { isOpening, openTopup } = useYuanhengTopup();
   const sessionApp = SESSION_APPS.includes(activeApp) ? activeApp : "claude";
+  const balance = connection?.account?.remainingUsd;
 
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden px-7 pt-6">
@@ -64,7 +65,9 @@ export function UsageCenter({
                 <WalletCards className="h-3.5 w-3.5 text-primary" />
                 {dt("元衡余额")}
                 <strong>
-                  ${connection.account?.remainingUsd.toFixed(2) ?? "0.00"}
+                  {typeof balance === "number" && Number.isFinite(balance)
+                    ? `$${balance.toFixed(2)}`
+                    : dt("余额暂未同步")}
                 </strong>
                 <button
                   type="button"
