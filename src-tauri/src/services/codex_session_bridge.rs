@@ -20,6 +20,7 @@ use tokio_tungstenite::tungstenite::Message;
 struct ModelSelection {
     model: String,
     effort: String,
+    automatic: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -166,9 +167,18 @@ pub fn update_codex_session_model(model: &str, reasoning: &str) {
     if model.is_empty() {
         return;
     }
+    let effort = if reasoning == "auto" {
+        selection_from_profile(&codex_session_profile_path())
+            .filter(|s| s.model == model)
+            .map(|s| s.effort)
+    } else {
+        None
+    }
+    .unwrap_or_else(|| effective_effort(model, reasoning));
     let selection = ModelSelection {
         model: model.to_string(),
-        effort: effective_effort(model, reasoning),
+        effort,
+        automatic: reasoning == "auto",
     };
     bridge_state().set_selection(selection.clone());
     log::info!(
@@ -209,6 +219,14 @@ pub fn codex_session_profile_path() -> PathBuf {
 }
 
 fn selection_from_profile(path: &Path) -> Option<ModelSelection> {
+    selection_from_profile_cached(path, &mut None)
+}
+
+// Versioned catalogs are immutable. Cache only the selected row for this bridge connection.
+fn selection_from_profile_cached(
+    path: &Path,
+    cache: &mut Option<(PathBuf, String, String)>,
+) -> Option<ModelSelection> {
     let content = std::fs::read_to_string(path).ok()?;
     let config = content.parse::<toml::Value>().ok()?;
     let model = config.get("model")?.as_str()?.trim();
@@ -219,10 +237,54 @@ fn selection_from_profile(path: &Path) -> Option<ModelSelection> {
         .get("model_reasoning_effort")
         .and_then(toml::Value::as_str)
         .map(|reasoning| effective_effort(model, reasoning))
+        .or_else(|| {
+            let catalog = crate::codex_config::resolve_cc_switch_catalog_path(&content, path)?;
+            if catalog.parent() != path.parent() {
+                return None;
+            }
+            if let Some((cached, slug, effort)) = cache.as_ref() {
+                if cached == &catalog && slug == model {
+                    return Some(effort.clone());
+                }
+            }
+            let metadata = std::fs::symlink_metadata(&catalog).ok()?;
+            if !metadata.is_file() || metadata.len() > 16 * 1024 * 1024 {
+                return None;
+            }
+            let doc: Value = serde_json::from_slice(&std::fs::read(&catalog).ok()?).ok()?;
+            let row = doc["models"]
+                .as_array()?
+                .iter()
+                .find(|row| row["slug"].as_str() == Some(model))?;
+            let effort = crate::model_reasoning::normalize_reasoning_level(
+                row["default_reasoning_level"].as_str()?,
+            )?;
+            if !row["supported_reasoning_levels"]
+                .as_array()?
+                .iter()
+                .any(|v| v["effort"].as_str().or(v.as_str()) == Some(&effort))
+            {
+                return None;
+            }
+            if catalog
+                .file_stem()?
+                .to_str()?
+                .rsplit('-')
+                .next()
+                .is_some_and(|s| s.len() == 12 && s.bytes().all(|b| b.is_ascii_hexdigit()))
+            {
+                *cache = Some((catalog, model.into(), effort.clone()));
+            }
+            Some(effort)
+        })
         .unwrap_or_else(|| effective_effort(model, "auto"));
     Some(ModelSelection {
         model: model.to_string(),
         effort,
+        automatic: config
+            .get("model_reasoning_effort")
+            .and_then(toml::Value::as_str)
+            .is_none_or(|s| s == "auto"),
     })
 }
 
@@ -477,6 +539,7 @@ async fn handle_terminal(
         .ok_or_else(|| "Codex App Server 标准输出不可用".to_string())?;
     let mut output_lines = BufReader::new(child_stdout).lines();
 
+    let mut profile_cache = None;
     let stderr_output = Arc::new(Mutex::new(Vec::<String>::new()));
     let mut stderr_task = child.stderr.take().map(|stderr| {
         let stderr_output = stderr_output.clone();
@@ -497,7 +560,7 @@ async fn handle_terminal(
                     Message::Text(text) => {
                         let profile_selection = model_profile
                             .as_deref()
-                            .and_then(selection_from_profile);
+                            .and_then(|path| selection_from_profile_cached(path, &mut profile_cache));
                         if let Some(selection) = profile_selection.as_ref() {
                             state.set_selection(selection.clone());
                         }
@@ -593,7 +656,7 @@ fn rewrite_turn_start(
     message: &str,
     selection: Option<ModelSelection>,
 ) -> (String, Option<PendingTurn>) {
-    let Some(selection) = selection else {
+    let Some(mut selection) = selection else {
         return (message.to_string(), None);
     };
     let Ok(mut value) = serde_json::from_str::<Value>(message) else {
@@ -609,6 +672,27 @@ fn rewrite_turn_start(
         .get("threadId")
         .and_then(Value::as_str)
         .map(str::to_string);
+    // An automatic default fills a missing effort; it is not a forced per-turn override.
+    if selection.automatic {
+        let native_effort = |settings: &serde_json::Map<String, Value>, key: &str| {
+            if settings
+                .get("model")
+                .and_then(Value::as_str)
+                .is_some_and(|id| id != selection.model)
+            {
+                return None;
+            }
+            crate::model_reasoning::normalize_reasoning_level(settings.get(key)?.as_str()?)
+        };
+        if let Some(effort) = params
+            .get("collaborationMode")
+            .and_then(|mode| mode["settings"].as_object())
+            .and_then(|s| native_effort(s, "reasoning_effort"))
+            .or_else(|| native_effort(params, "effort"))
+        {
+            selection.effort = effort;
+        }
+    }
     params.insert("model".to_string(), Value::String(selection.model.clone()));
     params.insert(
         "effort".to_string(),
@@ -656,6 +740,7 @@ mod tests {
             Some(ModelSelection {
                 model: "k3".to_string(),
                 effort: "high".to_string(),
+                automatic: false,
             }),
         );
         let value: Value = serde_json::from_str(&rewritten).unwrap();
@@ -674,6 +759,7 @@ mod tests {
             Some(ModelSelection {
                 model: "k3".to_string(),
                 effort: "medium".to_string(),
+                automatic: false,
             }),
         );
         let value: Value = serde_json::from_str(&rewritten).unwrap();
@@ -697,6 +783,7 @@ mod tests {
             Some(ModelSelection {
                 model: "k3".to_string(),
                 effort: "medium".to_string(),
+                automatic: false,
             }),
         );
         assert_eq!(rewritten, message);
@@ -709,6 +796,7 @@ mod tests {
         let first = TerminalConnection::new(state.clone());
         let second = TerminalConnection::new(state.clone());
         let k3 = ModelSelection {
+            automatic: false,
             model: "k3".to_string(),
             effort: "high".to_string(),
         };
@@ -727,6 +815,7 @@ mod tests {
         assert_eq!(state.applied_terminal_count(&k3), 1);
 
         let gpt = ModelSelection {
+            automatic: false,
             model: "gpt-5.6-sol".to_string(),
             effort: "xhigh".to_string(),
         };
@@ -747,6 +836,7 @@ mod tests {
         let second = TerminalConnection::new(state.clone());
         let selection = ModelSelection {
             model: "k3".to_string(),
+            automatic: false,
             effort: "high".to_string(),
         };
         for (terminal, thread_id) in [(first.id, "thread-1"), (second.id, "thread-2")] {
@@ -789,9 +879,36 @@ mod tests {
             selection_from_profile(&profile),
             Some(ModelSelection {
                 model: "gpt-5.6-sol".to_string(),
+                automatic: false,
                 effort: "xhigh".to_string(),
             })
         );
+    }
+
+    #[test]
+    fn platform_reasoning_bridge_uses_catalog_default_but_preserves_same_model_turn_choice() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("terminal.config.toml");
+        let catalog = "yuanheng-terminal-model-catalog.json";
+        std::fs::write(
+            &path,
+            format!("model='future'\nmodel_catalog_json='{catalog}'"),
+        )
+        .unwrap();
+        std::fs::write(temp.path().join(catalog),r#"{"models":[{"slug":"future","supported_reasoning_levels":[{"effort":"low"},{"effort":"ultra"}],"default_reasoning_level":"low"}]}"#).unwrap();
+        let s = selection_from_profile(&path).unwrap();
+        assert_eq!(s.effort, "low");
+        for params in [
+            json!({"model":"future","effort":"ultra"}),
+            json!({"collaborationMode":{"settings":{"model":"future","reasoning_effort":"ultra"}}}),
+        ] {
+            let (out, _) = rewrite_turn_start(
+                &json!({"method":"turn/start","params":params}).to_string(),
+                Some(s.clone()),
+            );
+            let out: Value = serde_json::from_str(&out).unwrap();
+            assert_eq!(out["params"]["effort"], "ultra");
+        }
     }
 
     #[test]

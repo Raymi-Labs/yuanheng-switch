@@ -1,5 +1,17 @@
 import type { YuanhengReasoningLevel, YuanhengToolId } from "./api/yuanheng";
 import definitions from "@/data/agent-reasoning-controls.json";
+
+// Keep a saved choice on the same model so preflight can reject an obsolete level
+// instead of silently writing Auto. A different model doesn't inherit invalid choices.
+export function reasoningForSelection(
+  requested: YuanhengReasoningLevel,
+  supported: YuanhengReasoningLevel[],
+  saved?: YuanhengReasoningLevel | null,
+): YuanhengReasoningLevel {
+  return requested === saved || supported.includes(requested)
+    ? requested
+    : "auto";
+}
 const rules: Record<
   string,
   { levels: string[] | null; modelPrefixes?: string[] }

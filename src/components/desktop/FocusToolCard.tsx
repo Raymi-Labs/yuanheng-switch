@@ -375,13 +375,14 @@ export function FocusToolCard({
     ? connection?.reasoningDefaults?.[current]
     : undefined;
   const showReasoning = true;
-  const selectedReasoning =
-    currentReasoning === "auto" || supportedReasoning.includes(currentReasoning)
-      ? currentReasoning
-      : "auto";
+  const selectedReasoning = currentReasoning;
+  const retired =
+    selectedReasoning !== "auto" &&
+    !supportedReasoning.includes(selectedReasoning);
   const reasoningOptions: YuanhengReasoningLevel[] = [
     "auto",
     ...supportedReasoning.filter((level) => level !== "auto"),
+    ...(retired ? [selectedReasoning] : []),
   ];
   const codexStatus =
     app === "codex" &&
@@ -650,11 +651,16 @@ export function FocusToolCard({
                     value={selectedReasoning}
                     options={reasoningOptions.map((level) => ({
                       value: level,
-                      label: reasoningLabel(level, defaultReasoning),
+                      disabled: retired && level === selectedReasoning,
+                      label: reasoningLabel(
+                        level,
+                        defaultReasoning,
+                        supportedReasoning,
+                      ),
                     }))}
                     disabled={
                       pending ||
-                      !supportedReasoning.length ||
+                      (!retired && !supportedReasoning.length) ||
                       accioConfigurationBlocked(status)
                     }
                     triggerClassName="border-white/15 bg-white/[0.08] px-2.5 text-[10.5px] text-white transition-colors hover:bg-white/[0.12] focus:border-[#e9b67c]/70"

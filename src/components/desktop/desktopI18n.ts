@@ -26,6 +26,8 @@ export const DESKTOP_EN: Record<string, string> = {
     "Only general credentials will be restored. Check tools again afterward.",
   "统一令牌已恢复，以下工具需单独配置：{{tools}}":
     "Shared token restored. Configure these tools individually: {{tools}}",
+  "Codex 模型目录未更新，请重新同步。":
+    "Sync again to update the Codex model catalog.",
   "工具配置无法读取，请单独检查此工具。":
     "This tool’s configuration could not be read. Check it individually.",
   "凭据已保存，部分检查尚未通过，请查看详情":

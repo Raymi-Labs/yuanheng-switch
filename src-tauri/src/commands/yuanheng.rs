@@ -61,7 +61,9 @@ use toml_edit::DocumentMut;
 
 use crate::app_config::AppType;
 use crate::model_capabilities::{is_image_generation_only_model, yuanheng_model_api_format};
-use crate::model_reasoning::{fallback_reasoning_profile, REASONING_LEVELS};
+use crate::model_reasoning::{
+    fallback_reasoning_profile, resolve_profile, PlatformProfiles, REASONING_LEVELS,
+};
 use crate::provider::{
     ClaudeDesktopMode, ClaudeDesktopModelRoute, LocalProxyRequestOverrides, Provider, ProviderMeta,
 };
@@ -249,6 +251,8 @@ pub struct YuanhengConnectionStatus {
     pub reasoning_levels: HashMap<String, Vec<String>>,
     #[serde(default)]
     pub reasoning_defaults: HashMap<String, String>,
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub platform_reasoning_profiles: PlatformProfiles,
     pub announcement: Option<String>,
     pub last_synced_at: Option<i64>,
 }
@@ -441,6 +445,7 @@ impl Default for YuanhengConnectionStatus {
             model_vendors: HashMap::new(),
             reasoning_levels: HashMap::new(),
             reasoning_defaults: HashMap::new(),
+            platform_reasoning_profiles: HashMap::new(),
             announcement: None,
             last_synced_at: None,
         }
@@ -817,6 +822,19 @@ async fn fetch_user_models_at(
     user_id: &str,
     group: Option<&str>,
 ) -> Result<Vec<String>, String> {
+    fetch_model_catalog_at(client, origin, session_cookie, user_id, group, false)
+        .await
+        .map(|(names, _)| names)
+}
+
+async fn fetch_model_catalog_at(
+    client: &reqwest::Client,
+    origin: &str,
+    session_cookie: &str,
+    user_id: &str,
+    group: Option<&str>,
+    profiles: bool,
+) -> Result<(Vec<String>, Option<crate::model_reasoning::ProfileSnapshot>), String> {
     let mut request = client
         .get(format!("{origin}/api/user/models"))
         .header("Accept", "application/json")
@@ -824,13 +842,18 @@ async fn fetch_user_models_at(
     if let Some(group) = group {
         request = request.query(&[("group", group)]);
     }
+    if profiles {
+        request = request.query(&[("include", "reasoning_profiles")]);
+    }
     let (value, _) = account_http::get_json(
         with_session(request, Some(session_cookie), Some(user_id)),
         "读取账号模型失败",
         None,
     )
     .await?;
-    parse_user_models(&value)
+    let names = parse_user_models(&value)?;
+    let profiles = crate::model_reasoning::parse_platform_profiles(&value, &names);
+    Ok((names, profiles))
 }
 
 fn parse_api_models(value: &Value) -> Result<Vec<String>, String> {
@@ -1299,11 +1322,12 @@ fn fallback_reasoning_levels(model: &str) -> Vec<String> {
 
 fn reasoning_profiles_for_models(
     models: &[String],
+    platform: &PlatformProfiles,
 ) -> (HashMap<String, Vec<String>>, HashMap<String, String>) {
     let mut levels = HashMap::new();
     let mut defaults = HashMap::new();
     for model in models {
-        let Some(profile) = crate::model_reasoning::managed_reasoning_profile(model) else {
+        let Some(profile) = resolve_profile(model, platform) else {
             continue;
         };
         if profile.supported_levels.is_empty() {
@@ -1354,12 +1378,17 @@ async fn sync_connection(
     .await
     .and_then(|value| parse_user_groups(&value))?;
 
-    match fetch_user_models(client, session_cookie, user_id, None).await {
-        Ok(models) if !models.is_empty() => {
+    let mut fresh_profiles = None;
+    match fetch_model_catalog_at(client, BASE_URL, session_cookie, user_id, None, true).await {
+        Ok((models, profiles)) if !models.is_empty() => {
+            fresh_profiles = profiles;
             log::info!("已同步元衡账号全部模型: {} 个", models.len());
             model_names = models.into_iter().collect();
         }
-        Ok(_) => log::warn!("元衡账号模型目录为空，使用定价目录回退"),
+        Ok((_, profiles)) => {
+            fresh_profiles = profiles;
+            log::warn!("元衡账号模型目录为空，使用定价目录回退")
+        }
         Err(error) => log::warn!("元衡账号模型同步失败，使用定价目录回退: {error}"),
     }
 
@@ -1406,7 +1435,10 @@ async fn sync_connection(
     let model_vendors =
         model_catalog::model_vendors(pricing.as_ref(), &models, cached.as_ref(), user_id);
     let (terminal_models, image_generation_models) = partition_model_catalog(&models);
-    let (reasoning_levels, reasoning_defaults) = reasoning_profiles_for_models(&terminal_models);
+    let platform_reasoning_profiles =
+        account_profiles(fresh_profiles, cached.as_ref(), user_id, &terminal_models);
+    let (reasoning_levels, reasoning_defaults) =
+        reasoning_profiles_for_models(&terminal_models, &platform_reasoning_profiles);
 
     Ok(YuanhengConnectionStatus {
         connected: true,
@@ -1422,6 +1454,7 @@ async fn sync_connection(
         model_vendors,
         reasoning_levels,
         reasoning_defaults,
+        platform_reasoning_profiles,
         announcement: notice,
         last_synced_at: Some(chrono::Utc::now().timestamp()),
     })
@@ -1555,7 +1588,7 @@ async fn finish_authenticated_session(
         &status,
         &group,
     )?;
-    if let Err(error) = sync_yuanheng_reasoning_catalogs(state).await {
+    if let Err(error) = sync_reasoning_for_owner(state, Some(user_id)).await {
         log::warn!("模型档位目录更新未完成，可重新同步：{error}");
     }
     #[cfg(any(target_os = "macos", test))]
@@ -1620,16 +1653,37 @@ fn read_cached_status(state: &AppState) -> Result<YuanhengConnectionStatus, Stri
     let mut status: YuanhengConnectionStatus = cached
         .and_then(|value| serde_json::from_str(&value).ok())
         .unwrap_or_default();
+    if status.user_id.is_some() && status.user_id != user_id {
+        return Err("本机账号状态不一致，请重新登录".into());
+    }
     status.connected = true;
     Ok(normalize_cached_status(status))
 }
 
+fn account_profiles(
+    fresh: Option<crate::model_reasoning::ProfileSnapshot>,
+    cached: Option<&YuanhengConnectionStatus>,
+    owner: &str,
+    visible: &[String],
+) -> PlatformProfiles {
+    crate::model_reasoning::merge_platform_profiles(
+        fresh,
+        cached
+            .filter(|s| s.user_id.as_deref() == Some(owner) && s.base_url == BASE_URL)
+            .map(|s| &s.platform_reasoning_profiles),
+        visible,
+    )
+}
+
 fn normalize_cached_status(mut status: YuanhengConnectionStatus) -> YuanhengConnectionStatus {
+    if status.base_url != BASE_URL {
+        status.platform_reasoning_profiles.clear();
+    }
     status.base_url = BASE_URL.to_string();
     (status.terminal_models, status.image_generation_models) =
         partition_model_catalog(&status.models);
     (status.reasoning_levels, status.reasoning_defaults) =
-        reasoning_profiles_for_models(&status.terminal_models);
+        reasoning_profiles_for_models(&status.terminal_models, &status.platform_reasoning_profiles);
     status
 }
 
@@ -1815,6 +1869,7 @@ fn provider_meta(app: &AppType, model: &str, reasoning: &str) -> ProviderMeta {
     meta
 }
 
+#[cfg(test)]
 fn managed_provider_with_models(
     app: &AppType,
     token: &str,
@@ -1822,6 +1877,26 @@ fn managed_provider_with_models(
     available_models: &[String],
     group: &str,
     reasoning: &str,
+) -> Result<Provider, String> {
+    managed_provider_with_profiles(
+        app,
+        token,
+        model,
+        available_models,
+        group,
+        reasoning,
+        &PlatformProfiles::new(),
+    )
+}
+
+fn managed_provider_with_profiles(
+    app: &AppType,
+    token: &str,
+    model: &str,
+    available_models: &[String],
+    group: &str,
+    reasoning: &str,
+    profiles: &PlatformProfiles,
 ) -> Result<Provider, String> {
     let catalog_models = terminal_catalog_models(model, available_models);
     let mut settings = match app {
@@ -1935,7 +2010,7 @@ fn managed_provider_with_models(
         }),
     };
 
-    reasoning::project(app, model, reasoning, &mut settings);
+    reasoning::project(app, model, reasoning, &mut settings, profiles);
     let mut provider = Provider::with_id(
         MANAGED_PROVIDER_ID.to_string(),
         MANAGED_PROVIDER_DISPLAY_NAME.to_string(),
@@ -2478,6 +2553,13 @@ fn save_managed_codex_provider(
 /// Startup and explicit account refresh share this bounded local migration.
 /// No inference, account switch, token rotation or tool launch is performed.
 pub(crate) async fn sync_yuanheng_reasoning_catalogs(state: &AppState) -> Result<bool, String> {
+    sync_reasoning_for_owner(state, None).await
+}
+
+async fn sync_reasoning_for_owner(
+    state: &AppState,
+    expected_owner: Option<&str>,
+) -> Result<bool, String> {
     let _guard = codex_account_mode_switch_lock().lock().await;
     let _configuration = reasoning::configuration_lock()?;
     let connection = read_cached_status(state)?;
@@ -2487,13 +2569,26 @@ pub(crate) async fn sync_yuanheng_reasoning_catalogs(state: &AppState) -> Result
     let Some(owner) = connection.user_id.as_deref() else {
         return Ok(false);
     };
+    if expected_owner.is_some_and(|id| id != owner) {
+        return Err("账号已切换，模型目录未更改".into());
+    }
     if get_yuanheng_secret(state, USER_ID_KEY)?.as_deref() != Some(owner) {
         return Ok(false);
     }
-    sync_managed_reasoning_catalogs_at(state, owner)
+    sync_owned_catalog_profiles(state, owner, &connection)
 }
 
+#[cfg(test)]
 fn sync_managed_reasoning_catalogs_at(state: &AppState, owner: &str) -> Result<bool, String> {
+    sync_owned_catalog_profiles(state, owner, &YuanhengConnectionStatus::default())
+}
+
+fn sync_owned_catalog_profiles(
+    state: &AppState,
+    owner: &str,
+    connection: &YuanhengConnectionStatus,
+) -> Result<bool, String> {
+    let profiles = &connection.platform_reasoning_profiles;
     let mut updates = Vec::new();
     for surface in [CodexSurface::Terminal, CodexSurface::Desktop] {
         if state
@@ -2556,12 +2651,31 @@ fn sync_managed_reasoning_catalogs_at(state: &AppState, owner: &str) -> Result<b
             continue;
         };
         for model in models.iter_mut() {
-            crate::model_reasoning::apply_managed_reasoning_profile(model);
+            project_catalog_profile(model, profiles);
+        }
+        // Add newly declared models only with positive evidence for this provider's group.
+        let mut additions = Vec::new();
+        if let Some(group) = provider_group(&provider) {
+            for id in &connection.terminal_models {
+                if profiles.contains_key(id)
+                    && connection
+                        .model_groups
+                        .get(id)
+                        .is_some_and(|groups| groups.contains(&group))
+                    && !models.iter().any(|m| m["model"].as_str() == Some(id))
+                {
+                    let mut entry = managed_codex_catalog_entry(id);
+                    project_catalog_profile(&mut entry, profiles);
+                    additions.push(entry.clone());
+                    models.push(entry);
+                }
+            }
         }
         let after = crate::codex_config::refresh_managed_reasoning_catalog(
             &before,
             surface.catalog_filename(),
             models,
+            &additions,
         )
         .map_err(|e| e.to_string())?
         .unwrap_or_else(|| before.clone());
@@ -2734,6 +2848,11 @@ fn managed_codex_catalog_entry(model: &str) -> Value {
     });
     crate::model_reasoning::apply_managed_reasoning_profile(&mut entry);
     entry
+}
+
+fn project_catalog_profile(entry: &mut Value, profiles: &PlatformProfiles) {
+    let profile = entry["model"].as_str().and_then(|id| profiles.get(id));
+    crate::model_reasoning::apply_platform_profile(entry, profile);
 }
 
 fn remove_managed_global_context_default(doc: &mut DocumentMut) {
@@ -3018,13 +3137,15 @@ async fn configure_codex_surface(
     // 原始 Codex 状态，便于统一关闭元衡接管时恢复。
     remember_tool_state(state, &AppType::Codex)?;
 
-    let mut selected = managed_provider_with_models(
+    let profiles = read_cached_status(state)?.platform_reasoning_profiles;
+    let mut selected = managed_provider_with_profiles(
         &AppType::Codex,
         token,
         model,
         available_models,
         group,
         reasoning,
+        &profiles,
     )?;
     selected.settings_config["yuanhengSurface"] = json!(surface.marker());
     selected.settings_config["yuanhengLoginGuideOwner"] =
@@ -3035,11 +3156,23 @@ async fn configure_codex_surface(
         CodexSurface::Terminal => terminal_before.as_ref(),
         CodexSurface::Desktop => desktop_before.as_ref(),
     };
-    if let Some(previous) = previous_selected {
+    if let Some(previous) = previous_selected.filter(|p| {
+        p.settings_config["yuanhengLoginGuideOwner"]
+            == selected.settings_config["yuanhengLoginGuideOwner"]
+    }) {
         selected.settings_config["modelCatalog"] =
             codex_provider_catalog_settings(previous)["modelCatalog"].clone();
     }
     set_codex_available_models(&mut selected, model, available_models);
+    if let Some(entries) = selected
+        .settings_config
+        .pointer_mut("/modelCatalog/models")
+        .and_then(Value::as_array_mut)
+    {
+        for entry in entries {
+            project_catalog_profile(entry, &profiles);
+        }
+    }
     service_tiers::annotate(state, &mut selected, group).await?;
 
     let mut terminal = if surface == CodexSurface::Terminal {
@@ -3838,7 +3971,51 @@ fn all_tool_statuses(
     if crate::accio_work::EXPERIMENTAL_ENABLED {
         statuses.push(accio::status(state, connection));
     }
+    for status in &mut statuses {
+        if !status.configured || !connection.connected {
+            continue;
+        }
+        let Some(key) = native_profile_key(connection, &status.app) else {
+            continue;
+        };
+        let models =
+            cached_models_for_group(connection, status.group.as_deref(), status.model.clone());
+        let expected = native_profile_stamp(connection, &models);
+        let saved = state
+            .db
+            .get_setting(&key)
+            .ok()
+            .flatten()
+            .unwrap_or_default();
+        status.needs_update |= saved != expected;
+    }
     statuses
+}
+
+// Other tools own their live files. Flag the existing Update action instead of silently
+// rewriting those files on account refresh. A stamp contains no key or group credential.
+fn native_profile_key(connection: &YuanhengConnectionStatus, app: &str) -> Option<String> {
+    if !matches!(app, "workbuddy" | "openclaw" | "dsh" | "accio-work") {
+        return None;
+    }
+    Some(format!(
+        "yuanheng_native_profile_v1_{}_{app}",
+        connection.user_id.as_deref()?
+    ))
+}
+fn native_profile_stamp(connection: &YuanhengConnectionStatus, models: &[String]) -> String {
+    use sha2::{Digest, Sha256};
+    let profiles: std::collections::BTreeMap<_, _> = models
+        .iter()
+        .filter_map(|id| Some((id, connection.platform_reasoning_profiles.get(id)?)))
+        .collect();
+    if profiles.is_empty() {
+        return String::new();
+    }
+    format!(
+        "{:x}",
+        Sha256::digest(serde_json::to_vec(&profiles).expect("serializable profiles"))
+    )
 }
 
 fn tool_configured_at_key(app: &str) -> String {
@@ -4115,10 +4292,11 @@ fn configure_workbuddy_reasoning(
 ) -> Result<YuanhengToolConfigureResult, String> {
     let _reasoning_guard = reasoning::configuration_lock()?;
     remember_workbuddy_state(state)?;
+    let profiles = read_cached_status(state)?.platform_reasoning_profiles;
     let catalog_models = terminal_catalog_models(model, available_models);
     let config = json!({
         "models":catalog_models.iter().map(|id| {
-            let mut entry=reasoning::workbuddy_model(id,model,reasoning);
+            let mut entry=reasoning::workbuddy_model(id,model,reasoning, &profiles);
             entry["apiKey"]=json!(token); entry
         }).collect::<Vec<_>>(),
         "availableModels":catalog_models
@@ -4882,8 +5060,16 @@ fn configure_tool_with_models_inner(
     reasoning: &str,
 ) -> Result<YuanhengToolConfigureResult, String> {
     remember_tool_state(state, &app)?;
-    let provider =
-        managed_provider_with_models(&app, token, model, available_models, group, reasoning)?;
+    let profiles = read_cached_status(state)?.platform_reasoning_profiles;
+    let provider = managed_provider_with_profiles(
+        &app,
+        token,
+        model,
+        available_models,
+        group,
+        reasoning,
+        &profiles,
+    )?;
     let exists = ProviderService::list(state, app.clone())
         .map_err(|e| e.to_string())?
         .contains_key(MANAGED_PROVIDER_ID);
@@ -6095,6 +6281,23 @@ pub async fn configure_yuanheng_tools(
         match configured {
             Ok(mut result) => {
                 result.app = app_name.clone();
+                if let Some(key) = native_profile_key(&connection, &app_name) {
+                    if state
+                        .db
+                        .set_setting(
+                            &key,
+                            &native_profile_stamp(
+                                &connection,
+                                &terminal_catalog_models(&model, &group_models),
+                            ),
+                        )
+                        .is_err()
+                    {
+                        result
+                            .warnings
+                            .push("推理目录状态未保存，请重新同步".into());
+                    }
+                }
                 remember_tool_configured_at(&state, &app_name);
                 if !matches!(app_name.as_str(), "codex" | "chatgpt-desktop")
                     && crate::services::skill::ImagegenTarget::parse(&app_name).is_ok()
@@ -6225,6 +6428,7 @@ pub async fn refresh_yuanheng_connection(
 pub struct YuanhengCredentialRepairResult {
     connection: YuanhengConnectionStatus,
     failed_tools: Vec<String>,
+    catalog_sync_pending: bool,
 }
 
 #[tauri::command]
@@ -6280,6 +6484,11 @@ pub async fn rotate_yuanheng_device_token(
         device_credentials::check_owner(&state, &session_cookie, &user_id)?;
     }
 
+    device_credentials::check_owner(&state, &session_cookie, &user_id)?;
+    let catalog_sync_pending = sync_reasoning_for_owner(&state, Some(&user_id))
+        .await
+        .is_err();
+    device_credentials::check_owner(&state, &session_cookie, &user_id)?;
     // 旧 key 可能仍被 CLI、其他分组配置或离线设备引用。在所有消费者确认
     // 切换之前禁止撤销；不能依赖前端随后发起的重配命令充当跨端事务。
     // 用户需要撤销时可在平台令牌管理中显式处理。
@@ -6288,6 +6497,7 @@ pub async fn rotate_yuanheng_device_token(
     {
         Ok(YuanhengCredentialRepairResult {
             connection: read_cached_status(&state)?,
+            catalog_sync_pending,
             failed_tools: failed,
         })
     }
@@ -6295,6 +6505,7 @@ pub async fn rotate_yuanheng_device_token(
     {
         Ok(YuanhengCredentialRepairResult {
             connection: status,
+            catalog_sync_pending,
             failed_tools: failed,
         })
     }
@@ -6534,6 +6745,86 @@ mod tests {
 
     #[test]
     #[serial]
+    fn platform_reasoning_updates_native_catalog_and_workbench_for_new_exact_model() {
+        let (_home, state) = isolated_state();
+        let path = install_stale_reasoning_fixture(&state, CodexSurface::Terminal);
+        let future = String::from("future-test-model");
+        let other = String::from("other-group-model");
+        let names = vec![future.clone(), other.clone()];
+        let profile = json!({"supportedLevels":["ultra","high"],"defaultLevel":"high"});
+        let data = json!({"data":names,"reasoningProfiles":{future.clone():profile,other.clone():profile,"private":profile}});
+        let visible = parse_user_models(&data).unwrap();
+        let fresh = crate::model_reasoning::parse_platform_profiles(&data, &visible);
+        let profiles = account_profiles(fresh, None, "synthetic-owner", &visible);
+        let connection = normalize_cached_status(YuanhengConnectionStatus {
+            platform_reasoning_profiles: profiles,
+            models: visible,
+            user_id: Some("synthetic-owner".into()),
+            model_groups: HashMap::from([
+                (future.clone(), vec!["default".into()]),
+                (other.clone(), vec!["separate".into()]),
+            ]),
+            ..Default::default()
+        });
+        assert_eq!(connection.reasoning_levels[&future], ["high", "ultra"]);
+        assert_eq!(connection.reasoning_defaults[&future], "high");
+        assert!(reasoning::resolve(
+            "codex",
+            &future,
+            Some("ultra"),
+            &connection.reasoning_levels
+        )
+        .is_ok());
+        assert!(reasoning::resolve(
+            "workbuddy",
+            &future,
+            Some("ultra"),
+            &connection.reasoning_levels
+        )
+        .is_err());
+        assert!(sync_owned_catalog_profiles(&state, "synthetic-owner", &connection).unwrap());
+        assert!(!sync_owned_catalog_profiles(&state, "synthetic-owner", &connection).unwrap());
+        let config = std::fs::read_to_string(path).unwrap();
+        let catalog = crate::codex_config::resolve_cc_switch_catalog_path(
+            &config,
+            &crate::codex_config::get_codex_model_catalog_path(),
+        )
+        .unwrap();
+        let doc: Value = crate::config::read_json_file(&catalog).unwrap();
+        let rows = doc["models"].as_array().unwrap();
+        let row = rows.iter().find(|r| r["slug"] == future).unwrap();
+        assert_eq!(row["default_reasoning_level"], "high");
+        assert_eq!(row["supported_reasoning_levels"][1]["effort"], "ultra");
+        assert!(!rows
+            .iter()
+            .any(|r| r["slug"] == other || r["slug"] == "private"));
+        let names = &connection.terminal_models;
+        assert_eq!(
+            account_profiles(None, Some(&connection), "synthetic-owner", names),
+            connection.platform_reasoning_profiles
+        );
+        assert!(account_profiles(None, Some(&connection), "different", names).is_empty());
+        let removed = crate::model_reasoning::parse_platform_profiles(
+            &json!({"reasoningProfiles":{other.clone():{"supportedLevels":false}}}),
+            names,
+        );
+        let restored = account_profiles(removed, Some(&connection), "synthetic-owner", names);
+        assert!(!restored.contains_key(&future));
+        assert!(restored.contains_key(&other));
+        assert!(account_profiles(
+            None,
+            Some(&YuanhengConnectionStatus {
+                base_url: "https://example.invalid".into(),
+                ..connection.clone()
+            }),
+            "synthetic-owner",
+            names
+        )
+        .is_empty());
+    }
+
+    #[test]
+    #[serial]
     fn managed_reasoning_migration_updates_both_surfaces_and_preserves_choices() {
         let (_home, state) = isolated_state();
         let paths = [
@@ -6647,7 +6938,8 @@ mod tests {
     fn managed_reasoning_generation_ignores_conflicting_cache() {
         let (_home, _state) = isolated_state();
         crate::config::write_json_file(&crate::config::get_home_dir().join(".codex/models_cache.json"), &json!({"models":[{"slug":"gpt-6.1-sol","supported_reasoning_levels":[{"effort":"high"}],"default_reasoning_level":"high"}]})).unwrap();
-        let (levels, _) = reasoning_profiles_for_models(&["gpt-6.1-sol".into()]);
+        let (levels, _) =
+            reasoning_profiles_for_models(&["gpt-6.1-sol".into()], &PlatformProfiles::new());
         assert!(levels["gpt-6.1-sol"].contains(&"ultra".into()));
         let provider = managed_provider(
             &AppType::Codex,

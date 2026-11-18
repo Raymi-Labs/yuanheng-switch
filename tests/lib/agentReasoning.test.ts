@@ -1,5 +1,14 @@
 import { describe, it, expect } from "vitest";
-import { toolReasoningLevels } from "@/lib/agentReasoning";
+import {
+  reasoningForSelection,
+  toolReasoningLevels,
+} from "@/lib/agentReasoning";
+
+it("does not silently reset a retired saved level on the same model", () => {
+  expect(reasoningForSelection("ultra", ["low"], "ultra")).toBe("ultra");
+  expect(reasoningForSelection("ultra", ["low"])).toBe("auto");
+  expect(reasoningForSelection("auto", ["low"], "ultra")).toBe("auto");
+});
 describe("native reasoning capabilities", () => {
   it("intersects supported native levels without invented remapping", () => {
     expect(

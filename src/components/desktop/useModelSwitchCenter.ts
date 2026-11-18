@@ -1,5 +1,8 @@
 import { useClaudeDesktopMode } from "./useClaudeDesktopMode";
-import { toolReasoningLevels } from "@/lib/agentReasoning";
+import {
+  reasoningForSelection,
+  toolReasoningLevels,
+} from "@/lib/agentReasoning";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useInstallContinuation } from "./useInstallContinuation";
 import { ClaudeWorkspaceDeferredError } from "@/lib/claudeWorkspaceSetup";
@@ -397,10 +400,11 @@ export function useModelSwitchCenter() {
             connection.reasoningLevels[selectedModel],
           );
           const normalizedReasoning: YuanhengReasoningLevel =
-            selectedReasoning === "auto" ||
-            supportedReasoning.includes(selectedReasoning)
-              ? selectedReasoning
-              : "auto";
+            reasoningForSelection(
+              selectedReasoning,
+              supportedReasoning,
+              status.model === selectedModel ? status.reasoning : undefined,
+            );
           await runPreflight(app, selectedModel, group, normalizedReasoning);
           if (!canContinue()) return;
           const configured = await configure.mutateAsync({
@@ -554,11 +558,11 @@ export function useModelSwitchCenter() {
     }
     const requestedReasoning =
       patch.reasoning ?? reasoning[app] ?? status?.reasoning ?? "auto";
-    const selectedReasoning: YuanhengReasoningLevel =
-      requestedReasoning === "auto" ||
-      supportedReasoning.includes(requestedReasoning)
-        ? requestedReasoning
-        : "auto";
+    const selectedReasoning: YuanhengReasoningLevel = reasoningForSelection(
+      requestedReasoning,
+      supportedReasoning,
+      status?.model === model ? status?.reasoning : undefined,
+    );
 
     const operationId = beginOperation(app);
     try {
@@ -763,11 +767,11 @@ export function useModelSwitchCenter() {
         ? toolReasoningLevels(app, model, connection?.reasoningLevels[model])
         : [];
       const selectedReasoning = reasoning[app] ?? status?.reasoning ?? "auto";
-      const normalizedReasoning: YuanhengReasoningLevel =
-        selectedReasoning === "auto" ||
-        supportedReasoning.includes(selectedReasoning)
-          ? selectedReasoning
-          : "auto";
+      const normalizedReasoning: YuanhengReasoningLevel = reasoningForSelection(
+        selectedReasoning,
+        supportedReasoning,
+        status?.model === model ? status?.reasoning : undefined,
+      );
       const restartPending = getRestartRequiredApps().has(app);
       const dirty =
         !usesOfficialCodexAccount &&
