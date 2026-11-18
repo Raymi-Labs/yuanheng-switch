@@ -2,6 +2,8 @@ Codex 配置与 MCP 同步自动移除服务顶层无效 `type` 字段；HTTP �
 
 # YuanHeng Desktop: capability map
 
+账号模型的[平台推理档位](../.agents/notes/implemented/feature/2026-11-18-platform-reasoning-profiles.md)同时用于工作台和受托管的原生配置。后台按精确型号声明即可开放客户端已认识的档位，不从渠道或分组推测。
+
 移动大型模型目录：[Models](../mobile/src/Models.tsx)在全量搜索/筛选/排序后按24项显示；[mobile_api](../mobile/src-tauri/src/lib.rs)仅pricing操作调用[有界流式读取](../mobile/src-tauri/src/pricing.rs)，跳过无用元数据但不丢弃尾部模型，保留账号epoch检查及其他API限制。64MiB网络、8MiB保留数据预算与节点/深度保护；合成浏览器与原生测试不代表APK真机验收，见[决定](../.agents/notes/implemented/bug-fix/2026-11-12-mobile-pricing-stream.md)。
 
 CLI付费启动的空快照修复：[身份检查与单模型刷新](../src-tauri/src/services/codex_launch_speed.rs) → [配置切换锁内写入共享DB与CLI目录](../src-tauri/src/commands/yuanheng/service_tiers.rs) → 票据/桥接/Core原有校验。不会在实时查询前被旧空记录拦截；超时及并发账号/组/模型变化拒发，已配置工具不为付费启动重配全目录。见[失败场景与验证](../.agents/notes/implemented/bug-fix/2026-11-09-cli-empty-tier-snapshot.md)。

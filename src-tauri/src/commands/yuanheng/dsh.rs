@@ -227,7 +227,17 @@ fn route(model: &str) -> (&'static str, &'static str) {
     }
 }
 
+#[cfg(test)]
 fn profile_body(original: &str, model: &str, models: &[String]) -> Result<String, String> {
+    profile_body_with_capabilities(original, model, models, &super::PlatformProfiles::new())
+}
+
+fn profile_body_with_capabilities(
+    original: &str,
+    model: &str,
+    models: &[String],
+    profiles: &super::PlatformProfiles,
+) -> Result<String, String> {
     let value = yaml(original)?;
     let rows = match &value {
         serde_yaml::Value::Null => &[][..],
@@ -278,7 +288,7 @@ fn profile_body(original: &str, model: &str, models: &[String]) -> Result<String
             .filter(|id| route(id).0 == name)
             .map(|id| {
                 let mut entry = json!({"id":id,"name":id,"input":["text"]});
-                if let Some(profile) = crate::model_reasoning::managed_reasoning_profile(id) {
+                if let Some(profile) = super::resolve_profile(id, profiles) {
                     let levels =
                         super::reasoning::tool_levels("dsh", id, &profile.supported_levels);
                     let efforts: Map<String, Value> = levels
@@ -421,6 +431,10 @@ pub(super) fn configure_reasoning(
         return Err("DSH 配置目录已变化，请先恢复旧目录的配置".into());
     }
     let models = terminal_catalog_models(model, models);
+    let connection = super::read_cached_status(state)?;
+    // Credential rotation can reach this path without interactive preflight.
+    super::reasoning::resolve("dsh", model, Some(reasoning), &connection.reasoning_levels)?;
+    let profiles = connection.platform_reasoning_profiles;
     let before = paths
         .iter()
         .map(|p| read(p))
@@ -455,7 +469,7 @@ pub(super) fn configure_reasoning(
             return Err("DSH 配置存在外部覆盖，原文件未更改".into());
         }
         let original = empty_document_comments(&original)?;
-        let body = profile_body(&original, model, &models)?;
+        let body = profile_body_with_capabilities(&original, model, &models, &profiles)?;
         let body = if reasoning == "auto" {
             body
         } else {

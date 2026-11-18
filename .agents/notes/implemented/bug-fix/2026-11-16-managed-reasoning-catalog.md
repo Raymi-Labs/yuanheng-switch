@@ -2,6 +2,8 @@
 
 Status: implemented
 
+后续：[平台逐型号声明](../feature/2026-11-18-platform-reasoning-profiles.md)在有声明时优先；本篇内置规则保留为离线兼容，原有目录所有权及显式选择保护继续适用。
+
 ## Problem
 
 同一模型的档位取决于机器上的 Codex 缓存。空缓存下 gpt-6.1-sol 回退只有 low/medium/high/xhigh，已有完整目录的机器显示 max/ultra。旧目录更新只检查模型名单不足以识别能力变化，直接修改生成文件会被覆盖。

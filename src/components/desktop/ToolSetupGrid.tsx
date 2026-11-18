@@ -1,6 +1,9 @@
 import { ClaudeDesktopModeSwitch } from "./ClaudeDesktopModeSwitch";
 import { useClaudeDesktopMode } from "./useClaudeDesktopMode";
-import { toolReasoningLevels } from "@/lib/agentReasoning";
+import {
+  reasoningForSelection,
+  toolReasoningLevels,
+} from "@/lib/agentReasoning";
 import { ToolInstallProgress } from "./ToolInstallProgress";
 import { AccioConnectionNotice } from "./AccioConnectionNotice";
 import { TraeSetupGuide } from "./TraeSetupGuide";
@@ -139,8 +142,11 @@ export const REASONING_LABELS: Record<YuanhengReasoningLevel, string> = {
 export const reasoningLabel = (
   level: YuanhengReasoningLevel,
   defaultLevel?: YuanhengReasoningLevel,
+  supported?: YuanhengReasoningLevel[],
 ) =>
-  level === "auto" && defaultLevel
+  level === "auto" &&
+  defaultLevel &&
+  (!supported || supported.includes(defaultLevel))
     ? dt("自动（默认：{{v0}}）", { v0: dt(REASONING_LABELS[defaultLevel]) })
     : dt(REASONING_LABELS[level]);
 
@@ -285,9 +291,12 @@ function ToolSetupGridContent({
     const supported = model
       ? toolReasoningLevels(app, model, connection?.reasoningLevels[model])
       : [];
-    return selected === "auto" || supported.includes(selected)
-      ? selected
-      : "auto";
+    const status = statusMap.get(app);
+    return reasoningForSelection(
+      selected,
+      supported,
+      model === status?.model ? status?.reasoning : undefined,
+    );
   };
 
   const preflightApps = async (
@@ -862,6 +871,10 @@ function ToolSetupGridContent({
             ...supportedReasoning,
           ];
           const selectedReasoning = selectedReasoningFor(app, selectedModel);
+          const retired =
+            selectedReasoning !== "auto" &&
+            !supportedReasoning.includes(selectedReasoning);
+          if (retired) reasoningOptions.push(selectedReasoning);
           const controlsReasoning = true;
           const supportsCustomPath = isDesktopApp(app);
           const supportsLaunchDirectory = isYuanhengCliTool(app);
@@ -1195,17 +1208,25 @@ function ToolSetupGridContent({
                         })}
                         triggerClassName="h-7 flex-1"
                         value={
-                          supportedReasoning.length > 0
+                          supportedReasoning.length > 0 || retired
                             ? selectedReasoning
                             : "unsupported"
                         }
-                        disabled={busy || supportedReasoning.length === 0}
+                        disabled={
+                          busy || (!retired && supportedReasoning.length === 0)
+                        }
                         options={
-                          supportedReasoning.length === 0
+                          supportedReasoning.length === 0 && !retired
                             ? [{ value: "unsupported", label: dt("不适用") }]
                             : reasoningOptions.map((level) => ({
                                 value: level,
-                                label: reasoningLabel(level, defaultReasoning),
+                                disabled:
+                                  retired && level === selectedReasoning,
+                                label: reasoningLabel(
+                                  level,
+                                  defaultReasoning,
+                                  supportedReasoning,
+                                ),
                               }))
                         }
                         onChange={(value) => {

@@ -243,6 +243,7 @@ describe("diagnostic snapshots", () => {
     rotate.mockResolvedValue({
       connection: account,
       failedTools: ["workbuddy"],
+      catalogSyncPending: true,
     });
     render(<YuanhengHealthCard initiallyExpanded />);
     fireEvent.click(screen.getByRole("button", { name: "配置或修复通用凭据" }));
@@ -253,7 +254,7 @@ describe("diagnostic snapshots", () => {
     fireEvent.click(screen.getByRole("button", { name: "确认恢复" }));
     await waitFor(() =>
       expect(toast.warning).toHaveBeenCalledWith(
-        "统一令牌已恢复，以下工具需单独配置：workbuddy",
+        "统一令牌已恢复，以下工具需单独配置：workbuddy\nCodex 模型目录未更新，请重新同步。",
       ),
     );
     expect(toast.success).not.toHaveBeenCalled();

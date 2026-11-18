@@ -324,7 +324,11 @@ export const yuanhengApi = {
     group: string,
     expectedUserId: string,
     affectedTools: string[] = [],
-  ): Promise<{ connection: YuanhengConnectionStatus; failedTools: string[] }> {
+  ): Promise<{
+    connection: YuanhengConnectionStatus;
+    failedTools: string[];
+    catalogSyncPending?: boolean;
+  }> {
     return invoke("rotate_yuanheng_device_token", {
       group,
       expectedUserId,

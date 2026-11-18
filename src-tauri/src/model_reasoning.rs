@@ -16,6 +16,54 @@ pub struct ReasoningProfile {
     pub default_level: Option<String>,
 }
 
+pub type PlatformProfiles = HashMap<String, ReasoningProfile>;
+pub type ProfileSnapshot = HashMap<String, Option<ReasoningProfile>>;
+const PLATFORM_SOURCE: &str = "yuanheng-managed-v2-platform";
+
+pub fn resolve_profile(model: &str, platform: &PlatformProfiles) -> Option<ReasoningProfile> {
+    platform
+        .get(model)
+        .cloned()
+        .or_else(|| managed_reasoning_profile(model))
+}
+
+/// None means unavailable (including an older server); an empty map is an authoritative reset.
+pub fn parse_platform_profiles(value: &Value, visible: &[String]) -> Option<ProfileSnapshot> {
+    let rows = value.get("reasoningProfiles")?.as_object()?;
+    let mut result = ProfileSnapshot::new();
+    for name in visible {
+        let Some(row) = rows.get(name) else { continue };
+        let profile = serde_json::from_value::<ReasoningProfile>(row.clone())
+            .ok()
+            .and_then(|mut p| {
+                p.supported_levels = normalize_reasoning_levels(p.supported_levels);
+                p.default_level
+                    .as_ref()
+                    .is_some_and(|d| p.supported_levels.contains(d))
+                    .then_some(p)
+            });
+        result.insert(name.to_owned(), profile);
+    }
+    Some(result)
+}
+
+pub fn merge_platform_profiles(
+    fresh: Option<ProfileSnapshot>,
+    cached: Option<&PlatformProfiles>,
+    visible: &[String],
+) -> PlatformProfiles {
+    visible
+        .iter()
+        .filter_map(|name| {
+            let profile = match &fresh {
+                Some(rows) => rows.get(name)?.as_ref().or_else(|| cached?.get(name)),
+                None => cached?.get(name),
+            }?;
+            Some((name.clone(), profile.clone()))
+        })
+        .collect()
+}
+
 pub fn normalize_reasoning_level(value: &str) -> Option<String> {
     let value = value.trim().to_ascii_lowercase();
     REASONING_LEVELS.contains(&value.as_str()).then_some(value)
@@ -42,10 +90,15 @@ fn profile(levels: &[&str], default: &str) -> ReasoningProfile {
 
 pub fn fallback_reasoning_profile(model: &str) -> Option<ReasoningProfile> {
     let model = model.trim().to_ascii_lowercase();
-    if matches!(model.as_str(), "gpt-5.6-sol" | "gpt-6.1-sol") {
+    let full_default = match model.as_str() {
+        "gpt-5.6-sol" | "gpt-6.1-sol" => Some("low"),
+        "gpt-6.2-astra" | "gpt-6.2-sol" => Some("medium"),
+        _ => None,
+    };
+    if let Some(default) = full_default {
         return Some(profile(
             &["low", "medium", "high", "xhigh", "max", "ultra"],
-            "low",
+            default,
         ));
     }
     if model.contains("claude") {
@@ -73,6 +126,14 @@ pub fn managed_reasoning_profile(model: &str) -> Option<ReasoningProfile> {
 }
 
 pub fn apply_managed_reasoning_profile(entry: &mut Value) {
+    // Catalog readback has no fresh account snapshot; preserve the last platform declaration.
+    if entry["reasoningProfileSource"].as_str() == Some(PLATFORM_SOURCE) {
+        return;
+    }
+    apply_platform_profile(entry, None);
+}
+
+pub fn apply_platform_profile(entry: &mut Value, platform: Option<&ReasoningProfile>) {
     let Some(model) = entry.get("model").and_then(Value::as_str) else {
         return;
     };
@@ -87,10 +148,17 @@ pub fn apply_managed_reasoning_profile(entry: &mut Value) {
     {
         return;
     }
-    let profile = managed_reasoning_profile(model).unwrap_or_else(|| profile(&["none"], "none"));
+    let profile = platform
+        .cloned()
+        .or_else(|| managed_reasoning_profile(model))
+        .unwrap_or_else(|| profile(&["none"], "none"));
     entry["supportedReasoningLevels"] = serde_json::json!(profile.supported_levels);
     entry["defaultReasoningLevel"] = serde_json::json!(profile.default_level);
-    entry["reasoningProfileSource"] = serde_json::json!("yuanheng-managed-v1");
+    entry["reasoningProfileSource"] = serde_json::json!(if platform.is_some() {
+        PLATFORM_SOURCE
+    } else {
+        "yuanheng-managed-v1"
+    });
     if let Some(object) = entry.as_object_mut() {
         object.remove("supported_reasoning_levels");
         object.remove("default_reasoning_level");
@@ -200,6 +268,36 @@ pub fn effective_reasoning_level(model: &str, selected: &str) -> Option<String> 
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn platform_profile_roundtrip_preserves_custom_and_supports_authoritative_reset() {
+        use super::*;
+        let profile = profile(&["low", "ultra"], "low");
+        let mut entry = serde_json::json!({"model":"future-not-hardcoded"});
+        apply_platform_profile(&mut entry, Some(&profile));
+        apply_managed_reasoning_profile(&mut entry);
+        assert_eq!(entry["defaultReasoningLevel"], "low");
+        apply_platform_profile(&mut entry, None);
+        assert_eq!(
+            entry["supportedReasoningLevels"],
+            serde_json::json!(["none"])
+        );
+        let mut own = serde_json::json!({"model":"future", "supported_reasoning_levels":["high"]});
+        let old = own.clone();
+        apply_platform_profile(&mut own, Some(&profile));
+        assert_eq!(own, old);
+        for m in ["gpt-6.2-astra", "gpt-6.2-sol"] {
+            let p = managed_reasoning_profile(m).unwrap();
+            assert_eq!(
+                p.supported_levels,
+                ["low", "medium", "high", "xhigh", "max", "ultra"]
+            );
+            assert_eq!(p.default_level.as_deref(), Some("medium"));
+        }
+        assert!(!managed_reasoning_profile("gpt-6.2-other")
+            .unwrap()
+            .supported_levels
+            .contains(&"ultra".into()));
+    }
     use super::*;
 
     #[test]

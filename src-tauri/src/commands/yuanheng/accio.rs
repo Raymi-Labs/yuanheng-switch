@@ -28,22 +28,22 @@ pub(super) fn configure(
     if !accio_work::EXPERIMENTAL_ENABLED || !cfg!(target_os = "macos") {
         return Err("Accio 主模型桥接目前只完成 macOS 适配，当前平台尚未验收".into());
     }
-    let owner = read_cached_status(state)?
-        .user_id
-        .ok_or("请先连接元衡账号")?;
+    let connection = read_cached_status(state)?;
+    let owner = connection.user_id.ok_or("请先连接元衡账号")?;
     let profile = Profile {
         owner,
         model: model.into(),
         group: group.into(),
         reasoning: reasoning.into(),
         models: terminal_catalog_models(model, models),
-        provider: managed_provider_with_models(
+        provider: managed_provider_with_profiles(
             &AppType::Codex,
             token,
             model,
             models,
             group,
             reasoning,
+            &connection.platform_reasoning_profiles,
         )?,
         capability: accio_work::new_capability(),
         active: false,

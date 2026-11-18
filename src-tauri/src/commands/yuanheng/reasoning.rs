@@ -57,8 +57,24 @@ pub(super) fn resolve(
     Ok(level)
 }
 
-pub(super) fn project(app: &AppType, model: &str, level: &str, settings: &mut Value) {
+pub(super) fn project(
+    app: &AppType,
+    model: &str,
+    level: &str,
+    settings: &mut Value,
+    profiles: &PlatformProfiles,
+) {
     match app {
+        AppType::Codex => {
+            if let Some(entries) = settings
+                .pointer_mut("/modelCatalog/models")
+                .and_then(Value::as_array_mut)
+            {
+                for entry in entries {
+                    project_catalog_profile(entry, profiles);
+                }
+            }
+        }
         AppType::Claude if level != "auto" => {
             settings["env"]["CLAUDE_CODE_EFFORT_LEVEL"] = json!(level);
         }
@@ -69,8 +85,8 @@ pub(super) fn project(app: &AppType, model: &str, level: &str, settings: &mut Va
             if let Some(models) = settings["models"].as_array_mut() {
                 for entry in models {
                     let id = entry["id"].as_str().unwrap_or_default();
-                    let supported = crate::model_reasoning::managed_reasoning_profile(id)
-                        .map(|p| p.supported_levels)
+                    let supported = resolve_profile(id, profiles)
+                        .map(|p| tool_levels("openclaw", id, &p.supported_levels))
                         .unwrap_or_default();
                     if !supported.is_empty() {
                         entry["reasoning"] = json!(true);
@@ -86,11 +102,16 @@ pub(super) fn project(app: &AppType, model: &str, level: &str, settings: &mut Va
     }
 }
 
-pub(super) fn workbuddy_model(model: &str, selected: &str, level: &str) -> Value {
+pub(super) fn workbuddy_model(
+    model: &str,
+    selected: &str,
+    level: &str,
+    profiles: &PlatformProfiles,
+) -> Value {
     let mut value = json!({"id":model,"name":model,"vendor":MANAGED_PROVIDER_DISPLAY_NAME,
         "url":format!("{OPENAI_BASE_URL}/chat/completions"),"maxInputTokens":200000,
         "maxOutputTokens":8192,"supportsToolCall":true,"supportsImages":true});
-    let levels = crate::model_reasoning::managed_reasoning_profile(model)
+    let levels = resolve_profile(model, profiles)
         .map(|p| tool_levels("workbuddy", model, &p.supported_levels))
         .unwrap_or_default();
     value["supportsReasoning"] = json!(!levels.is_empty());
@@ -423,16 +444,17 @@ mod tests {
     }
     #[test]
     fn workbuddy_consumed_fields_are_per_model_and_auto_omits_effort() {
-        let high = workbuddy_model("gpt-6-astra", "gpt-6-astra", "high");
+        let profiles = PlatformProfiles::new();
+        let high = workbuddy_model("gpt-6-astra", "gpt-6-astra", "high", &profiles);
         assert_eq!(high["reasoning"]["defaultEffort"], "high");
         assert_eq!(high["supportsReasoning"], true);
         assert!(
-            workbuddy_model("gpt-6-sol", "gpt-6-astra", "high")["reasoning"]
+            workbuddy_model("gpt-6-sol", "gpt-6-astra", "high", &profiles)["reasoning"]
                 .get("defaultEffort")
                 .is_none()
         );
         assert!(
-            workbuddy_model("gpt-6-astra", "gpt-6-astra", "auto")["reasoning"]
+            workbuddy_model("gpt-6-astra", "gpt-6-astra", "auto", &profiles)["reasoning"]
                 .get("defaultEffort")
                 .is_none()
         );

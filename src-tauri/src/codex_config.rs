@@ -1557,6 +1557,7 @@ pub(crate) fn refresh_managed_reasoning_catalog(
     config_text: &str,
     base_filename: &str,
     declared_models: &[Value],
+    additions: &[Value],
 ) -> Result<Option<String>, AppError> {
     let Some(path) = resolve_cc_switch_catalog_path(config_text, &get_codex_model_catalog_path())
     else {
@@ -1582,6 +1583,22 @@ pub(crate) fn refresh_managed_reasoning_catalog(
         .get_mut("models")
         .and_then(Value::as_array_mut)
         .ok_or_else(|| AppError::Message("模型目录缺少模型列表，原配置已保留".into()))?;
+    if !additions.is_empty() {
+        let settings = json!({"modelCatalog": {"models": additions}});
+        if let Some(generated) = codex_model_catalog_from_settings(
+            &settings,
+            config_text,
+            CodexCatalogToolProfile::ProxyChat,
+        )? {
+            for row in generated["models"].as_array().into_iter().flatten() {
+                if !models.iter().any(|m| m["slug"] == row["slug"]) {
+                    let mut row = row.clone();
+                    row["priority"] = json!(1000 + models.len());
+                    models.push(row);
+                }
+            }
+        }
+    }
     for entry in models {
         let Some(slug) = entry.get("slug").and_then(Value::as_str) else {
             continue;

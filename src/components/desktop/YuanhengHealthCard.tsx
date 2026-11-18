@@ -267,12 +267,17 @@ export function YuanhengHealthCard({
       setCredentialChoice(null);
       const checked = await diagnostics.refetch();
       if (currentUser.current !== credentialChoice.userId) return;
-      if (outcome.failedTools.length) {
-        toast.warning(
-          dt("统一令牌已恢复，以下工具需单独配置：{{tools}}", {
-            tools: outcome.failedTools.join("、"),
-          }),
-        );
+      if (outcome.failedTools.length || outcome.catalogSyncPending) {
+        const notices = [];
+        if (outcome.failedTools.length)
+          notices.push(
+            dt("统一令牌已恢复，以下工具需单独配置：{{tools}}", {
+              tools: outcome.failedTools.join("、"),
+            }),
+          );
+        if (outcome.catalogSyncPending)
+          notices.push(dt("Codex 模型目录未更新，请重新同步。"));
+        toast.warning(notices.join("\n"));
         return;
       }
       const credential = checked.data?.checks?.find(
