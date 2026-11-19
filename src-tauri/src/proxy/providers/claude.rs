@@ -98,7 +98,9 @@ pub fn get_claude_api_format(provider: &Provider) -> &'static str {
 
 pub(crate) fn get_claude_api_format_for_body(provider: &Provider, body: &Value) -> &'static str {
     if let Some(model) = body.get("model").and_then(Value::as_str) {
-        if crate::proxy::model_mapper::managed_claude_catalog_contains(provider, model) {
+        if crate::proxy::model_mapper::managed_claude_catalog_contains(provider, model)
+            || crate::proxy::model_mapper::managed_desktop_route_upstream_contains(provider, model)
+        {
             return crate::model_capabilities::yuanheng_model_api_format(model);
         }
     }

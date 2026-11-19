@@ -715,6 +715,21 @@ pub fn proxy_model_routes(provider: &Provider) -> Result<Vec<ResolvedModelRoute>
 
     result.sort_by(|a, b| a.route_id.cmp(&b.route_id));
     result.dedup_by(|a, b| a.route_id == b.route_id);
+    // Claude Desktop 以菜单首项作为默认模型，与托管配置所选模型保持一致。
+    if let Some(index) = provider
+        .settings_config
+        .pointer("/env/ANTHROPIC_MODEL")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .and_then(|model| {
+            result
+                .iter()
+                .position(|route| route.upstream_model == model)
+        })
+    {
+        let default_route = result.remove(index);
+        result.insert(0, default_route);
+    }
 
     if result.is_empty() {
         return Err(AppError::localized(
@@ -806,6 +821,19 @@ pub fn map_proxy_request_model(mut body: Value, provider: &Provider) -> Result<V
     let requested = strip_one_m_suffix_for_route_lookup(&requested_raw);
 
     let routes = proxy_model_routes(provider)?;
+    // Retired IDs must fail closed before role fallback can select another model.
+    if provider
+        .meta
+        .as_ref()
+        .is_some_and(|meta| meta.claude_desktop_route_history.contains_key(requested))
+        && !routes.iter().any(|route| route.route_id == requested)
+    {
+        return Err(AppError::localized(
+            "claude_desktop.provider.route_retired",
+            "Claude Desktop 所选模型已不在当前可用目录中，请重新选择模型",
+            "The selected Claude Desktop model is no longer available; select another model",
+        ));
+    }
     let upstream_model = routes
         .iter()
         .find(|r| r.route_id == requested)

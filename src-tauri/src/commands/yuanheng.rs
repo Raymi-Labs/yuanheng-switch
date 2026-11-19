@@ -79,7 +79,6 @@ const PULSE_WINDOW_LABEL: &str = "yuanheng-pulse";
 const TOPUP_CLOSED_EVENT: &str = "yuanheng-topup-closed";
 pub(crate) const MANAGED_PROVIDER_ID: &str = "yuanheng-managed";
 const MANAGED_PROVIDER_DISPLAY_NAME: &str = "YuanHeng";
-const MANAGED_PROVIDER_AI_LABEL: &str = "YuanHeng AI";
 const TOKEN_KEY: &str = "yuanheng_access_token";
 const USER_ID_KEY: &str = "yuanheng_user_id";
 const SESSION_COOKIE_KEY: &str = "yuanheng_session_cookie";
@@ -1821,7 +1820,119 @@ fn grokbuild_reasoning_config(token: &str, model: &str, models: &[String], level
     toml::to_string(&config).expect("generated Grok configuration")
 }
 
-fn provider_meta(app: &AppType, model: &str, reasoning: &str) -> ProviderMeta {
+// Route IDs ignore the default choice so menus Desktop already loaded keep their mappings.
+fn claude_desktop_model_routes(
+    model: &str,
+    catalog_models: &[String],
+) -> HashMap<String, ClaudeDesktopModelRoute> {
+    let is_safe = crate::claude_desktop_config::is_claude_safe_model_id;
+    let models = catalog_models
+        .iter()
+        .map(String::as_str)
+        .collect::<BTreeSet<_>>();
+    let mut taken = models
+        .iter()
+        .filter(|candidate| is_safe(candidate))
+        .map(|candidate| (*candidate).to_string())
+        .collect::<BTreeSet<_>>();
+    let mut aliases = std::iter::once("claude-sonnet-5".to_string())
+        .chain((2usize..).map(|index| format!("claude-sonnet-5-r{index}")));
+    models
+        .into_iter()
+        .map(|candidate| {
+            let route_id = if is_safe(candidate) {
+                candidate.to_string()
+            } else {
+                aliases
+                    .by_ref()
+                    .find(|alias| taken.insert(alias.clone()))
+                    .expect("alias sequence is unbounded")
+            };
+            let route = ClaudeDesktopModelRoute {
+                model: candidate.to_string(),
+                label_override: Some(candidate.to_string()),
+                supports_1m: (candidate == model).then_some(true),
+            };
+            (route_id, route)
+        })
+        .collect()
+}
+
+// Merge persisted identities before writing the provider, under the configuration lock.
+fn preserve_claude_desktop_routes(
+    provider: &mut Provider,
+    previous: Option<&Provider>,
+) -> Result<(), String> {
+    let meta = provider
+        .meta
+        .as_mut()
+        .ok_or("Claude Desktop 缺少路由配置")?;
+    let mut history = previous
+        .and_then(|p| p.meta.as_ref())
+        .map(|m| m.claude_desktop_route_history.clone())
+        .unwrap_or_default();
+    if let Some(old) = previous.and_then(|p| p.meta.as_ref()) {
+        for (id, route) in &old.claude_desktop_model_routes {
+            if history.get(id).is_some_and(|model| model != &route.model) {
+                return Err("Claude Desktop 路由历史冲突，原配置未更改".into());
+            }
+            history.insert(id.clone(), route.model.clone());
+        }
+    }
+    let models: BTreeSet<String> = meta
+        .claude_desktop_model_routes
+        .values()
+        .map(|r| r.model.clone())
+        .collect();
+    let default = provider
+        .settings_config
+        .pointer("/env/ANTHROPIC_MODEL")
+        .and_then(Value::as_str);
+    let mut routes = HashMap::new();
+    let mut aliases = std::iter::once("claude-sonnet-5".to_string())
+        .chain((2usize..).map(|index| format!("claude-sonnet-5-r{index}")));
+    for model in &models {
+        let mut ids: Vec<String> = history
+            .iter()
+            .filter(|(_, m)| *m == model)
+            .map(|(id, _)| id.clone())
+            .collect();
+        if ids.is_empty() {
+            let id = if crate::claude_desktop_config::is_claude_safe_model_id(model)
+                && !history.contains_key(model)
+            {
+                model.clone()
+            } else {
+                aliases
+                    .by_ref()
+                    .find(|id| !history.contains_key(id) && !models.contains(id))
+                    .expect("unbounded route IDs")
+            };
+            history.insert(id.clone(), model.clone());
+            ids.push(id);
+        }
+        for id in ids {
+            routes.insert(
+                id,
+                ClaudeDesktopModelRoute {
+                    model: model.clone(),
+                    label_override: Some(model.clone()),
+                    supports_1m: (Some(model.as_str()) == default).then_some(true),
+                },
+            );
+        }
+    }
+    meta.claude_desktop_model_routes = routes;
+    meta.claude_desktop_route_history = history;
+    Ok(())
+}
+
+fn provider_meta(
+    app: &AppType,
+    model: &str,
+    catalog_models: &[String],
+    reasoning: &str,
+) -> ProviderMeta {
     let claude_api_format = yuanheng_model_api_format(model);
     let mut meta = ProviderMeta {
         common_config_enabled: Some(true),
@@ -1842,14 +1953,7 @@ fn provider_meta(app: &AppType, model: &str, reasoning: &str) -> ProviderMeta {
     }
     if matches!(app, AppType::ClaudeDesktop) {
         meta.claude_desktop_mode = Some(ClaudeDesktopMode::Proxy);
-        meta.claude_desktop_model_routes.insert(
-            "claude-sonnet-5".to_string(),
-            ClaudeDesktopModelRoute {
-                model: model.to_string(),
-                label_override: Some(MANAGED_PROVIDER_AI_LABEL.to_string()),
-                supports_1m: Some(true),
-            },
-        );
+        meta.claude_desktop_model_routes = claude_desktop_model_routes(model, catalog_models);
         meta.local_proxy_request_overrides = match reasoning {
             "auto" => None,
             _ if claude_api_format == "anthropic" => Some(LocalProxyRequestOverrides {
@@ -2022,7 +2126,7 @@ fn managed_provider_with_profiles(
         "由元衡桌面端自动维护 | group={group} | reasoning={reasoning} | routing=token"
     ));
     provider.icon = Some("yuanheng".to_string());
-    provider.meta = Some(provider_meta(app, model, reasoning));
+    provider.meta = Some(provider_meta(app, model, &catalog_models, reasoning));
     Ok(provider)
 }
 
@@ -3295,12 +3399,12 @@ fn provider_schema_current(provider: &Provider, app: &AppType) -> bool {
             let Some(meta) = provider.meta.as_ref() else {
                 return false;
             };
+            let routes = &meta.claude_desktop_model_routes;
             meta.api_format.as_deref() == Some(yuanheng_model_api_format(&model))
-                && meta
-                    .claude_desktop_model_routes
-                    .get("claude-sonnet-5")
-                    .and_then(|route| route.label_override.as_deref())
-                    == Some(MANAGED_PROVIDER_AI_LABEL)
+                && routes.values().any(|route| route.model == model)
+                && routes
+                    .values()
+                    .all(|route| route.label_override.as_deref() == Some(route.model.as_str()))
         }
         AppType::Codex => {
             let Some(model) = provider_model(provider, app) else {
@@ -5061,7 +5165,7 @@ fn configure_tool_with_models_inner(
 ) -> Result<YuanhengToolConfigureResult, String> {
     remember_tool_state(state, &app)?;
     let profiles = read_cached_status(state)?.platform_reasoning_profiles;
-    let provider = managed_provider_with_profiles(
+    let mut provider = managed_provider_with_profiles(
         &app,
         token,
         model,
@@ -5070,6 +5174,13 @@ fn configure_tool_with_models_inner(
         reasoning,
         &profiles,
     )?;
+    if matches!(app, AppType::ClaudeDesktop) {
+        let previous = state
+            .db
+            .get_provider_by_id(MANAGED_PROVIDER_ID, app.as_str())
+            .map_err(|e| e.to_string())?;
+        preserve_claude_desktop_routes(&mut provider, previous.as_ref())?;
+    }
     let exists = ProviderService::list(state, app.clone())
         .map_err(|e| e.to_string())?
         .contains_key(MANAGED_PROVIDER_ID);
@@ -6178,7 +6289,7 @@ pub async fn configure_yuanheng_tools(
         };
         match verified_models {
             Ok(models) if models.iter().any(|item| item == &model) => {
-                if matches!(&app, AppType::Claude) {
+                if matches!(&app, AppType::Claude | AppType::ClaudeDesktop) {
                     group_models.retain(|candidate| models.contains(candidate));
                 }
                 verified_token_models.insert(group.clone(), models);
@@ -9007,6 +9118,303 @@ mod tests {
     }
 
     #[test]
+    #[serial]
+    fn claude_desktop_routes_survive_catalog_changes_and_legacy_migration() {
+        let (_home, state) = isolated_state();
+        let build = |models: &[&str], default: &str| {
+            managed_provider_with_models(
+                &AppType::ClaudeDesktop,
+                "synthetic",
+                default,
+                &models.iter().map(|s| s.to_string()).collect::<Vec<_>>(),
+                "group-a",
+                "auto",
+            )
+            .unwrap()
+        };
+        let mapped = |provider: &Provider, id: &str| {
+            crate::claude_desktop_config::map_proxy_request_model(json!({"model":id}), provider)
+                .map(|body| body["model"].as_str().unwrap().to_string())
+        };
+        let mut current = build(&["gpt-6.1-sol", "k3"], "k3");
+        preserve_claude_desktop_routes(&mut current, None).unwrap();
+        let original = current
+            .meta
+            .as_ref()
+            .unwrap()
+            .claude_desktop_route_history
+            .clone();
+        for models in [
+            vec!["deepseek-v4-pro", "gpt-6.1-sol", "k3"],
+            vec!["k3"],                    // same input as a failed group-catalog fetch
+            vec!["claude-sonnet-5", "k3"], // real ID collides with a retired alias
+            vec!["gpt-6.1-sol", "k3", "deepseek-v4-pro"],
+        ] {
+            state.db.save_provider("claude-desktop", &current).unwrap();
+            let previous = state
+                .db
+                .get_provider_by_id(MANAGED_PROVIDER_ID, "claude-desktop")
+                .unwrap()
+                .unwrap();
+            let mut next = build(&models, "k3");
+            preserve_claude_desktop_routes(&mut next, Some(&previous)).unwrap();
+            for (id, model) in &original {
+                assert_eq!(
+                    &next.meta.as_ref().unwrap().claude_desktop_route_history[id],
+                    model
+                );
+                if models.contains(&model.as_str()) {
+                    assert_eq!(mapped(&next, id).unwrap(), *model);
+                } else {
+                    assert!(
+                        mapped(&next, id).is_err(),
+                        "retired {id} must not fall back"
+                    );
+                    assert!(mapped(&next, &format!("{id}[1m]")).is_err());
+                }
+            }
+            if models.contains(&"claude-sonnet-5") {
+                let routes = &next.meta.as_ref().unwrap().claude_desktop_model_routes;
+                let (id, _) = routes
+                    .iter()
+                    .find(|(_, r)| r.model == "claude-sonnet-5")
+                    .unwrap();
+                assert_ne!(id, "claude-sonnet-5");
+                assert_eq!(mapped(&next, id).unwrap(), "claude-sonnet-5");
+            }
+            current = next;
+        }
+        // Old releases used the Sonnet alias even for an Opus-only group.
+        let mut legacy = build(&["claude-opus-4-8"], "claude-opus-4-8");
+        legacy.meta.as_mut().unwrap().claude_desktop_model_routes = HashMap::from([(
+            "claude-sonnet-5".into(),
+            ClaudeDesktopModelRoute {
+                model: "claude-opus-4-8".into(),
+                label_override: Some("YuanHeng AI".into()),
+                supports_1m: Some(true),
+            },
+        )]);
+        state.db.save_provider("claude-desktop", &legacy).unwrap();
+        // Exercise the production configure/save path, not only the merge helper.
+        configure_tool_with_models_inner(
+            &state,
+            AppType::ClaudeDesktop,
+            "synthetic",
+            "claude-opus-4-8",
+            &["claude-opus-4-8".into()],
+            "group-a",
+            "auto",
+        )
+        .unwrap();
+        let migrated = state
+            .db
+            .get_provider_by_id(MANAGED_PROVIDER_ID, "claude-desktop")
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            mapped(&migrated, "claude-sonnet-5").unwrap(),
+            "claude-opus-4-8"
+        );
+        assert_eq!(
+            migrated.meta.as_ref().unwrap().claude_desktop_route_history["claude-sonnet-5"],
+            "claude-opus-4-8"
+        );
+        let mut removed = build(&["k3"], "k3");
+        preserve_claude_desktop_routes(&mut removed, Some(&migrated)).unwrap();
+        assert!(mapped(&removed, "claude-sonnet-5").is_err());
+    }
+
+    #[test]
+    fn claude_desktop_group_picker_lists_each_model_with_its_protocol() {
+        let models: Vec<String> = [
+            "claude-opus-4-8",
+            "gpt-6.1-sol",
+            "deepseek-v4-pro",
+            "k3",
+            "gpt-image-1",
+        ]
+        .into_iter()
+        .map(String::from)
+        .collect();
+        let desktop = |model: &str| {
+            managed_provider_with_models(
+                &AppType::ClaudeDesktop,
+                "synthetic",
+                model,
+                &models,
+                "group-a",
+                "high",
+            )
+            .unwrap()
+        };
+        let provider = desktop("deepseek-v4-pro");
+        crate::claude_desktop_config::validate_provider(&provider).unwrap();
+        assert!(provider_schema_current(&provider, &AppType::ClaudeDesktop));
+        let routes = crate::claude_desktop_config::proxy_model_routes(&provider).unwrap();
+        let expected = [
+            ("claude-sonnet-5", "deepseek-v4-pro", "openai_chat"),
+            ("claude-opus-4-8", "claude-opus-4-8", "anthropic"),
+            ("claude-sonnet-5-r2", "gpt-6.1-sol", "openai_responses"),
+            ("claude-sonnet-5-r3", "k3", "openai_chat"),
+        ];
+        assert_eq!(routes.len(), expected.len());
+        for (route, (route_id, model, format)) in routes.iter().zip(expected) {
+            assert_eq!(route.route_id, route_id);
+            assert_eq!(route.upstream_model, model);
+            assert!(crate::claude_desktop_config::is_claude_safe_model_id(
+                &route.route_id
+            ));
+            assert_eq!(route.label_override.as_deref(), Some(model));
+            assert_eq!(route.supports_1m, model == "deepseek-v4-pro");
+            let body = crate::claude_desktop_config::map_proxy_request_model(
+                json!({"model": route_id}),
+                &provider,
+            )
+            .unwrap();
+            assert_eq!(body["model"], model);
+            assert_eq!(
+                crate::proxy::providers::get_claude_api_format_for_body(&provider, &body),
+                format
+            );
+        }
+        // Desktop may keep an already-loaded menu, so changing the default must not renumber routes.
+        let switched = desktop("k3");
+        let route_models = |provider: &Provider| {
+            provider
+                .meta
+                .as_ref()
+                .unwrap()
+                .claude_desktop_model_routes
+                .iter()
+                .map(|(route_id, route)| (route_id.clone(), route.model.clone()))
+                .collect::<std::collections::BTreeMap<_, _>>()
+        };
+        assert_eq!(route_models(&switched), route_models(&provider));
+        assert_eq!(
+            crate::claude_desktop_config::proxy_model_routes(&switched).unwrap()[0].upstream_model,
+            "k3"
+        );
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn claude_desktop_group_picker_routes_each_model_with_default_reasoning_only() {
+        use axum::{extract::OriginalUri, routing::post, Json, Router};
+        let (_home, state) = isolated_state();
+        let received = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let capture = received.clone();
+        let upstream = Router::new().fallback(post(move |OriginalUri(uri): OriginalUri, Json(body): Json<Value>| {
+            let capture = capture.clone();
+            async move {
+                let model = body["model"].as_str().unwrap().to_string();
+                capture.lock().unwrap().push((uri.path().to_string(), body));
+                Json(match uri.path() {
+                    "/v1/responses" => json!({"id":"resp-test", "object":"response", "status":"completed", "model":model, "output":[{"id":"msg-test", "type":"message", "role":"assistant", "status":"completed", "content":[{"type":"output_text", "text":"ok"}]}], "usage":{"input_tokens":1,"output_tokens":1}}),
+                    "/v1/chat/completions" => json!({"id":"chat-test", "object":"chat.completion", "model":model,"choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":1}}),
+                    _ => json!({"id":"msg-test", "type":"message", "role":"assistant", "model":model,"content":[{"type":"text","text":"ok"}],"stop_reason":"end_turn","usage":{"input_tokens":1,"output_tokens":1}})
+                })
+            }
+        }));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move { axum::serve(listener, upstream).await.unwrap() });
+        let models: Vec<String> = ["claude-opus-4-8", "gpt-6.1-sol", "deepseek-v4-pro", "k3"]
+            .into_iter()
+            .map(String::from)
+            .collect();
+        let mut provider = managed_provider_with_models(
+            &AppType::ClaudeDesktop,
+            "synthetic",
+            "deepseek-v4-pro",
+            &models,
+            "group-a",
+            "high",
+        )
+        .unwrap();
+        provider.settings_config["env"]["ANTHROPIC_BASE_URL"] = json!(format!("http://{address}"));
+        state.db.save_provider("claude-desktop", &provider).unwrap();
+        state
+            .db
+            .set_current_provider("claude-desktop", &provider.id)
+            .unwrap();
+        crate::settings::set_current_provider(&AppType::ClaudeDesktop, Some(&provider.id)).unwrap();
+        let mut config = state.db.get_proxy_config().await.unwrap();
+        config.listen_port = 0;
+        state.db.update_proxy_config(config).await.unwrap();
+        let proxy = state.proxy_service.start().await.unwrap();
+        let token = crate::claude_desktop_config::get_or_create_gateway_token(&state.db).unwrap();
+        let client = reqwest::Client::builder().no_proxy().build().unwrap();
+        let gateway = format!("http://127.0.0.1:{}/claude-desktop/v1", proxy.port);
+        let listed: Value = client
+            .get(format!("{gateway}/models"))
+            .bearer_auth(&token)
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        let route_ids: Vec<String> = listed["data"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|item| item["id"].as_str().unwrap().to_string())
+            .collect();
+        assert_eq!(
+            route_ids,
+            [
+                "claude-sonnet-5",
+                "claude-opus-4-8",
+                "claude-sonnet-5-r2",
+                "claude-sonnet-5-r3"
+            ]
+        );
+        for route_id in &route_ids {
+            let response = client.post(format!("{gateway}/messages"))
+                .bearer_auth(&token)
+                .json(&json!({"model":route_id,"max_tokens":16,"stream":false,"messages":[{"role":"user","content":"test"}]}))
+                .send().await.unwrap();
+            let status = response.status();
+            let body: Value = response.json().await.unwrap();
+            assert!(status.is_success(), "{route_id}: {body}");
+            assert_eq!(body["content"][0]["text"], "ok", "{route_id}: {body}");
+        }
+        let effort = |body: &Value| {
+            body.get("reasoning_effort")
+                .or_else(|| body.pointer("/reasoning/effort"))
+                .or_else(|| body.pointer("/output_config/effort"))
+                .cloned()
+        };
+        let summary: Vec<(String, String, Option<Value>)> = received
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|(path, body)| {
+                (
+                    path.clone(),
+                    body["model"].as_str().unwrap().to_string(),
+                    effort(body),
+                )
+            })
+            .collect();
+        assert_eq!(
+            summary,
+            vec![
+                (
+                    "/v1/chat/completions".into(),
+                    "deepseek-v4-pro".into(),
+                    Some(json!("high"))
+                ),
+                ("/v1/messages".into(), "claude-opus-4-8".into(), None),
+                ("/v1/responses".into(), "gpt-6.1-sol".into(), None),
+                ("/v1/chat/completions".into(), "k3".into(), None),
+            ]
+        );
+        state.proxy_service.stop().await.unwrap();
+        server.abort();
+    }
+
+    #[test]
     fn builds_hidden_managed_configs_for_each_tool() {
         let cases = [
             (AppType::Claude, "claude-sonnet-4-6"),
@@ -9213,7 +9621,7 @@ mod tests {
             desktop_meta.claude_desktop_model_routes["claude-sonnet-5"]
                 .label_override
                 .as_deref(),
-            Some(MANAGED_PROVIDER_AI_LABEL)
+            Some("k3")
         );
         assert_eq!(
             desktop_meta
@@ -9341,7 +9749,7 @@ mod tests {
             .claude_desktop_model_routes
             .get_mut("claude-sonnet-5")
             .unwrap()
-            .label_override = Some("k3".to_string());
+            .label_override = Some("YuanHeng AI".to_string());
         assert!(!provider_schema_current(
             &legacy_desktop,
             &AppType::ClaudeDesktop

@@ -1139,8 +1139,8 @@ export const DESKTOP_EN: Record<string, string> = {
   "{{v0}} 令牌分组": "{{v0}} Token Group",
   " · {{v0}} 档": " · {{v0}} levels",
   "{{v0}} 推理等级": "{{v0}} Reasoning Level",
-  "右下角固定显示“元衡\n                      AI”；模型与推理等级在此切换，无需重启。":
-    "YuanHeng AI stays visible in the lower-right corner. Switch models and reasoning levels here without restarting.",
+  "Claude Desktop 模型菜单列出分组全部模型；此处设置默认模型与推理等级，重新应用后需重启 Claude Desktop。":
+    "The Claude Desktop model menu lists all group models. Set the default model and reasoning level here; restart Claude Desktop after applying.",
   "从元衡启动后，模型会在同一会话的下一条消息自动切换，无需重启。":
     "After launching from YuanHeng, the model switches on the next message in the same session without restarting.",
   "使用独立桌面配置；已有任务保持原模型，请新建任务。":
