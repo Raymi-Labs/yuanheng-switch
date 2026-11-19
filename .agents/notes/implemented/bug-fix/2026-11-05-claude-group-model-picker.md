@@ -8,7 +8,7 @@ Status: implemented
 
 ## Decision
 
-复用分组目录和令牌权限交集，用官方 modelPicker（2.1.242+）替换内建菜单；默认型号在前，其余去重列出。角色优先使用目录内对应家族，缺失家族沿用已授权默认型号承接后台调用。直连沿用平台 Messages；本地接管保留完整型号并逐请求复用现有协议转换。旧配置通过 schema 检测重新应用；Claude Desktop 独立路由不变。
+复用分组目录和令牌权限交集，用官方 modelPicker（2.1.242+）替换内建菜单；默认型号在前，其余去重列出。角色优先使用目录内对应家族，缺失家族沿用已授权默认型号承接后台调用。直连沿用平台 Messages；本地接管保留完整型号并逐请求复用现有协议转换。旧配置通过 schema 检测重新应用。Claude Desktop 独立路由此决定部分被 [Desktop 分组模型菜单](2026-11-18-claude-desktop-group-model-picker.md)取代；Code 菜单规则保持不变。
 
 官方依据：[modelPicker](https://code.claude.com/docs/en/settings-reference#modelpicker)。图片专用型号继续过滤，菜单不替代平台令牌鉴权。
 

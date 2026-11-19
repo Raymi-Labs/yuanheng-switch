@@ -135,6 +135,18 @@ pub(crate) fn managed_claude_catalog_contains(provider: &Provider, model: &str) 
             })
 }
 
+/// Claude Desktop 托管路由映射后携带真实上游型号，协议须按该型号逐请求解析。
+pub(crate) fn managed_desktop_route_upstream_contains(provider: &Provider, model: &str) -> bool {
+    provider.id == "yuanheng-managed"
+        && provider.category.as_deref() == Some("managed")
+        && provider.meta.as_ref().is_some_and(|meta| {
+            meta.claude_desktop_model_routes.values().any(|route| {
+                strip_one_m_suffix_for_upstream(&route.model)
+                    == strip_one_m_suffix_for_upstream(model)
+            })
+        })
+}
+
 /// 对请求体应用模型映射
 ///
 /// 返回 (映射后的请求体, 原始模型名, 映射后模型名)

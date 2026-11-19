@@ -1248,7 +1248,7 @@ function ToolSetupGridContent({
                   {app === "claude-desktop" && (
                     <p className="mt-2 text-[9px] leading-4 text-amber-700 dark:text-amber-300">
                       {dt(
-                        "右下角固定显示“元衡\n                      AI”；模型与推理等级在此切换，无需重启。",
+                        "Claude Desktop 模型菜单列出分组全部模型；此处设置默认模型与推理等级，重新应用后需重启 Claude Desktop。",
                       )}
                     </p>
                   )}

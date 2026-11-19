@@ -428,6 +428,13 @@ pub struct ProviderMeta {
         skip_serializing_if = "HashMap::is_empty"
     )]
     pub claude_desktop_model_routes: HashMap<String, ClaudeDesktopModelRoute>,
+    /// Reserved model identities, including retired routes; never recycle an ID.
+    #[serde(
+        default,
+        rename = "claudeDesktopRouteHistory",
+        skip_serializing_if = "HashMap::is_empty"
+    )]
+    pub claude_desktop_route_history: HashMap<String, String>,
     /// 用量查询脚本配置
     #[serde(skip_serializing_if = "Option::is_none")]
     pub usage_script: Option<UsageScript>,

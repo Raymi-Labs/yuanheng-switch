@@ -1853,7 +1853,15 @@ impl RequestForwarder {
         // 过滤私有参数（以 `_` 开头的字段），防止内部信息泄露到上游
         // 默认使用空白名单，过滤所有 _ 前缀字段
         let mut filtered_body = prepare_upstream_request_body(request_body);
-        if !is_copilot {
+        // 托管 Desktop 的推理覆盖按默认模型协议生成；菜单中的其它模型保持自动。
+        let body_overrides_apply = !(matches!(app_type, AppType::ClaudeDesktop)
+            && provider.id == crate::commands::MANAGED_PROVIDER_ID
+            && outbound_model.as_deref()
+                != provider
+                    .settings_config
+                    .pointer("/env/ANTHROPIC_MODEL")
+                    .and_then(Value::as_str));
+        if !is_copilot && body_overrides_apply {
             if let Some(overrides) = provider
                 .meta
                 .as_ref()
