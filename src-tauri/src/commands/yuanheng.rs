@@ -9196,7 +9196,7 @@ mod tests {
         )]);
         state.db.save_provider("claude-desktop", &legacy).unwrap();
         // Exercise the production configure/save path, not only the merge helper.
-        configure_tool_with_models_inner(
+        let configured = configure_tool_with_models_inner(
             &state,
             AppType::ClaudeDesktop,
             "synthetic",
@@ -9204,8 +9204,19 @@ mod tests {
             &["claude-opus-4-8".into()],
             "group-a",
             "auto",
-        )
-        .unwrap();
+        );
+        #[cfg(any(target_os = "macos", target_os = "windows"))]
+        configured.unwrap();
+        #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+        {
+            assert!(configured
+                .unwrap_err()
+                .contains("not supported on this platform"));
+            // Linux has no Desktop native surface; still verify migration and DB persistence.
+            let mut migrated = build(&["claude-opus-4-8"], "claude-opus-4-8");
+            preserve_claude_desktop_routes(&mut migrated, Some(&legacy)).unwrap();
+            state.db.save_provider("claude-desktop", &migrated).unwrap();
+        }
         let migrated = state
             .db
             .get_provider_by_id(MANAGED_PROVIDER_ID, "claude-desktop")

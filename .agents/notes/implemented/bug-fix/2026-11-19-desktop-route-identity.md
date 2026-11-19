@@ -22,7 +22,7 @@ Status: implemented
 
 ## Verification
 
-Rust 全量 lib 测试 2820 项通过、13 项既有忽略；50 项 Claude Desktop 相关测试通过，包含新增回归：目录新增、删除、退化为单模型、恢复和真实 Claude ID 冲突时不改绑；数据库往返后保留历史；旧 Opus 单路由经正式配置入口仍可使用原 Sonnet ID。前端 1426 项测试、类型检查与生产 renderer 构建通过。
+Rust 全量 lib 测试 2820 项通过、13 项既有忽略；50 项 Claude Desktop 相关测试通过，包含新增回归：目录新增、删除、退化为单模型、恢复和真实 Claude ID 冲突时不改绑；数据库往返后保留历史；旧 Opus 单路由在 macOS/Windows 经正式配置入口仍可使用原 Sonnet ID；Linux 断言原生入口不支持，并独立验证迁移与数据库持久化。首次 Linux CI 暴露测试误调用不支持的平台入口，已按真实平台契约修正断言，不跳过路由测试。前端 1426 项测试、类型检查与生产 renderer 构建通过。
 
 ## Consequences
 
