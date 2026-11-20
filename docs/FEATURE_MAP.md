@@ -2,7 +2,7 @@ Codex 配置与 MCP 同步自动移除服务顶层无效 `type` 字段；HTTP �
 
 # YuanHeng Desktop: capability map
 
-账号模型的[平台推理档位](../.agents/notes/implemented/feature/2026-11-18-platform-reasoning-profiles.md)同时用于工作台和受托管的原生配置。后台按精确型号声明即可开放客户端已认识的档位，不从渠道或分组推测。
+账号模型的[平台推理档位](../.agents/notes/implemented/feature/2026-11-18-platform-reasoning-profiles.md)同时用于工作台、配置校验和受托管的原生目录。缺少平台声明时使用[精确官方资料](../.agents/notes/implemented/bug-fix/2026-11-19-exact-reasoning-evidence.md)，不从型号前缀、渠道或分组推测；明确撤销不会被离线默认覆盖。
 
 移动大型模型目录：[Models](../mobile/src/Models.tsx)在全量搜索/筛选/排序后按24项显示；[mobile_api](../mobile/src-tauri/src/lib.rs)仅pricing操作调用[有界流式读取](../mobile/src-tauri/src/pricing.rs)，跳过无用元数据但不丢弃尾部模型，保留账号epoch检查及其他API限制。64MiB网络、8MiB保留数据预算与节点/深度保护；合成浏览器与原生测试不代表APK真机验收，见[决定](../.agents/notes/implemented/bug-fix/2026-11-12-mobile-pricing-stream.md)。
 

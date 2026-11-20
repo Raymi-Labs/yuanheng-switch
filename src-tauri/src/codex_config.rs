@@ -718,22 +718,12 @@ fn codex_catalog_model_entry(
             supported_levels: vec!["none".to_string()],
             default_level: Some("none".to_string()),
         });
-    let default_level = reasoning_profile
-        .default_level
-        .as_deref()
-        .filter(|level| {
-            reasoning_profile
-                .supported_levels
-                .iter()
-                .any(|item| item == level)
-        })
-        .or_else(|| {
-            reasoning_profile
-                .supported_levels
-                .first()
-                .map(String::as_str)
-        })
-        .unwrap_or("none");
+    let default_level = reasoning_profile.default_level.as_deref().filter(|level| {
+        reasoning_profile
+            .supported_levels
+            .iter()
+            .any(|item| item == level)
+    });
     entry_obj.insert("default_reasoning_level".to_string(), json!(default_level));
     entry_obj.insert(
         "supported_reasoning_levels".to_string(),
@@ -839,6 +829,16 @@ fn reasoning_level_description(level: &str) -> &'static str {
 }
 
 fn model_config_reasoning_profile(model_config: &Value) -> Option<ReasoningProfile> {
+    if model_config["reasoningProfileSource"]
+        .as_str()
+        .is_some_and(|s| s.starts_with("yuanheng-managed-v"))
+        && model_config["supportedReasoningLevels"]
+            .as_array()
+            .is_some_and(Vec::is_empty)
+    {
+        // Prevent an unrelated local catalog or the template from inventing an effort.
+        return Some(ReasoningProfile::default());
+    }
     let values = model_config
         .get("supportedReasoningLevels")
         .or_else(|| model_config.get("supported_reasoning_levels"))
@@ -860,7 +860,16 @@ fn model_config_reasoning_profile(model_config: &Value) -> Option<ReasoningProfi
         .and_then(Value::as_str)
         .and_then(normalize_reasoning_level)
         .filter(|level| supported_levels.contains(level))
-        .or_else(|| supported_levels.first().cloned());
+        .or_else(|| {
+            if model_config["reasoningProfileSource"]
+                .as_str()
+                .is_some_and(|s| s.starts_with("yuanheng-managed-v"))
+            {
+                None
+            } else {
+                supported_levels.first().cloned()
+            }
+        });
     Some(ReasoningProfile {
         supported_levels,
         default_level,
@@ -1835,7 +1844,12 @@ fn build_simplified_catalog_from_texts(config_text: &str, catalog_text: &str) ->
                     .map(str::to_string)
             });
         let reasoning_levels = normalize_reasoning_levels(reasoning_levels);
-        if !reasoning_levels.is_empty() {
+        if !reasoning_levels.is_empty()
+            || (entry["yuanheng_reasoning_profile_source"]
+                .as_str()
+                .is_some_and(|s| s.starts_with("yuanheng-managed-v"))
+                && entry["supported_reasoning_levels"].is_array())
+        {
             let default_reasoning = entry
                 .get("default_reasoning_level")
                 .and_then(Value::as_str)
@@ -2617,6 +2631,41 @@ mod tests {
             rebuilt["models"][0]["supportedReasoningLevels"],
             settings["modelCatalog"]["models"][0]["supportedReasoningLevels"]
         );
+    }
+
+    #[test]
+    fn official_reasoning_revocation_and_missing_default_survive_two_native_roundtrips() {
+        let slug = "gpt-6-astra";
+        let config = "model='gpt-6-astra'\n";
+        for levels in [vec![], vec!["low".into(), "high".into()]] {
+            let profile = crate::model_reasoning::ReasoningProfile {
+                supported_levels: levels.clone(),
+                default_level: None,
+            };
+            let mut entry = json!({"model":slug,"apiFormat":"openai_responses"});
+            crate::model_reasoning::apply_platform_profile(&mut entry, Some(&profile));
+            for _ in 0..2 {
+                let settings = json!({"modelCatalog":{"models":[entry]}});
+                let catalog = codex_model_catalog_from_settings(
+                    &settings,
+                    config,
+                    CodexCatalogToolProfile::NativeResponses,
+                )
+                .unwrap()
+                .unwrap();
+                let row = &catalog["models"][0];
+                assert_eq!(
+                    row["supported_reasoning_levels"].as_array().unwrap().len(),
+                    levels.len()
+                );
+                assert_eq!(row["default_reasoning_level"], Value::Null);
+                entry = build_simplified_catalog_from_texts(config, &catalog.to_string()).unwrap()
+                    ["models"][0]
+                    .clone();
+                assert_eq!(entry["supportedReasoningLevels"], json!(levels));
+                crate::model_reasoning::apply_managed_reasoning_profile(&mut entry);
+            }
+        }
     }
 
     #[test]

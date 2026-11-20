@@ -2,7 +2,7 @@
 
 Status: implemented
 
-后续：[平台逐型号声明](../feature/2026-11-18-platform-reasoning-profiles.md)在有声明时优先；本篇内置规则保留为离线兼容，原有目录所有权及显式选择保护继续适用。
+后续：[平台逐型号声明](../feature/2026-11-18-platform-reasoning-profiles.md)优先；离线规则已由[精确资料解析](2026-11-19-exact-reasoning-evidence.md)取代。原有目录所有权及显式选择保护继续适用。
 
 ## Problem
 

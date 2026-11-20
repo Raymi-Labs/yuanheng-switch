@@ -19,7 +19,7 @@ use tokio_tungstenite::tungstenite::Message;
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct ModelSelection {
     model: String,
-    effort: String,
+    effort: Option<String>,
     automatic: bool,
 }
 
@@ -157,9 +157,8 @@ fn bridge_state() -> &'static Arc<BridgeState> {
     STATE.get_or_init(|| Arc::new(BridgeState::new()))
 }
 
-fn effective_effort(model: &str, reasoning: &str) -> String {
+fn effective_effort(model: &str, reasoning: &str) -> Option<String> {
     crate::model_reasoning::effective_reasoning_level(model, reasoning)
-        .unwrap_or_else(|| "none".to_string())
 }
 
 pub fn update_codex_session_model(model: &str, reasoning: &str) {
@@ -184,7 +183,7 @@ pub fn update_codex_session_model(model: &str, reasoning: &str) {
     log::info!(
         "[Codex Bridge] 已切换模型: {} ({})",
         selection.model,
-        selection.effort
+        selection.effort.as_deref().unwrap_or("auto")
     );
 }
 
@@ -225,7 +224,7 @@ fn selection_from_profile(path: &Path) -> Option<ModelSelection> {
 // Versioned catalogs are immutable. Cache only the selected row for this bridge connection.
 fn selection_from_profile_cached(
     path: &Path,
-    cache: &mut Option<(PathBuf, String, String)>,
+    cache: &mut Option<(PathBuf, String, Option<String>)>,
 ) -> Option<ModelSelection> {
     let content = std::fs::read_to_string(path).ok()?;
     let config = content.parse::<toml::Value>().ok()?;
@@ -236,6 +235,7 @@ fn selection_from_profile_cached(
     let effort = config
         .get("model_reasoning_effort")
         .and_then(toml::Value::as_str)
+        .filter(|value| *value != "auto")
         .map(|reasoning| effective_effort(model, reasoning))
         .or_else(|| {
             let catalog = crate::codex_config::resolve_cc_switch_catalog_path(&content, path)?;
@@ -256,16 +256,25 @@ fn selection_from_profile_cached(
                 .as_array()?
                 .iter()
                 .find(|row| row["slug"].as_str() == Some(model))?;
-            let effort = crate::model_reasoning::normalize_reasoning_level(
-                row["default_reasoning_level"].as_str()?,
-            )?;
-            if !row["supported_reasoning_levels"]
-                .as_array()?
-                .iter()
-                .any(|v| v["effort"].as_str().or(v.as_str()) == Some(&effort))
+            let effort = if row["yuanheng_reasoning_profile_source"]
+                .as_str()
+                .is_some_and(|s| s.starts_with("yuanheng-managed-v"))
+                && row["default_reasoning_level"].is_null()
             {
-                return None;
-            }
+                None
+            } else {
+                let effort = crate::model_reasoning::normalize_reasoning_level(
+                    row["default_reasoning_level"].as_str()?,
+                )?;
+                if !row["supported_reasoning_levels"]
+                    .as_array()?
+                    .iter()
+                    .any(|v| v["effort"].as_str().or(v.as_str()) == Some(&effort))
+                {
+                    return None;
+                }
+                Some(effort)
+            };
             if catalog
                 .file_stem()?
                 .to_str()?
@@ -365,7 +374,7 @@ pub fn codex_session_bridge_status() -> CodexSessionBridgeStatus {
         applied_terminals,
         pending_terminals,
         model: selection.as_ref().map(|value| value.model.clone()),
-        reasoning_effort: selection.map(|value| value.effort),
+        reasoning_effort: selection.and_then(|value| value.effort),
     }
 }
 
@@ -690,14 +699,15 @@ fn rewrite_turn_start(
             .and_then(|s| native_effort(s, "reasoning_effort"))
             .or_else(|| native_effort(params, "effort"))
         {
-            selection.effort = effort;
+            selection.effort = Some(effort);
         }
     }
     params.insert("model".to_string(), Value::String(selection.model.clone()));
-    params.insert(
-        "effort".to_string(),
-        Value::String(selection.effort.clone()),
-    );
+    if let Some(effort) = selection.effort.as_ref() {
+        params.insert("effort".into(), Value::String(effort.clone()));
+    } else {
+        params.remove("effort");
+    }
     // Codex collaboration mode takes precedence over the top-level turn overrides.
     if let Some(settings) = params
         .get_mut("collaborationMode")
@@ -706,15 +716,16 @@ fn rewrite_turn_start(
         .and_then(Value::as_object_mut)
     {
         settings.insert("model".to_string(), Value::String(selection.model.clone()));
-        settings.insert(
-            "reasoning_effort".to_string(),
-            Value::String(selection.effort.clone()),
-        );
+        if let Some(effort) = selection.effort.as_ref() {
+            settings.insert("reasoning_effort".into(), Value::String(effort.clone()));
+        } else {
+            settings.remove("reasoning_effort");
+        }
     }
     log::info!(
         "[Codex Bridge] 下一条消息模型: {} ({})",
         params["model"],
-        params["effort"]
+        selection.effort.as_deref().unwrap_or("auto")
     );
     (
         serde_json::to_string(&value).unwrap_or_else(|_| message.to_string()),
@@ -739,7 +750,7 @@ mod tests {
             r#"{"method":"turn/start","id":4,"params":{"threadId":"t1","input":[]}}"#,
             Some(ModelSelection {
                 model: "k3".to_string(),
-                effort: "high".to_string(),
+                effort: Some("high".to_string()),
                 automatic: false,
             }),
         );
@@ -758,7 +769,7 @@ mod tests {
             r#"{"method":"turn/start","id":4,"params":{"threadId":"t1","input":[],"collaborationMode":{"mode":"default","settings":{"model":"gpt-5.6-sol","reasoning_effort":"xhigh"}}}}"#,
             Some(ModelSelection {
                 model: "k3".to_string(),
-                effort: "medium".to_string(),
+                effort: Some("medium".to_string()),
                 automatic: false,
             }),
         );
@@ -782,7 +793,7 @@ mod tests {
             message,
             Some(ModelSelection {
                 model: "k3".to_string(),
-                effort: "medium".to_string(),
+                effort: Some("medium".to_string()),
                 automatic: false,
             }),
         );
@@ -798,7 +809,7 @@ mod tests {
         let k3 = ModelSelection {
             automatic: false,
             model: "k3".to_string(),
-            effort: "high".to_string(),
+            effort: Some("high".to_string()),
         };
         state.set_selection(k3.clone());
         assert_eq!(state.applied_terminal_count(&k3), 0);
@@ -817,7 +828,7 @@ mod tests {
         let gpt = ModelSelection {
             automatic: false,
             model: "gpt-5.6-sol".to_string(),
-            effort: "xhigh".to_string(),
+            effort: Some("xhigh".to_string()),
         };
         state.set_selection(gpt.clone());
         assert_eq!(state.applied_terminal_count(&gpt), 0);
@@ -837,7 +848,7 @@ mod tests {
         let selection = ModelSelection {
             model: "k3".to_string(),
             automatic: false,
-            effort: "high".to_string(),
+            effort: Some("high".to_string()),
         };
         for (terminal, thread_id) in [(first.id, "thread-1"), (second.id, "thread-2")] {
             state.mark_pending(
@@ -855,8 +866,14 @@ mod tests {
 
     #[test]
     fn auto_effort_matches_terminal_profile_default() {
-        assert_eq!(effective_effort("gpt-5.6-sol", "auto"), "low");
-        assert_eq!(effective_effort("gpt-5.6-sol", "xhigh"), "xhigh");
+        assert_eq!(
+            effective_effort("gpt-5.6-sol", "auto").as_deref(),
+            Some("low")
+        );
+        assert_eq!(
+            effective_effort("gpt-5.6-sol", "xhigh").as_deref(),
+            Some("xhigh")
+        );
     }
 
     #[test]
@@ -880,8 +897,57 @@ mod tests {
             Some(ModelSelection {
                 model: "gpt-5.6-sol".to_string(),
                 automatic: false,
-                effort: "xhigh".to_string(),
+                effort: Some("xhigh".to_string()),
             })
+        );
+    }
+
+    #[test]
+    fn unknown_reasoning_auto_does_not_send_disabled_or_previous_models_effort() {
+        let model = "gpt-future-no-declaration";
+        assert!(effective_effort(model, "auto").is_none());
+        let selection = ModelSelection {
+            model: model.into(),
+            effort: None,
+            automatic: true,
+        };
+        for input in [
+            json!({"threadId":"t"}),
+            json!({"threadId":"t","model":"former","effort":"max","collaborationMode":{"settings":{"model":"former","reasoning_effort":"max"}}}),
+        ] {
+            let (out, _) = rewrite_turn_start(
+                &json!({"method":"turn/start","params":input}).to_string(),
+                Some(selection.clone()),
+            );
+            let out: Value = serde_json::from_str(&out).unwrap();
+            assert!(out.pointer("/params/effort").is_none());
+            assert!(out
+                .pointer("/params/collaborationMode/settings/reasoning_effort")
+                .is_none());
+        }
+        let (out, _) = rewrite_turn_start(
+            &json!({"method":"turn/start","params":{}}).to_string(),
+            Some(ModelSelection {
+                effort: Some("none".into()),
+                ..selection
+            }),
+        );
+        assert_eq!(
+            serde_json::from_str::<Value>(&out).unwrap()["params"]["effort"],
+            "none"
+        );
+    }
+
+    #[test]
+    fn literal_auto_uses_the_scoped_native_declaration_not_offline_defaults() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("terminal.config.toml");
+        let catalog = "yuanheng-terminal-model-catalog.json";
+        std::fs::write(&path,format!("model='gpt-6-astra'\nmodel_reasoning_effort='auto'\nmodel_catalog_json='{catalog}'")).unwrap();
+        std::fs::write(temp.path().join(catalog),r#"{"models":[{"slug":"gpt-6-astra","supported_reasoning_levels":[{"effort":"medium"}],"default_reasoning_level":"medium"}]}"#).unwrap();
+        assert_eq!(
+            selection_from_profile(&path).unwrap().effort.as_deref(),
+            Some("medium")
         );
     }
 
@@ -897,7 +963,7 @@ mod tests {
         .unwrap();
         std::fs::write(temp.path().join(catalog),r#"{"models":[{"slug":"future","supported_reasoning_levels":[{"effort":"low"},{"effort":"ultra"}],"default_reasoning_level":"low"}]}"#).unwrap();
         let s = selection_from_profile(&path).unwrap();
-        assert_eq!(s.effort, "low");
+        assert_eq!(s.effort.as_deref(), Some("low"));
         for params in [
             json!({"model":"future","effort":"ultra"}),
             json!({"collaborationMode":{"settings":{"model":"future","reasoning_effort":"ultra"}}}),

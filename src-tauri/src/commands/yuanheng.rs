@@ -1329,9 +1329,7 @@ fn reasoning_profiles_for_models(
         let Some(profile) = resolve_profile(model, platform) else {
             continue;
         };
-        if profile.supported_levels.is_empty() {
-            continue;
-        }
+        // An explicit empty row must survive validation, which only falls back for absent keys.
         if let Some(default) = profile.default_level {
             defaults.insert(model.clone(), default);
         }
@@ -1965,7 +1963,15 @@ fn provider_meta(
                 ..Default::default()
             }),
             _ => Some(LocalProxyRequestOverrides {
-                body: Some(json!({ "reasoning_effort": reasoning })),
+                body: Some({
+                    let mut body = json!({ "reasoning_effort": reasoning });
+                    if let Some(extra) =
+                        crate::model_reasoning::gemini_chat_effort(model, reasoning)
+                    {
+                        body["extra_body"] = extra
+                    };
+                    body
+                }),
                 ..Default::default()
             }),
         };
@@ -2761,7 +2767,7 @@ fn sync_owned_catalog_profiles(
         let mut additions = Vec::new();
         if let Some(group) = provider_group(&provider) {
             for id in &connection.terminal_models {
-                if profiles.contains_key(id)
+                if resolve_profile(id, profiles).is_some_and(|p| !p.supported_levels.is_empty())
                     && connection
                         .model_groups
                         .get(id)
@@ -4111,7 +4117,12 @@ fn native_profile_stamp(connection: &YuanhengConnectionStatus, models: &[String]
     use sha2::{Digest, Sha256};
     let profiles: std::collections::BTreeMap<_, _> = models
         .iter()
-        .filter_map(|id| Some((id, connection.platform_reasoning_profiles.get(id)?)))
+        .filter_map(|id| {
+            Some((
+                id,
+                resolve_profile(id, &connection.platform_reasoning_profiles)?,
+            ))
+        })
         .collect();
     if profiles.is_empty() {
         return String::new();
@@ -9897,15 +9908,136 @@ mod tests {
 
     #[test]
     fn provides_model_specific_reasoning_fallbacks() {
-        assert_eq!(
-            fallback_reasoning_levels("claude-opus-4-7"),
-            vec!["low", "medium", "high", "max"]
-        );
+        assert!(fallback_reasoning_levels("unlisted-claude-alias").is_empty());
         assert_eq!(
             fallback_reasoning_levels("gpt-5.5"),
             vec!["low", "medium", "high", "xhigh"]
         );
         assert!(fallback_reasoning_levels("deepseek-v4-pro").is_empty());
+    }
+
+    #[test]
+    fn entire_official_catalog_reaches_workbench_validation_and_native_declarations() {
+        let seed: Value = serde_json::from_str(include_str!(
+            "../resources/official_reasoning_profiles.json"
+        ))
+        .unwrap();
+        let expected = seed["profiles"].as_object().unwrap();
+        assert_eq!(
+            expected["gpt-6-astra"]["supportedLevels"]
+                .as_array()
+                .unwrap()
+                .len(),
+            6
+        );
+        let names: Vec<_> = expected.keys().cloned().collect();
+        let (levels, defaults) = reasoning_profiles_for_models(&names, &PlatformProfiles::new());
+        for (id, p) in expected {
+            assert_eq!(
+                json!(levels.get(id)),
+                p["supportedLevels"],
+                "workbench: {id}"
+            );
+            assert_eq!(json!(defaults.get(id)), p["defaultLevel"], "default: {id}");
+            let native = managed_codex_catalog_entry(id);
+            assert_eq!(
+                native["supportedReasoningLevels"], p["supportedLevels"],
+                "native: {id}"
+            );
+            for level in REASONING_LEVELS {
+                assert_eq!(
+                    reasoning::resolve("codex", id, Some(level), &levels).is_ok(),
+                    levels[id].iter().any(|v| v == level),
+                    "validation: {id} {level}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn future_managed_anthropic_model_keeps_distinct_declared_wire_levels() {
+        let id = "claude-fixture-unlisted";
+        let profiles =
+            serde_json::from_value(json!({id:{"supportedLevels":["high","xhigh","max"]}})).unwrap();
+        let provider = managed_provider_with_profiles(
+            &AppType::Codex,
+            "fixture",
+            id,
+            &[],
+            "fixture",
+            "auto",
+            &profiles,
+        )
+        .unwrap();
+        let send = |level: &str| {
+            crate::proxy::providers::transform_codex_anthropic::responses_with_catalog_to_anthropic(
+                json!({"model":id,"input":"hello","reasoning":{"effort":level}}),
+                4096,
+                Some(&provider),
+            )
+        };
+        for level in ["xhigh", "max"] {
+            assert_eq!(send(level).unwrap()["output_config"]["effort"], level);
+        }
+        assert!(send("low").is_err());
+    }
+
+    #[test]
+    fn native_stamp_tracks_effective_offline_levels_and_explicit_withdrawal() {
+        let mut c = YuanhengConnectionStatus::default();
+        let names = vec!["gpt-6-astra".into()];
+        let seed = native_profile_stamp(&c, &names);
+        assert!(!seed.is_empty());
+        c.platform_reasoning_profiles.insert(
+            names[0].clone(),
+            fallback_reasoning_profile(&names[0]).unwrap(),
+        );
+        assert_eq!(native_profile_stamp(&c, &names), seed);
+        c.platform_reasoning_profiles
+            .insert(names[0].clone(), Default::default());
+        assert_ne!(native_profile_stamp(&c, &names), seed);
+    }
+
+    #[test]
+    fn managed_desktop_plain_gemini_uses_native_wire_effort_only_for_explicit_selection() {
+        let id = "gemini-4-hydrogen";
+        let meta = provider_meta(&AppType::ClaudeDesktop, id, &[id.into()], "xhigh");
+        assert_eq!(
+            meta.local_proxy_request_overrides
+                .unwrap()
+                .body
+                .unwrap()
+                .pointer("/extra_body/google/thinking_config/thinking_level")
+                .and_then(Value::as_str),
+            Some("xhigh")
+        );
+        assert!(
+            provider_meta(&AppType::ClaudeDesktop, id, &[id.into()], "auto")
+                .local_proxy_request_overrides
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn reasoning_v2_explicit_denial_is_not_an_older_servers_missing_row() {
+        let name = "gpt-6-astra".to_owned();
+        let names = vec![name.clone()];
+        for (rows, expected) in [
+            (json!({}), 6),
+            (json!({&name:{"supportedLevels":[]}}), 0),
+            (json!({&name:{"supportedLevels":["low","high"]}}), 2),
+        ] {
+            let response = json!({"reasoningCatalogVersion":2,"reasoningProfiles":rows});
+            let fresh = crate::model_reasoning::parse_platform_profiles(&response, &names);
+            let profiles = account_profiles(fresh, None, "test", &names);
+            let (levels, defaults) = reasoning_profiles_for_models(&names, &profiles);
+            assert_eq!(levels[&name].len(), expected);
+            assert_eq!(defaults.contains_key(&name), expected == 6);
+            assert_eq!(
+                reasoning::resolve("codex", &name, Some("ultra"), &levels).is_ok(),
+                expected == 6
+            );
+        }
     }
 
     #[test]

@@ -94,7 +94,16 @@ pub fn resolve_reasoning_effort(body: &Value) -> Option<&'static str> {
             "low" => Some("low"),
             "medium" => Some("medium"),
             "high" => Some("high"),
-            "max" => Some("xhigh"), // OpenAI xhigh = maximum reasoning effort
+            "xhigh" => Some("xhigh"),
+            "max"
+                if body["model"]
+                    .as_str()
+                    .and_then(crate::model_reasoning::fallback_reasoning_profile)
+                    .is_some_and(|p| p.supported_levels.iter().any(|v| v == "max")) =>
+            {
+                Some("max")
+            }
+            "max" => Some("xhigh"), // compatibility for destinations without a declared Max
             _ => None,              // unknown value — do not inject
         };
     }

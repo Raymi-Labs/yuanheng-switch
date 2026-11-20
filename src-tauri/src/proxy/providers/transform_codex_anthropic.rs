@@ -46,7 +46,8 @@ fn codex_effort_to_anthropic(effort: &str) -> Option<&'static str> {
         "minimal" | "low" => Some("low"),
         "medium" => Some("medium"),
         "high" => Some("high"),
-        "xhigh" | "max" => Some("max"),
+        "xhigh" => Some("xhigh"),
+        "max" => Some("max"),
         _ => None,
     }
 }
@@ -221,9 +222,18 @@ fn responses_system_text(item: &Value) -> Vec<String> {
     }
 }
 
-pub fn responses_request_to_anthropic(
+#[cfg(test)]
+fn responses_request_to_anthropic(
     body: Value,
     default_max_tokens: u64,
+) -> Result<Value, ProxyError> {
+    responses_with_catalog_to_anthropic(body, default_max_tokens, None)
+}
+
+pub(crate) fn responses_with_catalog_to_anthropic(
+    body: Value,
+    default_max_tokens: u64,
+    provider: Option<&crate::provider::Provider>,
 ) -> Result<Value, ProxyError> {
     let mut result = json!({});
     let tool_context = build_codex_tool_context_from_request(&body);
@@ -294,6 +304,29 @@ pub fn responses_request_to_anthropic(
     let reasoning_effort = body
         .pointer("/reasoning/effort")
         .and_then(|value| value.as_str());
+    // Claude's documented output effort is independent of the thinking budget.
+    let declared = provider.and_then(|p| crate::model_reasoning::managed_wire_levels(p, model));
+    let published_effort = if let (Some(levels), Some(level)) = (declared, reasoning_effort) {
+        if !levels.iter().any(|v| v.as_str() == Some(level)) {
+            return Err(ProxyError::InvalidRequest(
+                "Reasoning effort is not in the managed model declaration".into(),
+            ));
+        }
+        (!reasoning_explicitly_disabled(Some(level))).then_some(level)
+    } else {
+        reasoning_effort
+            .and_then(codex_effort_to_anthropic)
+            .filter(|wire| {
+                model.starts_with("claude-")
+                    && crate::model_reasoning::fallback_reasoning_profile(
+                        crate::proxy::model_mapper::strip_one_m_suffix_for_upstream(model),
+                    )
+                    .is_some_and(|p| p.supported_levels.iter().any(|l| l == wire))
+            })
+    };
+    if let Some(level) = published_effort {
+        result["output_config"] = json!({"effort":level});
+    }
     let adaptive_model = crate::proxy::thinking_optimizer::uses_adaptive_thinking(model);
     let adaptive_by_default = crate::proxy::thinking_optimizer::adaptive_thinking_is_default(model);
     let cannot_disable_thinking =
@@ -329,9 +362,11 @@ pub fn responses_request_to_anthropic(
     } else if adaptive_should_think && (!explicitly_disabled || cannot_disable_thinking) {
         thinking_enabled = true;
         result["thinking"] = json!({ "type": "adaptive" });
-        if let Some(effort) = reasoning_effort.and_then(codex_effort_to_anthropic) {
+        if let Some(effort) =
+            published_effort.or_else(|| reasoning_effort.and_then(codex_effort_to_anthropic))
+        {
             result["output_config"] = json!({ "effort": effort });
-        } else if explicitly_disabled && cannot_disable_thinking {
+        } else if explicitly_disabled && cannot_disable_thinking && declared.is_none() {
             // Fable/Mythos cannot turn thinking off. `low` is the closest safe
             // representation of Codex's explicit `none` request.
             result["output_config"] = json!({ "effort": "low" });
@@ -1479,6 +1514,30 @@ fn append_str_field(block: &mut Value, field: &str, text: &str) {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn official_effort_keeps_distinct_wire_values() {
+        use serde_json::json;
+        for (id, level) in [
+            ("claude-opus-4-7", "xhigh"),
+            ("claude-opus-4-7", "max"),
+            ("claude-opus-4-5", "medium"),
+        ] {
+            let wire = super::responses_request_to_anthropic(
+                json!({"model":id,"input":"test","reasoning":{"effort":level}}),
+                4096,
+            )
+            .unwrap();
+            assert_eq!(wire["output_config"]["effort"], level);
+        }
+        for level in ["xhigh", "max"] {
+            assert_eq!(
+                crate::proxy::providers::transform::resolve_reasoning_effort(
+                    &json!({"model":"gpt-6-astra","output_config":{"effort":level}})
+                ),
+                Some(level)
+            );
+        }
+    }
     use super::*;
 
     // ==================== Request: Responses → Anthropic ====================
