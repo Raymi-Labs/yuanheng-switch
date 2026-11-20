@@ -1716,10 +1716,31 @@ impl RequestForwarder {
             super::providers::apply_codex_upstream_model(provider, &mut mapped_body);
             let reasoning_config =
                 super::providers::resolve_codex_chat_reasoning_config(provider, &mapped_body);
+            let gemini_extra = if provider.id == crate::commands::MANAGED_PROVIDER_ID
+                && provider.category.as_deref() == Some("managed")
+            {
+                mapped_body["model"]
+                    .as_str()
+                    .zip(
+                        mapped_body
+                            .pointer("/reasoning/effort")
+                            .and_then(Value::as_str),
+                    )
+                    .and_then(|(model, effort)| {
+                        crate::model_reasoning::gemini_chat_effort(model, effort)
+                    })
+            } else {
+                None
+            };
             let mut chat_body = super::providers::transform_codex_chat::responses_to_chat_completions_with_reasoning(
                 mapped_body,
                 reasoning_config.as_ref(),
             )?;
+            if let Some(extra) = gemini_extra {
+                if chat_body.get("extra_body").is_none() {
+                    chat_body["extra_body"] = extra;
+                }
+            }
             super::providers::inject_codex_chat_prompt_cache_key(
                 provider,
                 &mut chat_body,
@@ -1755,9 +1776,10 @@ impl RequestForwarder {
             // transform clamps any thinking budget below this value.
             const DEFAULT_CODEX_ANTHROPIC_MAX_TOKENS: u64 = 8192;
             let mut anthropic_body =
-                super::providers::transform_codex_anthropic::responses_request_to_anthropic(
+                super::providers::transform_codex_anthropic::responses_with_catalog_to_anthropic(
                     mapped_body,
                     DEFAULT_CODEX_ANTHROPIC_MAX_TOKENS,
+                    Some(provider),
                 )?;
             // Handle the 1M-context marker [1m]: strip the model-name suffix (the
             // gateway doesn't recognize it) and set the flag so the beta header is
@@ -1890,7 +1912,13 @@ impl RequestForwarder {
             // Chat. Run after overrides and filtering, using the final model.
             super::providers::codex_target_tools::adapt_responses_tools(&mut filtered_body)?;
         }
-        if is_context_compaction && lower_compaction_reasoning_effort(&mut filtered_body) {
+        if is_context_compaction
+            && lower_compaction_reasoning_effort(
+                &mut filtered_body,
+                provider.id == crate::commands::MANAGED_PROVIDER_ID
+                    && provider.category.as_deref() == Some("managed"),
+            )
+        {
             log::info!(
                 "[claude-desktop] [Context] Lowered reasoning effort for auto-compaction request"
             );
@@ -3601,14 +3629,23 @@ fn apply_local_proxy_body_overrides(
     merge_json_override(body, override_body)
 }
 
-fn lower_compaction_reasoning_effort(body: &mut Value) -> bool {
+fn lower_compaction_reasoning_effort(body: &mut Value, managed: bool) -> bool {
+    // Managed selections have already been validated for the model and route. Compaction
+    // is not a second authority on supported efforts or on the user's chosen level.
+    if managed {
+        return false;
+    }
     let mut changed = false;
 
     if let Some(value) = body.get_mut("reasoning_effort") {
         changed |= *value != Value::String("low".to_string());
         *value = Value::String("low".to_string());
     }
-    for pointer in ["/reasoning/effort", "/output_config/effort"] {
+    for pointer in [
+        "/reasoning/effort",
+        "/output_config/effort",
+        "/extra_body/google/thinking_config/thinking_level",
+    ] {
         if let Some(value) = body.pointer_mut(pointer) {
             changed |= *value != Value::String("low".to_string());
             *value = Value::String("low".to_string());
@@ -4247,6 +4284,19 @@ mod tests {
     }
 
     #[test]
+    fn managed_compaction_never_overrides_exact_route_selection() {
+        let mut body = json!({"model":"gemini-4-hydrogen","reasoning_effort":"xhigh","extra_body":{"google":{"thinking_config":{"thinking_level":"xhigh"}}}});
+        let original = body.clone();
+        assert!(!lower_compaction_reasoning_effort(&mut body, true));
+        assert_eq!(body, original);
+        assert!(lower_compaction_reasoning_effort(&mut body, false));
+        assert_eq!(
+            body.pointer("/extra_body/google/thinking_config/thinking_level"),
+            Some(&json!("low"))
+        );
+    }
+
+    #[test]
     fn compact_requests_lower_existing_reasoning_effort_shapes() {
         let mut body = json!({
             "reasoning_effort": "xhigh",
@@ -4254,19 +4304,19 @@ mod tests {
             "output_config": {"effort": "max"}
         });
 
-        assert!(lower_compaction_reasoning_effort(&mut body));
+        assert!(lower_compaction_reasoning_effort(&mut body, false));
         assert_eq!(body["reasoning_effort"], "low");
         assert_eq!(body["reasoning"]["effort"], "low");
         assert_eq!(body["reasoning"]["summary"], "auto");
         assert_eq!(body["output_config"]["effort"], "low");
-        assert!(!lower_compaction_reasoning_effort(&mut body));
+        assert!(!lower_compaction_reasoning_effort(&mut body, false));
     }
 
     #[test]
     fn compact_reasoning_does_not_inject_unsupported_fields() {
         let mut body = json!({"messages": []});
 
-        assert!(!lower_compaction_reasoning_effort(&mut body));
+        assert!(!lower_compaction_reasoning_effort(&mut body, false));
         assert!(body.get("reasoning_effort").is_none());
         assert!(body.get("reasoning").is_none());
         assert!(body.get("output_config").is_none());

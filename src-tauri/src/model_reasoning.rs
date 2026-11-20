@@ -19,6 +19,7 @@ pub struct ReasoningProfile {
 pub type PlatformProfiles = HashMap<String, ReasoningProfile>;
 pub type ProfileSnapshot = HashMap<String, Option<ReasoningProfile>>;
 const PLATFORM_SOURCE: &str = "yuanheng-managed-v2-platform";
+pub(crate) const UNDECLARED_SOURCE: &str = "yuanheng-managed-v3-undeclared";
 
 pub fn resolve_profile(model: &str, platform: &PlatformProfiles) -> Option<ReasoningProfile> {
     platform
@@ -32,15 +33,25 @@ pub fn parse_platform_profiles(value: &Value, visible: &[String]) -> Option<Prof
     let rows = value.get("reasoningProfiles")?.as_object()?;
     let mut result = ProfileSnapshot::new();
     for name in visible {
-        let Some(row) = rows.get(name) else { continue };
+        let Some(row) = rows.get(name) else {
+            continue;
+        };
         let profile = serde_json::from_value::<ReasoningProfile>(row.clone())
             .ok()
             .and_then(|mut p| {
-                p.supported_levels = normalize_reasoning_levels(p.supported_levels);
-                p.default_level
+                if p.default_level
                     .as_ref()
-                    .is_some_and(|d| p.supported_levels.contains(d))
-                    .then_some(p)
+                    .is_some_and(|d| !p.supported_levels.contains(d))
+                {
+                    return None;
+                }
+                if value["reasoningCatalogVersion"].as_u64() != Some(2) && p.default_level.is_none()
+                {
+                    return None;
+                }
+                p.supported_levels = normalize_reasoning_levels(p.supported_levels);
+                p.default_level = p.default_level.filter(|d| p.supported_levels.contains(d));
+                Some(p)
             });
         result.insert(name.to_owned(), profile);
     }
@@ -69,6 +80,14 @@ pub fn normalize_reasoning_level(value: &str) -> Option<String> {
     REASONING_LEVELS.contains(&value.as_str()).then_some(value)
 }
 
+/// Managed Chat-to-Gemini routes: use the platform's existing native extra_body contract.
+/// No implicit default, alias expansion or conversion to an invented numerical budget.
+pub(crate) fn gemini_chat_effort(model: &str, level: &str) -> Option<Value> {
+    (model.starts_with("gemini-")
+        && matches!(level, "minimal" | "low" | "medium" | "high" | "xhigh"))
+    .then(|| serde_json::json!({"google":{"thinking_config":{"thinking_level":level}}}))
+}
+
 pub fn normalize_reasoning_levels(values: impl IntoIterator<Item = String>) -> Vec<String> {
     let values = values
         .into_iter()
@@ -81,6 +100,7 @@ pub fn normalize_reasoning_levels(values: impl IntoIterator<Item = String>) -> V
         .collect()
 }
 
+#[cfg(test)]
 fn profile(levels: &[&str], default: &str) -> ReasoningProfile {
     ReasoningProfile {
         supported_levels: levels.iter().map(|level| (*level).to_string()).collect(),
@@ -89,40 +109,51 @@ fn profile(levels: &[&str], default: &str) -> ReasoningProfile {
 }
 
 pub fn fallback_reasoning_profile(model: &str) -> Option<ReasoningProfile> {
-    let model = model.trim().to_ascii_lowercase();
-    let full_default = match model.as_str() {
-        "gpt-5.6-sol" | "gpt-6.1-sol" => Some("low"),
-        "gpt-6.2-astra" | "gpt-6.2-sol" => Some("medium"),
-        _ => None,
-    };
-    if let Some(default) = full_default {
-        return Some(profile(
-            &["low", "medium", "high", "xhigh", "max", "ultra"],
-            default,
-        ));
+    #[derive(Deserialize)]
+    struct Seed {
+        profiles: PlatformProfiles,
     }
-    if model.contains("claude") {
-        return Some(profile(&["low", "medium", "high", "max"], "medium"));
-    }
-    if model.starts_with("gpt-")
-        || model.starts_with("o1")
-        || model.starts_with("o3")
-        || model.starts_with("o4")
-        || model.contains("codex")
-        || model == "k3"
-    {
-        return Some(profile(&["low", "medium", "high", "xhigh"], "medium"));
-    }
-    if model.contains("gemini") {
-        return Some(profile(&["low", "medium", "high"], "medium"));
-    }
-    None
+    static SEED: std::sync::OnceLock<PlatformProfiles> = std::sync::OnceLock::new();
+    SEED.get_or_init(|| {
+        serde_json::from_str::<Seed>(include_str!("resources/official_reasoning_profiles.json"))
+            .expect("validated offline reasoning catalog")
+            .profiles
+    })
+    .get(model)
+    .cloned()
 }
 
 /// Managed metadata must not depend on another application's cache.
-/// Exact model matches above never grant Ultra to unknown GPT aliases.
+/// Only exact published IDs qualify; a family or brand name is not evidence.
 pub fn managed_reasoning_profile(model: &str) -> Option<ReasoningProfile> {
     fallback_reasoning_profile(model)
+}
+
+/// Read the account declaration from this managed provider's projected catalog, never a
+/// different account or an identically named custom provider. An empty list is authoritative.
+pub(crate) fn managed_wire_levels<'a>(
+    provider: &'a crate::provider::Provider,
+    model: &str,
+) -> Option<&'a Vec<Value>> {
+    if provider.id != crate::commands::MANAGED_PROVIDER_ID
+        || provider.category.as_deref() != Some("managed")
+    {
+        return None;
+    }
+    let rows = provider
+        .settings_config
+        .pointer("/modelCatalog/models")?
+        .as_array()?;
+    let exact = |id: &str| rows.iter().find(|r| r["model"].as_str() == Some(id));
+    let row = exact(model).or_else(|| {
+        exact(crate::proxy::model_mapper::strip_one_m_suffix_for_upstream(
+            model,
+        ))
+    })?;
+    if row["reasoningProfileSource"].as_str() != Some(PLATFORM_SOURCE) {
+        return None;
+    }
+    row["supportedReasoningLevels"].as_array()
 }
 
 pub fn apply_managed_reasoning_profile(entry: &mut Value) {
@@ -148,14 +179,17 @@ pub fn apply_platform_profile(entry: &mut Value, platform: Option<&ReasoningProf
     {
         return;
     }
-    let profile = platform
+    let effective = platform
         .cloned()
-        .or_else(|| managed_reasoning_profile(model))
-        .unwrap_or_else(|| profile(&["none"], "none"));
+        .or_else(|| managed_reasoning_profile(model));
+    let undeclared = effective.is_none();
+    let profile = effective.unwrap_or_default();
     entry["supportedReasoningLevels"] = serde_json::json!(profile.supported_levels);
     entry["defaultReasoningLevel"] = serde_json::json!(profile.default_level);
     entry["reasoningProfileSource"] = serde_json::json!(if platform.is_some() {
         PLATFORM_SOURCE
+    } else if undeclared {
+        UNDECLARED_SOURCE
     } else {
         "yuanheng-managed-v1"
     });
@@ -192,7 +226,7 @@ fn profile_from_catalog_entry(entry: &Value) -> Option<(String, ReasoningProfile
         .filter(|level| supported_levels.contains(level))
         .or_else(|| supported_levels.first().cloned());
     Some((
-        slug.to_ascii_lowercase(),
+        slug.to_owned(),
         ReasoningProfile {
             supported_levels,
             default_level,
@@ -254,7 +288,7 @@ pub fn reasoning_profile_for_model(
     catalog: &HashMap<String, ReasoningProfile>,
 ) -> Option<ReasoningProfile> {
     catalog
-        .get(&model.trim().to_ascii_lowercase())
+        .get(model)
         .cloned()
         .or_else(|| fallback_reasoning_profile(model))
 }
@@ -277,10 +311,7 @@ mod tests {
         apply_managed_reasoning_profile(&mut entry);
         assert_eq!(entry["defaultReasoningLevel"], "low");
         apply_platform_profile(&mut entry, None);
-        assert_eq!(
-            entry["supportedReasoningLevels"],
-            serde_json::json!(["none"])
-        );
+        assert_eq!(entry["supportedReasoningLevels"], serde_json::json!([]));
         let mut own = serde_json::json!({"model":"future", "supported_reasoning_levels":["high"]});
         let old = own.clone();
         apply_platform_profile(&mut own, Some(&profile));
@@ -291,12 +322,9 @@ mod tests {
                 p.supported_levels,
                 ["low", "medium", "high", "xhigh", "max", "ultra"]
             );
-            assert_eq!(p.default_level.as_deref(), Some("medium"));
+            assert_eq!(p.default_level.as_deref(), Some("low"));
         }
-        assert!(!managed_reasoning_profile("gpt-6.2-other")
-            .unwrap()
-            .supported_levels
-            .contains(&"ultra".into()));
+        assert!(managed_reasoning_profile("gpt-6.2-other").is_none());
     }
     use super::*;
 
@@ -315,10 +343,16 @@ mod tests {
         let original = explicit.clone();
         apply_managed_reasoning_profile(&mut explicit);
         assert_eq!(explicit, original);
-        assert!(!managed_reasoning_profile("gpt-future")
-            .unwrap()
-            .supported_levels
-            .contains(&"ultra".into()));
+        for id in [
+            "gpt-future",
+            "GPT-6-ASTRA",
+            "gpt-6-astra-latest",
+            "vendor-claude-test",
+            "unknown-gemini",
+            "custom/codex",
+        ] {
+            assert!(managed_reasoning_profile(id).is_none(), "{id}");
+        }
     }
 
     #[test]
